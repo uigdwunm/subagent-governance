@@ -60,11 +60,11 @@
 - 仅当 20 分钟等待超时时，调用一次 `list_agents` 检查该目标 agent；支持时使用其 canonical task path 作为 `path_prefix`，不要扫描或分析无关代理。
 - 如果目标 agent 仍处于正常运行状态，不输出进度说明，不读取代码、Git、日志或测试状态，不发送心跳或追问，立即再次以 `timeout_ms: 1200000` 调用 `wait_agent`。
 - 超时本身、沉默、测试耗时或上下文压缩都不是异常证据。只有平台状态客观显示本应运行的目标 agent 已停止、消失或异常，且父 agent 没收到终态通知时，才进入恢复流程。
-- 恢复时优先对同一个 agent 使用 `followup_task`，要求其继续原任务或补发终态通知；能够继续时等待同一个 agent。只有原 agent 客观上无法继续或无法接收 follow-up 时，才从已保留的 checkpoint 重建同一任务。
+- 恢复时优先对同一个 agent 使用 `followup_task`，要求其继续原任务或补发终态通知；能够继续时等待同一个 agent。治理组件只允许同一任务在明确 `platform_error` 后自动恢复一次；恢复后再次出现平台错误时必须停止重试、进入 `needs_decision` 并询问用户是否切换 provider、模型或稍后重新派发。只有原 agent 客观上无法继续或无法接收 follow-up 时，才从已保留的 checkpoint 重建同一任务。
 - `list_agents` 失败或状态含糊时不得中断或重建；继续等待并在下一轮重新检查。
 - 健康巡检路径的唯一常规操作是 `wait_agent`、目标范围的 `list_agents`、再次 `wait_agent`；不得插入用户可见的巡检消息或其他业务判断。
 - 成功调用 `interrupt_agent` 后，治理任务进入 `interrupted` 终态，父任务不得继续把它视为运行中任务；中断失败时保持原状态。
-- `list_agents` 确认 Agent 为 `errored` 时，治理任务进入 `platform_error`，记录平台错误并退出假运行状态；成功 `followup_task` 和后续 `SubagentStart` 会把同一任务恢复为运行中。平台连续失败仍按父任务的恢复上限处理，不无限重试。
+- `list_agents` 确认 Agent 为 `errored` 时，治理任务进入 `platform_error`，记录平台错误并退出假运行状态；首次成功 `followup_task` 和后续 `SubagentStart` 会把同一任务恢复为运行中。同一任务恢复后再次确认平台错误时进入 `needs_decision`，不得继续自动 `followup_task`。
 - 子 agent 在完成工作、遇到阻塞或需要决策时，必须向父 agent 发送符合当前治理等级的明确终态通知。仅完成代码、创建提交或停止运行，不视为已通知父 agent。
 - Hook 和 Skill 只提供用户级协作护栏、状态恢复和诊断，不替代 Codex 沙箱、批准机制、provider 稳定性或平台内部消息投递保证。它们可以识别并记录 `stream disconnected`，但不能修复 provider 流。治理状态异常时应告警并降级放行原生子 Agent；未映射到治理任务 ID 的特殊启动路径不得因固定模板被强制阻止。
 <!-- subagent-governance:end -->

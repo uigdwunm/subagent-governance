@@ -417,6 +417,38 @@ class GovernanceTests(unittest.TestCase):
         }, self.store)
         self.assertEqual(self.store.read("session-1")["tasks"][task_id]["status"], "running")
 
+    def test_repeated_platform_error_requires_decision_after_one_recovery(self):
+        task_id = self._mapped_task()
+
+        def mark_platform_error(state):
+            state["tasks"][task_id]["status"] = "platform_error"
+
+        self.store.update("session-1", mark_platform_error)
+        first_followup = {
+            "session_id": "session-1",
+            "hook_event_name": "PreToolUse",
+            "tool_name": "collaboration.followup_task",
+            "tool_input": {"target": "agent-123", "message": "请恢复原任务并补发终态。"},
+        }
+        first_result = governance.handle(first_followup, self.store)
+        self.assertEqual(first_result["hookSpecificOutput"]["permissionDecision"], "allow")
+
+        governance.handle({
+            "session_id": "session-1",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "collaboration.followup_task",
+            "tool_input": {"target": "agent-123"},
+            "tool_response": {},
+        }, self.store)
+        self.store.update("session-1", mark_platform_error)
+
+        second_result = governance.handle(first_followup, self.store)
+        self.assertEqual(second_result["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("needs_decision", second_result["hookSpecificOutput"]["permissionDecisionReason"])
+        record = self.store.read("session-1")["tasks"][task_id]
+        self.assertEqual(record["status"], "needs_decision")
+        self.assertEqual(record["decision_reason"], "platform_recovery_limit")
+
     def test_root_stop_blocks_once_for_active_task(self):
         task_id = self._mapped_task()
         payload = {

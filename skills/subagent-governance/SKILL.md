@@ -46,7 +46,7 @@ description: 为 Codex 原生子 Agent 选择 light、standard、strict 或 auto
 - 把需要用户选择的信息映射为“需要决策”，不要把它伪装成完成或阻塞。
 - Hook 达到纠错上限后，把它作为协议错误交给父任务处理，不进行无限续跑。
 - 成功中断的治理任务进入 `interrupted` 终态，不再阻止父任务结束；治理状态不可用时告警并降级放行原生子 Agent。
-- mailbox 明确报告平台执行错误时，先调用目标范围的 `list_agents` 对账。确认 `errored` 后记录为 `platform_error`；成功恢复同一 Agent 后重新进入运行态。
+- mailbox 明确报告平台执行错误时，先调用目标范围的 `list_agents` 对账。确认 `errored` 后记录为 `platform_error`；允许对同一 Agent 自动恢复一次。恢复后再次确认平台错误时记录为 `needs_decision`，停止自动重试并请求用户决定是否切换 provider、模型或稍后重新派发。
 
 ## 诊断失败
 

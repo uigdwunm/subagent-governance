@@ -33,6 +33,7 @@ MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_TERMINAL_RECORDS = 200
 TERMINAL_RETENTION_SECONDS = 30 * 24 * 60 * 60
 MAX_CONTRACT_TEXT = 600
+MAX_PLATFORM_RECOVERIES = 1
 STATE_VERSION = 2
 MODE_RE = re.compile(r"【治理等级】\s*(?:[:：]\s*)?(auto|light|standard|strict)\b", re.I)
 TASK_NAME_MODE_RE = re.compile(r"^sg_(auto|light|standard|strict)_(.+)$")
@@ -559,6 +560,7 @@ def _handle_spawn(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
         "created_at": _now(),
         "updated_at": _now(),
         "retry_count": 0,
+        "recovery_count": 0,
     }
 
     def save(state: dict[str, Any]) -> None:
@@ -593,6 +595,31 @@ def _handle_communication(payload: dict[str, Any], store: StateStore) -> dict[st
         return {"systemMessage": f"Subagent Governance 状态不可读，通信已降级放行：{exc}"}
     warning = getattr(store, "last_warning", None)
     task_id = state.get("agents", {}).get(target)
+    kind = _tool_kind(str(payload.get("tool_name") or ""))
+    if kind == "followup" and task_id:
+        def require_platform_decision(current: dict[str, Any]) -> bool:
+            record = current.get("tasks", {}).get(task_id)
+            if not isinstance(record, dict):
+                return False
+            if (
+                record.get("status") == "platform_error"
+                and int(record.get("recovery_count") or 0) >= MAX_PLATFORM_RECOVERIES
+            ):
+                record["status"] = "needs_decision"
+                record["decision_reason"] = "platform_recovery_limit"
+                record["updated_at"] = _now()
+                return True
+            return False
+
+        try:
+            platform_limit_reached = bool(store.update(session_id, require_platform_decision))
+        except (OSError, RuntimeError) as exc:
+            return {"systemMessage": f"Subagent Governance 无法检查平台恢复上限，通信已降级放行：{exc}"}
+        if platform_limit_reached:
+            return _deny(
+                "同一子 Agent 的平台执行错误在一次恢复后再次出现，已停止自动重试并记录为 needs_decision。"
+                "请父任务向用户请求是否切换 provider、模型或稍后重新派发。"
+            )
     if task_id and task_id not in message:
         updated = copy.deepcopy(tool_input)
         updated["message"] = message.rstrip() + f"\n\n【治理任务 ID】{task_id}\n"

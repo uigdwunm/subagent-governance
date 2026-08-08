@@ -29,7 +29,7 @@ Codex 的原生子 Agent 调用可能在 Hook 运行前加密任务正文。因�
 - `schemas/`：任务契约和终态结果协议。
 - `tests/`：状态机与插件结构测试。
 
-运行时还会观察 `list_agents` 的明确 `errored` 状态，将 provider 流故障记录为 `platform_error`，避免任务长期停留在假 `running`；插件只能诊断和辅助恢复，不能修复 provider 的流传输。
+运行时还会观察 `list_agents` 的明确 `errored` 状态，将 provider 流故障记录为 `platform_error`，避免任务长期停留在假 `running`。同一任务允许一次自动恢复；恢复后平台错误再次出现时转为 `needs_decision`，防止无收益的无限重试。插件只能诊断和辅助恢复，不能修复 provider 的流传输。
 
 ## 本地开发
 
