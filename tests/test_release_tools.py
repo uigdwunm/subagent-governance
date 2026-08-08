@@ -65,7 +65,8 @@ class ReleaseToolTests(unittest.TestCase):
     def test_installation_check_strict_mode_uses_stable_asset(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            development = root / "development"
+            home = root / "home"
+            development = home / "workspace" / "subagent-governance"
             stable = root / "stable"
             cache_parent = root / "cache"
             cache = cache_parent / "0.4.0"
@@ -89,7 +90,6 @@ class ReleaseToolTests(unittest.TestCase):
             result = subprocess.run(
                 [
                     sys.executable, str(CHECK_SCRIPT),
-                    "--development-root", str(development),
                     "--stable-root", str(stable),
                     "--cache-parent", str(cache_parent),
                     "--agents-file", str(agents),
@@ -100,6 +100,7 @@ class ReleaseToolTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 check=False,
+                env={**os.environ, "HOME": str(home)},
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             report = json.loads(result.stdout)
@@ -110,7 +111,13 @@ class ReleaseToolTests(unittest.TestCase):
                 "<!-- subagent-governance:start -->\ndev-only\n<!-- subagent-governance:end -->\n",
                 encoding="utf-8",
             )
-            result = subprocess.run(result.args, capture_output=True, text=True, check=False)
+            result = subprocess.run(
+                result.args,
+                capture_output=True,
+                text=True,
+                check=False,
+                env={**os.environ, "HOME": str(home)},
+            )
             self.assertEqual(result.returncode, 1)
             report = json.loads(result.stdout)
             self.assertIn("development_asset_matches_stable_asset", report["issues"])

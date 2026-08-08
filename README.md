@@ -41,6 +41,8 @@ python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/s
 python3 scripts/check_installation.py
 ```
 
+安装检查默认把 `~/workspace/subagent-governance` 作为开发仓库，因此既可从开发仓库运行，也可直接运行稳定插件中的脚本；非默认开发位置可用 `--development-root` 显式覆盖。
+
 ## 发布原则
 
 1. 只在开发仓库中修改代码。

@@ -71,7 +71,11 @@ def config_references_hook(config_path: Path, hook_path: Path) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--development-root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument(
+        "--development-root",
+        type=Path,
+        default=Path.home() / "workspace" / PLUGIN_NAME,
+    )
     parser.add_argument("--stable-root", type=Path, default=Path.home() / "plugins" / PLUGIN_NAME)
     parser.add_argument(
         "--cache-parent",

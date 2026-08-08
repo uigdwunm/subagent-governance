@@ -72,6 +72,7 @@ python3 ~/plugins/subagent-governance/scripts/apply_agents_block.py --execute
 - 在新 Codex 任务中验证 Skill 和 Hook。
 - 确认七个 Hook 均为 enabled、trusted，且当前 `~/.codex/hooks.json` 没有旧 Hook 挂载。未挂载的旧脚本路径可以暂时保留给已打开任务。
 - 运行 `scripts/check_installation.py --require-clean` 检查目录隔离、稳定源/当前缓存、全局规则和旧 Hook 残留；`retained_compatibility_caches` 只作信息报告。
+- 检查脚本默认定位 `~/workspace/subagent-governance`；只有开发仓库位于其他路径时才传入 `--development-root`。
 - 只有确认所有引用旧版本的任务均已关闭后，才可清理对应旧缓存。清理前保留发布备份；不要用符号链接代替缓存目录。
 - 同样地，只有确认没有已打开任务固定引用 legacy 脚本路径后，才移动或删除该路径；安装检查以“是否仍被当前配置挂载”为严格门禁，而不是以文件是否存在为门禁。
 - 如果验证失败，恢复上一稳定发布源和缓存，不把开发工作树直接用于运行。
