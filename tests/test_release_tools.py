@@ -105,6 +105,61 @@ class ReleaseToolTests(unittest.TestCase):
             report = json.loads(result.stdout)
             self.assertIn("development_asset_matches_stable_asset", report["issues"])
 
+    def test_installation_check_allows_and_reports_retained_compatibility_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            development = root / "development"
+            stable = root / "stable"
+            cache_parent = root / "cache"
+            current_cache = cache_parent / "0.4.0"
+            retained_cache = cache_parent / "0.1.0"
+            for plugin_root in (development, stable, current_cache):
+                (plugin_root / ".codex-plugin").mkdir(parents=True)
+                (plugin_root / "assets").mkdir()
+                (plugin_root / ".codex-plugin/plugin.json").write_text(
+                    json.dumps({"version": "0.4.0"}), encoding="utf-8"
+                )
+                (plugin_root / "assets/agents-governance.md").write_text(
+                    "<!-- subagent-governance:start -->\nnew\n<!-- subagent-governance:end -->\n",
+                    encoding="utf-8",
+                )
+            retained_cache.mkdir(parents=True)
+            (retained_cache / "runtime-marker").write_text("active older task", encoding="utf-8")
+            agents = root / "AGENTS.md"
+            agents.write_text(
+                "<!-- subagent-governance:start -->\nnew\n<!-- subagent-governance:end -->\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable, str(CHECK_SCRIPT),
+                    "--development-root", str(development),
+                    "--stable-root", str(stable),
+                    "--cache-parent", str(cache_parent),
+                    "--agents-file", str(agents),
+                    "--legacy-hook", str(root / "missing-hook.py"),
+                    "--require-clean",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertTrue(report["clean"])
+            self.assertEqual(report["retained_compatibility_caches"], [str(retained_cache)])
+            self.assertEqual(report["invalid_cache_entries"], [])
+
+            unsafe_entry = cache_parent / "unexpected-file"
+            unsafe_entry.write_text("not a versioned cache directory", encoding="utf-8")
+            result = subprocess.run(result.args, capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 1)
+            report = json.loads(result.stdout)
+            self.assertIn("cache_entries_safe", report["issues"])
+            self.assertEqual(report["invalid_cache_entries"], [str(unsafe_entry)])
+
 
 if __name__ == "__main__":
     unittest.main()

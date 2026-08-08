@@ -44,6 +44,21 @@ def instruction_block(text: str) -> str | None:
     return text[start:end].strip()
 
 
+def cache_inventory(cache_parent: Path, current_cache: Path) -> tuple[list[str], list[str]]:
+    """Separate retained immutable caches from unsafe cache entries."""
+
+    retained: list[str] = []
+    invalid: list[str] = []
+    for entry in sorted(cache_parent.iterdir(), key=lambda path: path.name):
+        if entry == current_cache:
+            continue
+        if entry.is_symlink() or not entry.is_dir():
+            invalid.append(str(entry))
+        else:
+            retained.append(str(entry))
+    return retained, invalid
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--development-root", type=Path, default=Path(__file__).resolve().parents[1])
@@ -73,6 +88,7 @@ def main() -> int:
     cache_path = cache_parent / version
     ordinary_directory(cache_path, "当前版本缓存")
     cache = cache_path.resolve()
+    retained_caches, invalid_cache_entries = cache_inventory(cache_parent, cache_path)
 
     stable_digest = tree_digest(stable)
     cache_digest = tree_digest(cache)
@@ -93,6 +109,7 @@ def main() -> int:
         "development_asset_matches_stable_asset": (
             development_block is not None and expected_block is not None and development_block == expected_block
         ),
+        "cache_entries_safe": not invalid_cache_entries,
         "legacy_hook_absent": not (legacy_hook.exists() or legacy_hook.is_symlink()),
     }
     issues = [name for name, passed in checks.items() if not passed]
@@ -103,6 +120,8 @@ def main() -> int:
         "version": version,
         "stable_digest": stable_digest,
         "cache_digest": cache_digest,
+        "retained_compatibility_caches": retained_caches,
+        "invalid_cache_entries": invalid_cache_entries,
         **checks,
         "agents_matches_asset": checks["agents_matches_stable_asset"],
         "legacy_hook_present": not checks["legacy_hook_absent"],

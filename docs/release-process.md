@@ -57,6 +57,8 @@ codex plugin add subagent-governance@personal
 
 不要手工修改 Marketplace 或 Codex-owned Hook 信任哈希。
 
+Codex 任务在启动时会固定其 Hook 命令，其中可能包含当时版本缓存的绝对路径。因此滚动升级时必须保留上一版本缓存目录，不能为了追求“只剩一个版本”而移动或删除它。否则仍打开的老任务会在后续 `Stop`、`SubagentStop` 等阶段因脚本路径不存在而报错。旧缓存只服务于已打开任务；新任务仍从当前 manifest 对应的新缓存加载。
+
 使用插件内脚本把规范化协作规则应用到全局标记区间：
 
 ```bash
@@ -67,5 +69,6 @@ python3 ~/plugins/subagent-governance/scripts/apply_agents_block.py --execute
 
 - 在新 Codex 任务中验证 Skill 和 Hook。
 - 确认七个 Hook 均为 enabled、trusted，且没有旧 Hook 挂载。
-- 运行 `scripts/check_installation.py --require-clean` 检查目录隔离、稳定源/缓存、全局规则和旧 Hook 残留。
+- 运行 `scripts/check_installation.py --require-clean` 检查目录隔离、稳定源/当前缓存、全局规则和旧 Hook 残留；`retained_compatibility_caches` 只作信息报告。
+- 只有确认所有引用旧版本的任务均已关闭后，才可清理对应旧缓存。清理前保留发布备份；不要用符号链接代替缓存目录。
 - 如果验证失败，恢复上一稳定发布源和缓存，不把开发工作树直接用于运行。

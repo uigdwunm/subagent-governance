@@ -14,7 +14,7 @@ Codex 的原生子 Agent 调用可能在 Hook 运行前加密任务正文。因�
 | --- | --- | --- |
 | 开发仓库 | `~/workspace/subagent-governance` | Git/GitHub、开发、测试和评审 |
 | 稳定发布源 | `~/plugins/subagent-governance` | Personal Marketplace 指向的已发布副本 |
-| 当前运行缓存 | `~/.codex/plugins/cache/personal/subagent-governance/<version>` | Codex 实际加载的版本化缓存 |
+| 当前运行缓存 | `~/.codex/plugins/cache/personal/subagent-governance/<version>` | 新任务实际加载的版本化缓存；老任务可能继续引用上一版本缓存 |
 
 三个目录不得使用符号链接连接。修改开发仓库不会自动影响当前运行版；只有经过验证和显式发布，代码才会进入稳定发布源及运行缓存。
 
@@ -49,7 +49,8 @@ python3 scripts/check_installation.py
 5. 在稳定发布源上再次运行 Plugin 和 Skill 校验。
 6. 使用 Codex 官方插件重装流程生成新的版本化缓存。
 7. 在新任务中验证新版本；验证通过前保留上一稳定缓存和回滚备份。
+8. 即使验证通过，也不要删除仍可能被已打开任务引用的旧版本缓存；只在确认相关老任务全部结束后清理。
 
-普通开发检查只报告当前安装差异；发布验收使用 `python3 scripts/check_installation.py --require-clean`，任何稳定源/缓存不一致、全局规则不匹配或 legacy Hook 残留都会返回失败。
+旧版本目录会由安装检查报告为 `retained_compatibility_caches`，它们是滚动升级兼容层，不等同于 legacy Hook 残留，也不会导致严格检查失败。普通开发检查只报告当前安装差异；发布验收使用 `python3 scripts/check_installation.py --require-clean`，任何稳定源/当前缓存不一致、不安全缓存条目、全局规则不匹配或 legacy Hook 残留都会返回失败。
 
 详细发布流程见 [docs/release-process.md](docs/release-process.md)，改进路线见 [docs/optimization-plan.md](docs/optimization-plan.md)。
