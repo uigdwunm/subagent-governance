@@ -49,15 +49,17 @@ git archive --format=tar <tag> | tar -xf - -C <临时发布目录>
 
 ### 3. 更新 Codex 缓存
 
-稳定发布源就位后，使用 tag 中已经生成的 cachebuster 直接重装：
+稳定发布源就位后，使用 tag 中已经生成的 cachebuster 通过保留缓存的包装器重装：
 
 ```bash
-codex plugin add subagent-governance@personal
+python3 ~/plugins/subagent-governance/scripts/reinstall_preserving_caches.py
 ```
+
+该脚本实际调用 `codex plugin add subagent-governance@personal`，但会先把当前所有版本化缓存快照到缓存目录之外，重装后再恢复被 Codex 清理的旧目录。异常中断留下的快照会在下次运行时优先恢复；同名目录内容冲突时停止并保留快照，不覆盖任何一方。
 
 不要手工修改 Marketplace 或 Codex-owned Hook 信任哈希。
 
-Codex 任务在启动时会固定其 Hook 命令，其中可能包含当时版本缓存的绝对路径。因此滚动升级时必须保留上一版本缓存目录，不能为了追求“只剩一个版本”而移动或删除它。否则仍打开的老任务会在后续 `Stop`、`SubagentStop` 等阶段因脚本路径不存在而报错。旧缓存只服务于已打开任务；新任务仍从当前 manifest 对应的新缓存加载。
+Codex 任务在启动时会固定其 Hook 命令，其中可能包含当时版本缓存的绝对路径。原生 `codex plugin add` 会清理旧缓存，因此不能绕过上述包装器直接重装；否则仍打开的老任务会在后续 `Stop`、`SubagentStop` 等阶段因脚本路径不存在而报错。旧缓存只服务于已打开任务；新任务仍从当前 manifest 对应的新缓存加载。
 
 使用插件内脚本把规范化协作规则应用到全局标记区间：
 

@@ -23,6 +23,7 @@ Codex 的原生子 Agent 调用可能在 Hook 运行前加密任务正文。因�
 - `.codex-plugin/plugin.json`：插件清单和 Codex UI 元数据。
 - `hooks/hooks.json`：声明派发、启动、终态、恢复等生命周期 Hook。
 - `scripts/subagent_governance.py`：治理状态机和诊断入口。
+- `scripts/reinstall_preserving_caches.py`：调用官方插件重装命令，同时暂存并恢复老任务依赖的版本化缓存。
 - `skills/subagent-governance/`：父 Agent 的治理等级选择与派发指南。
 - `assets/agents-governance.md`：安装到全局 `AGENTS.md` 标记区间的规范化协作规则。
 - `schemas/`：任务契约和终态结果协议。
@@ -47,7 +48,7 @@ python3 scripts/check_installation.py
 3. 确定正式版本号并创建 Git tag。
 4. 将该 tag 对应的干净工作树复制到稳定发布源；不得直接把开发仓库配置成 Marketplace 源。
 5. 在稳定发布源上再次运行 Plugin 和 Skill 校验。
-6. 使用 Codex 官方插件重装流程生成新的版本化缓存。
+6. 使用 `scripts/reinstall_preserving_caches.py` 调用 Codex 官方插件重装流程，在生成新缓存的同时恢复被官方命令清理的旧缓存。
 7. 在新任务中验证新版本；验证通过前保留上一稳定缓存和回滚备份。
 8. 即使验证通过，也不要删除仍可能被已打开任务引用的旧版本缓存；只在确认相关老任务全部结束后清理。
 

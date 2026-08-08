@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 import json
+import shutil
 from pathlib import Path
 
 
@@ -18,6 +19,12 @@ tool = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 sys.modules[SPEC.name] = tool
 SPEC.loader.exec_module(tool)
+REINSTALL_SCRIPT = ROOT / "scripts/reinstall_preserving_caches.py"
+REINSTALL_SPEC = importlib.util.spec_from_file_location("reinstall_preserving_caches", REINSTALL_SCRIPT)
+reinstall_tool = importlib.util.module_from_spec(REINSTALL_SPEC)
+assert REINSTALL_SPEC.loader is not None
+sys.path.insert(0, str(ROOT / "scripts"))
+REINSTALL_SPEC.loader.exec_module(reinstall_tool)
 
 
 class ReleaseToolTests(unittest.TestCase):
@@ -179,6 +186,41 @@ class ReleaseToolTests(unittest.TestCase):
             report = json.loads(result.stdout)
             self.assertIn("legacy_hook_unmounted", report["issues"])
             self.assertTrue(report["legacy_hook_mounted"])
+
+    def test_reinstall_restores_caches_pruned_by_codex(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache_parent = root / "cache"
+            snapshot_parent = root / "snapshots"
+            for version in ("0.1.0", "0.4.0-rc.1"):
+                cache = cache_parent / version
+                cache.mkdir(parents=True)
+                (cache / "marker").write_text(version, encoding="utf-8")
+
+            def fake_codex(command, check):
+                self.assertEqual(command, ["codex", "plugin", "add", "subagent-governance@personal"])
+                self.assertFalse(check)
+                for cache in list(cache_parent.iterdir()):
+                    shutil.rmtree(cache)
+                current = cache_parent / "0.4.0-rc.4"
+                current.mkdir()
+                (current / "marker").write_text("current", encoding="utf-8")
+                return subprocess.CompletedProcess(command, 0)
+
+            returncode, report = reinstall_tool.reinstall(
+                cache_parent,
+                snapshot_parent,
+                ["codex", "plugin", "add", "subagent-governance@personal"],
+                runner=fake_codex,
+            )
+
+            self.assertEqual(returncode, 0)
+            self.assertEqual(
+                sorted(path.name for path in cache_parent.iterdir()),
+                ["0.1.0", "0.4.0-rc.1", "0.4.0-rc.4"],
+            )
+            self.assertEqual(report["restored_caches"], ["0.1.0", "0.4.0-rc.1"])
+            self.assertEqual(list(snapshot_parent.iterdir()), [])
 
 
 if __name__ == "__main__":
