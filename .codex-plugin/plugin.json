@@ -1,6 +1,6 @@
 {
   "name": "subagent-governance",
-  "version": "0.4.0-rc.2+codex.20260808132856",
+  "version": "0.4.0-rc.3+codex.20260808133127",
   "description": "Adaptive lifecycle governance for Codex subagents",
   "author": {
     "name": "zhaolaiyuan"

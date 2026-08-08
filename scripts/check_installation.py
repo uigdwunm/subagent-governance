@@ -59,6 +59,16 @@ def cache_inventory(cache_parent: Path, current_cache: Path) -> tuple[list[str],
     return retained, invalid
 
 
+def config_references_hook(config_path: Path, hook_path: Path) -> bool:
+    if not config_path.exists():
+        return False
+    text = config_path.read_text(encoding="utf-8")
+    candidates = {str(hook_path)}
+    if hook_path.exists() or hook_path.is_symlink():
+        candidates.add(str(hook_path.resolve()))
+    return any(candidate in text for candidate in candidates)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--development-root", type=Path, default=Path(__file__).resolve().parents[1])
@@ -70,6 +80,7 @@ def main() -> int:
     )
     parser.add_argument("--agents-file", type=Path, default=Path.home() / ".codex/AGENTS.md")
     parser.add_argument("--legacy-hook", type=Path, default=Path.home() / ".codex/hooks/subagent_policy.py")
+    parser.add_argument("--active-hooks-config", type=Path, default=Path.home() / ".codex/hooks.json")
     parser.add_argument("--require-clean", action="store_true")
     args = parser.parse_args()
 
@@ -102,6 +113,9 @@ def main() -> int:
     expected_block = instruction_block(stable_asset.read_text(encoding="utf-8")) if stable_asset.is_file() else None
     active_block = instruction_block(agents_path.read_text(encoding="utf-8")) if agents_path.is_file() else None
     legacy_hook = args.legacy_hook.expanduser().absolute()
+    active_hooks_config = args.active_hooks_config.expanduser().absolute()
+    legacy_hook_present = legacy_hook.exists() or legacy_hook.is_symlink()
+    legacy_hook_mounted = config_references_hook(active_hooks_config, legacy_hook)
     checks = {
         "stable_matches_cache": stable_digest == cache_digest,
         "separated": development != stable,
@@ -110,7 +124,7 @@ def main() -> int:
             development_block is not None and expected_block is not None and development_block == expected_block
         ),
         "cache_entries_safe": not invalid_cache_entries,
-        "legacy_hook_absent": not (legacy_hook.exists() or legacy_hook.is_symlink()),
+        "legacy_hook_unmounted": not legacy_hook_mounted,
     }
     issues = [name for name, passed in checks.items() if not passed]
     report = {
@@ -124,7 +138,10 @@ def main() -> int:
         "invalid_cache_entries": invalid_cache_entries,
         **checks,
         "agents_matches_asset": checks["agents_matches_stable_asset"],
-        "legacy_hook_present": not checks["legacy_hook_absent"],
+        "active_hooks_config": str(active_hooks_config),
+        "legacy_hook_present": legacy_hook_present,
+        "legacy_hook_absent": not legacy_hook_present,
+        "legacy_hook_mounted": legacy_hook_mounted,
         "clean": not issues,
         "issues": issues,
     }

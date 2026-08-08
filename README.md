@@ -51,6 +51,6 @@ python3 scripts/check_installation.py
 7. 在新任务中验证新版本；验证通过前保留上一稳定缓存和回滚备份。
 8. 即使验证通过，也不要删除仍可能被已打开任务引用的旧版本缓存；只在确认相关老任务全部结束后清理。
 
-旧版本目录会由安装检查报告为 `retained_compatibility_caches`，它们是滚动升级兼容层，不等同于 legacy Hook 残留，也不会导致严格检查失败。普通开发检查只报告当前安装差异；发布验收使用 `python3 scripts/check_installation.py --require-clean`，任何稳定源/当前缓存不一致、不安全缓存条目、全局规则不匹配或 legacy Hook 残留都会返回失败。
+旧版本目录会由安装检查报告为 `retained_compatibility_caches`，它们是滚动升级兼容层，不等同于仍被挂载的 legacy Hook，也不会导致严格检查失败。未挂载但为老任务保留的 legacy 脚本路径同样只作信息报告；只有当前 `~/.codex/hooks.json` 仍引用它时才失败。普通开发检查只报告当前安装差异；发布验收使用 `python3 scripts/check_installation.py --require-clean`，任何稳定源/当前缓存不一致、不安全缓存条目、全局规则不匹配或 legacy Hook 仍被挂载都会返回失败。
 
 详细发布流程见 [docs/release-process.md](docs/release-process.md)，改进路线见 [docs/optimization-plan.md](docs/optimization-plan.md)。

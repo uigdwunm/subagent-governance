@@ -73,6 +73,8 @@ class ReleaseToolTests(unittest.TestCase):
                     encoding="utf-8",
                 )
             agents = root / "AGENTS.md"
+            active_hooks_config = root / "hooks.json"
+            active_hooks_config.write_text('{"hooks": {}}', encoding="utf-8")
             agents.write_text(
                 "before\n<!-- subagent-governance:start -->\nnew\n<!-- subagent-governance:end -->\nafter\n",
                 encoding="utf-8",
@@ -85,6 +87,7 @@ class ReleaseToolTests(unittest.TestCase):
                     "--cache-parent", str(cache_parent),
                     "--agents-file", str(agents),
                     "--legacy-hook", str(root / "missing-hook.py"),
+                    "--active-hooks-config", str(active_hooks_config),
                     "--require-clean",
                 ],
                 capture_output=True,
@@ -126,6 +129,10 @@ class ReleaseToolTests(unittest.TestCase):
             retained_cache.mkdir(parents=True)
             (retained_cache / "runtime-marker").write_text("active older task", encoding="utf-8")
             agents = root / "AGENTS.md"
+            legacy_hook = root / "subagent_policy.py"
+            legacy_hook.write_text("# retained for open tasks\n", encoding="utf-8")
+            active_hooks_config = root / "hooks.json"
+            active_hooks_config.write_text('{"hooks": {}}', encoding="utf-8")
             agents.write_text(
                 "<!-- subagent-governance:start -->\nnew\n<!-- subagent-governance:end -->\n",
                 encoding="utf-8",
@@ -138,7 +145,8 @@ class ReleaseToolTests(unittest.TestCase):
                     "--stable-root", str(stable),
                     "--cache-parent", str(cache_parent),
                     "--agents-file", str(agents),
-                    "--legacy-hook", str(root / "missing-hook.py"),
+                    "--legacy-hook", str(legacy_hook),
+                    "--active-hooks-config", str(active_hooks_config),
                     "--require-clean",
                 ],
                 capture_output=True,
@@ -151,6 +159,8 @@ class ReleaseToolTests(unittest.TestCase):
             self.assertTrue(report["clean"])
             self.assertEqual(report["retained_compatibility_caches"], [str(retained_cache)])
             self.assertEqual(report["invalid_cache_entries"], [])
+            self.assertTrue(report["legacy_hook_present"])
+            self.assertFalse(report["legacy_hook_mounted"])
 
             unsafe_entry = cache_parent / "unexpected-file"
             unsafe_entry.write_text("not a versioned cache directory", encoding="utf-8")
@@ -159,6 +169,16 @@ class ReleaseToolTests(unittest.TestCase):
             report = json.loads(result.stdout)
             self.assertIn("cache_entries_safe", report["issues"])
             self.assertEqual(report["invalid_cache_entries"], [str(unsafe_entry)])
+
+            unsafe_entry.unlink()
+            active_hooks_config.write_text(
+                json.dumps({"command": f"python3 {legacy_hook}"}), encoding="utf-8"
+            )
+            result = subprocess.run(result.args, capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 1)
+            report = json.loads(result.stdout)
+            self.assertIn("legacy_hook_unmounted", report["issues"])
+            self.assertTrue(report["legacy_hook_mounted"])
 
 
 if __name__ == "__main__":
