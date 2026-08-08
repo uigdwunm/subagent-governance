@@ -16,8 +16,9 @@ Marketplace 继续指向稳定发布源。开发仓库永远不直接作为已�
 1. Git 工作树干净，目标提交已推送。
 2. 单元测试、Python 编译、Plugin validator、Skill validator 全部通过。
 3. 可执行代码变更已经完成安全审查。
-4. Manifest 使用新的正式版本号或唯一 Codex cachebuster。
+4. Manifest 使用新的正式版本号，并在提交与打 tag 前生成唯一 Codex cachebuster。
 5. 已记录回滚目标和上一稳定缓存路径。
+6. 全局 `AGENTS.md` 中的标记区间与 `assets/agents-governance.md` 完全一致。
 
 ## 建议步骤
 
@@ -29,7 +30,10 @@ python3 -m unittest discover -s tests -v
 python3 -m py_compile scripts/subagent_governance.py
 python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
 python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/subagent-governance
+python3 ~/.codex/skills/.system/plugin-creator/scripts/update_plugin_cachebuster.py .
 ```
+
+cachebuster 生成后需要重新运行上述校验，再提交、推送并创建 tag。发布副本必须来自该 tag，避免稳定发布源在导出后再次发生未入库修改。
 
 ### 2. 生成干净发布副本
 
@@ -45,20 +49,23 @@ git archive --format=tar <tag> | tar -xf - -C <临时发布目录>
 
 ### 3. 更新 Codex 缓存
 
-稳定发布源就位后，按照当前 `plugin-creator` 的更新流程处理 cachebuster 并重装：
+稳定发布源就位后，使用 tag 中已经生成的 cachebuster 直接重装：
 
 ```bash
-python3 ~/.codex/skills/.system/plugin-creator/scripts/update_plugin_cachebuster.py \
-  ~/plugins/subagent-governance
-
 codex plugin add subagent-governance@personal
 ```
 
 不要手工修改 Marketplace 或 Codex-owned Hook 信任哈希。
 
+使用插件内脚本把规范化协作规则应用到全局标记区间：
+
+```bash
+python3 ~/plugins/subagent-governance/scripts/apply_agents_block.py --execute
+```
+
 ### 4. 验证与回滚
 
 - 在新 Codex 任务中验证 Skill 和 Hook。
-- 确认六个 Hook 均为 enabled、trusted，且没有旧 Hook 挂载。
-- 运行 `scripts/check_installation.py` 检查目录隔离和稳定源/缓存一致性。
+- 确认七个 Hook 均为 enabled、trusted，且没有旧 Hook 挂载。
+- 运行 `scripts/check_installation.py --require-clean` 检查目录隔离、稳定源/缓存、全局规则和旧 Hook 残留。
 - 如果验证失败，恢复上一稳定发布源和缓存，不把开发工作树直接用于运行。

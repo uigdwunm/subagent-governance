@@ -2,7 +2,7 @@
 
 ## 目标
 
-在不替换 Codex 原生 `spawn_agent`、不修改现有第三方 Skill、不引入 MCP 或 Agents SDK 编排层的前提下，把当前插件从可用的 `0.1` 原型提升为长期稳定运行的通用子 Agent 治理组件。
+在不替换 Codex 原生 `spawn_agent`、不修改现有第三方 Skill、不引入 MCP 或 Agents SDK 编排层的前提下，把当前插件从可用的 `0.1` 原型提升为长期稳定运行的通用子 Agent 治理组件。真实运行验证发现原生 `spawn_agent` 会在 Hook 前加密任务正文，因此正式可用版本调整为 `0.4.0`，增加独立的可观察治理通道和平台错误对账。
 
 核心指标：
 
@@ -11,6 +11,22 @@
 - 终态验收减少误判，不依赖容易命中的全文关键词。
 - AGENTS、Skill、Hook、Schema 不再各自维护相互漂移的协议。
 - 开发版、稳定发布源和运行缓存有明确、可验证的发布边界。
+- 真实传输不透明时，插件不伪称已读取正文契约，仍能可靠识别显式治理等级。
+- provider 失败不会让治理状态长期停留在假 `running`。
+
+## 第零阶段修订：真实传输约束
+
+实跑证据显示，父 Agent 写入的 `message` 在进入 `PreToolUse` 前可能已经变成不透明密文；Hook 能追加治理信封，但不能读取其中的 `【治理等级】`、目标、范围和验收字段。原方案中“所有契约字段都由 PreToolUse 从 message 机械解析”的假设不成立。
+
+修订后的双通道方案：
+
+- 完整自然语言契约继续放在 `message` 中，由子 Agent 解密并执行。
+- `task_name` 使用 `sg_<mode>_<semantic_name>` 传递 Hook 可见的治理等级和最小恢复语义。
+- 明文调用仍支持完整字段校验；不透明调用记录 `message_visibility=opaque`，不伪造结构化字段已被验证的结论。
+- 未带前缀的不透明调用默认 standard，保持第三方和直接 `spawn_agent` 的兼容性。
+- `PostToolUse` 观察 `list_agents`，把 `errored` 对账为 `platform_error`；成功 follow-up 和再次启动恢复原任务状态。
+
+验收：脱敏不透明 payload 能选择显式 strict；无前缀时稳定降级 standard；`list_agents` 中的 `stream disconnected` 不再留下永久 running 记录。
 
 ## 第一阶段：可靠性修复（建议版本 0.1.1）
 
@@ -73,7 +89,7 @@
 - 不手工编辑 Codex-owned Hook 信任哈希，通过受支持的 Hook 管理流程清理由产品负责的状态。
 - 重新运行组件 `--inspect`、Hook 列表检查和 Registry validation。
 
-验收：只有六个插件 Hook 生效，旧实现没有挂载，组件一致性检查不再因 legacy residue 失败。
+验收：只有七个插件 Hook 生效，旧实现没有挂载，组件一致性检查不再因 legacy residue 失败。
 
 ## 第二阶段：协议与恢复能力收敛（建议版本 0.2.0）
 
@@ -130,7 +146,7 @@
 ### 3. 真实 Hook 契约测试
 
 - 保存当前 Codex 版本产生的脱敏 Hook payload fixture。
-- 覆盖六类事件和不同工具命名别名。
+- 覆盖七类事件和不同工具命名别名。
 - 增加源目录、稳定发布源和运行缓存的边界检查。
 - CI 跑 Linux；本机发布门禁跑实际 Codex Plugin/Skill validator。
 

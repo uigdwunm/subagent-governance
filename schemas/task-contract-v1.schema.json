@@ -2,18 +2,24 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "subagent-governance/task-contract-v1",
   "type": "object",
-  "required": ["protocol", "task_id", "mode", "objective", "scope", "completion"],
+  "required": ["protocol", "task_id", "mode", "requested_mode", "mode_reason", "objective", "scope", "completion", "message_visibility"],
   "properties": {
     "protocol": {"const": "subagent-governance-v1"},
     "task_id": {"type": "string", "minLength": 6},
     "mode": {"enum": ["light", "standard", "strict"]},
+    "requested_mode": {"enum": ["auto", "light", "standard", "strict"]},
+    "mode_reason": {"type": "string", "minLength": 1},
     "objective": {"type": "string", "minLength": 1},
     "scope": {"type": "string", "minLength": 1},
     "forbidden": {"type": "string"},
     "completion": {"type": "string", "minLength": 1},
     "evidence": {"type": "string"},
     "context_policy": {"type": "string"},
-    "child_agents": {"enum": ["allow", "deny"]}
+    "child_agents": {"enum": ["allow", "deny"]},
+    "model": {"type": "string"},
+    "reasoning_effort": {"type": "string"},
+    "fork_turns": {"type": ["string", "integer", "null"]},
+    "message_visibility": {"enum": ["plaintext", "opaque"]}
   },
   "additionalProperties": true
 }

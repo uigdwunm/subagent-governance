@@ -1,0 +1,66 @@
+[
+  {
+    "session_id": "fixture-session",
+    "hook_event_name": "SessionStart",
+    "source": "startup"
+  },
+  {
+    "session_id": "fixture-session",
+    "turn_id": "fixture-turn",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "spawn_agent",
+    "tool_use_id": "fixture-spawn",
+    "tool_input": {
+      "message": "【治理等级】standard\n【目标】检查状态恢复\n【工作范围】只读检查 fixture\n【完成条件】给出检查和验证结果",
+      "task_name": "fixture_task",
+      "fork_turns": "none",
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "high"
+    }
+  },
+  {
+    "session_id": "fixture-session",
+    "turn_id": "fixture-turn",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "spawn_agent",
+    "tool_use_id": "fixture-spawn",
+    "tool_input": {"task_name": "fixture_task"},
+    "tool_response": {
+      "agent_id": "fixture-agent",
+      "canonical_task_path": "/root/fixture_task"
+    }
+  },
+  {
+    "session_id": "fixture-session",
+    "turn_id": "fixture-turn",
+    "hook_event_name": "SubagentStart",
+    "agent_id": "fixture-agent",
+    "agent_type": "default"
+  },
+  {
+    "session_id": "fixture-session",
+    "hook_event_name": "SessionStart",
+    "source": "compact"
+  },
+  {
+    "session_id": "fixture-session",
+    "turn_id": "fixture-turn",
+    "hook_event_name": "SubagentStop",
+    "agent_id": "fixture-agent",
+    "agent_type": "default",
+    "stop_hook_active": false,
+    "last_assistant_message": "任务 ID：{{TASK_ID}}\n检查完成。验证：fixture 生命周期检查通过。剩余事项：无。"
+  },
+  {
+    "session_id": "fixture-session",
+    "turn_id": "fixture-turn",
+    "hook_event_name": "Stop",
+    "stop_hook_active": false,
+    "last_assistant_message": "fixture complete"
+  },
+  {
+    "session_id": "fixture-session",
+    "hook_event_name": "SessionEnd",
+    "reason": "other"
+  }
+]

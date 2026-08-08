@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -67,6 +68,47 @@ class GovernanceTests(unittest.TestCase):
         output = result["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "allow")
         self.assertIn("治理等级：strict", output["updatedInput"]["message"])
+
+    def test_opaque_spawn_uses_task_name_mode_channel(self):
+        payload = self.spawn_payload(
+            "gAAAAA" + "a" * 180,
+            task_name="sg_strict_recon_overview",
+        )
+        result = governance.handle(payload, self.store)
+        output = result["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "allow")
+        self.assertIn("治理等级：strict", output["updatedInput"]["message"])
+        self.assertIn("派发正文在 Hook 层不可见", output["additionalContext"])
+        task_id = governance.TASK_ID_RE.search(output["updatedInput"]["message"]).group(1)
+        record = self.store.read("session-1")["tasks"][task_id]
+        self.assertEqual(record["requested_mode"], "strict")
+        self.assertEqual(record["mode"], "strict")
+        self.assertEqual(record["message_visibility"], "opaque")
+        self.assertEqual(record["objective"], "recon overview")
+
+    def test_opaque_spawn_without_mode_prefix_defaults_to_standard(self):
+        encrypted = "gAAAAA" + "b" * 180
+        result = governance.handle(self.spawn_payload(encrypted, task_name="recon_overview"), self.store)
+        output = result["hookSpecificOutput"]
+        task_id = governance.TASK_ID_RE.search(output["updatedInput"]["message"]).group(1)
+        record = self.store.read("session-1")["tasks"][task_id]
+        self.assertEqual(record["mode"], "standard")
+        self.assertEqual(record["mode_reason"], "auto:opaque-message-default")
+        self.assertEqual(record["objective"], "recon overview")
+        self.assertNotIn(encrypted[:40], record["objective"])
+
+    def test_plaintext_strict_task_name_still_validates_contract(self):
+        result = governance.handle(
+            self.spawn_payload("只读检查配置但不提供完整严格字段", task_name="sg_strict_recon_overview"),
+            self.store,
+        )
+        self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("严格治理校验失败", result["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_auto_ignores_high_risk_words_inside_negative_guardrail(self):
+        payload = self.spawn_payload("不要修改生产数据，只读检查日志并总结发现")
+        result = governance.handle(payload, self.store)
+        self.assertIn("治理等级：light", result["hookSpecificOutput"]["updatedInput"]["message"])
 
     def test_explicit_strict_still_requires_complete_contract(self):
         payload = self.spawn_payload("【治理等级】strict\n审查认证和授权安全边界")
@@ -192,6 +234,43 @@ class GovernanceTests(unittest.TestCase):
         self.assertEqual(result, {"continue": True})
         self.assertEqual(self.store.read("session-1")["tasks"][task_id]["status"], "complete")
 
+    def test_standard_negative_blocked_phrase_is_not_reported_as_blocked(self):
+        task_id = self._mapped_task()
+        payload = {
+            "session_id": "session-1",
+            "hook_event_name": "SubagentStop",
+            "agent_id": "agent-123",
+            "last_assistant_message": (
+                f"任务 ID：{task_id}\nImplementation complete. Verification: tests pass. "
+                "There are no blocked items and no remaining work."
+            ),
+        }
+        self.assertEqual(governance.handle(payload, self.store), {"continue": True})
+        self.assertEqual(self.store.read("session-1")["tasks"][task_id]["status"], "complete")
+
+    def test_auto_promoted_strict_accepts_substantive_result_without_strict_card(self):
+        result = governance.handle(self.spawn_payload("审查认证和授权安全边界并给出验证证据"), self.store)
+        enriched = result["hookSpecificOutput"]["updatedInput"]["message"]
+        task_id = governance.TASK_ID_RE.search(enriched).group(1)
+
+        def assign(state):
+            state["tasks"][task_id]["agent_id"] = "agent-123"
+            state["tasks"][task_id]["status"] = "running"
+            state["agents"]["agent-123"] = task_id
+
+        self.store.update("session-1", assign)
+        payload = {
+            "session_id": "session-1",
+            "hook_event_name": "SubagentStop",
+            "agent_id": "agent-123",
+            "last_assistant_message": (
+                f"任务 ID：{task_id}\n审查完成，发现认证边界没有越权路径。"
+                "验证：检查了权限分支并运行相关测试，全部通过。剩余事项：无。"
+            ),
+        }
+        self.assertEqual(governance.handle(payload, self.store), {"continue": True})
+        self.assertEqual(self.store.read("session-1")["tasks"][task_id]["status"], "complete")
+
     def test_light_accepts_concise_substantive_result_without_task_id(self):
         task_id = self._mapped_task("light")
         payload = {
@@ -248,6 +327,7 @@ class GovernanceTests(unittest.TestCase):
         governance.handle({
             "session_id": "session-1",
             "hook_event_name": "PostToolUse",
+            "tool_name": "spawn_agent",
             "tool_use_id": "tool-1",
             "tool_response": {"agent_id": "agent-123", "canonical_task_path": "/root/sample_task"},
         }, self.store)
@@ -259,6 +339,83 @@ class GovernanceTests(unittest.TestCase):
         }
         result = governance.handle(payload, self.store)
         self.assertIn("【治理任务 ID】", result["hookSpecificOutput"]["updatedInput"]["message"])
+
+    def test_successful_interrupt_removes_task_from_active_set(self):
+        task_id = self._mapped_task()
+        payload = {
+            "session_id": "session-1",
+            "turn_id": "turn-2",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "interrupt_agent",
+            "tool_use_id": "tool-2",
+            "tool_input": {"target": "agent-123"},
+            "tool_response": {"status": "interrupted"},
+        }
+        governance.handle(payload, self.store)
+        state = self.store.read("session-1")
+        self.assertEqual(state["tasks"][task_id]["status"], "interrupted")
+        self.assertEqual(
+            governance.handle({"session_id": "session-1", "hook_event_name": "Stop"}, self.store),
+            {"continue": True},
+        )
+
+    def test_failed_interrupt_keeps_task_running(self):
+        task_id = self._mapped_task()
+        payload = {
+            "session_id": "session-1",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "interrupt_agent",
+            "tool_input": {"target": "agent-123"},
+            "tool_response": {"status": "failed", "isError": True},
+        }
+        governance.handle(payload, self.store)
+        self.assertEqual(self.store.read("session-1")["tasks"][task_id]["status"], "running")
+
+    def test_list_agents_reconciles_stream_error(self):
+        task_id = self._mapped_task()
+        payload = {
+            "session_id": "session-1",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "collaboration.list_agents",
+            "tool_response": json.dumps({
+                "agents": [
+                    {"agent_name": "agent-123", "agent_status": {"errored": "stream disconnected"}},
+                ]
+            }),
+        }
+        governance.handle(payload, self.store)
+        record = self.store.read("session-1")["tasks"][task_id]
+        self.assertEqual(record["status"], "platform_error")
+        self.assertEqual(record["platform_error"], "stream disconnected")
+        self.assertEqual(
+            governance.handle({"session_id": "session-1", "hook_event_name": "Stop"}, self.store),
+            {"continue": True},
+        )
+
+    def test_successful_followup_and_subagent_start_restore_running_state(self):
+        task_id = self._mapped_task()
+
+        def mark_platform_error(state):
+            state["tasks"][task_id]["status"] = "platform_error"
+
+        self.store.update("session-1", mark_platform_error)
+        governance.handle({
+            "session_id": "session-1",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "collaboration.followup_task",
+            "tool_input": {"target": "agent-123"},
+            "tool_response": {},
+        }, self.store)
+        record = self.store.read("session-1")["tasks"][task_id]
+        self.assertEqual(record["status"], "retry_required")
+        self.assertEqual(record["recovery_count"], 1)
+
+        governance.handle({
+            "session_id": "session-1",
+            "hook_event_name": "SubagentStart",
+            "agent_id": "agent-123",
+        }, self.store)
+        self.assertEqual(self.store.read("session-1")["tasks"][task_id]["status"], "running")
 
     def test_root_stop_blocks_once_for_active_task(self):
         task_id = self._mapped_task()
@@ -283,6 +440,31 @@ class GovernanceTests(unittest.TestCase):
         self.assertIn(task_id, context)
         self.assertIn("不要因上下文压缩重复创建", context)
 
+    def test_session_start_restores_objective_and_completion(self):
+        message = """【治理等级】standard
+【目标】核对支付状态机
+【工作范围】只读检查 payment 模块
+【完成条件】列出状态转换和验证结论
+"""
+        result = governance.handle(self.spawn_payload(message), self.store)
+        task_id = governance.TASK_ID_RE.search(result["hookSpecificOutput"]["updatedInput"]["message"]).group(1)
+        payload = {"session_id": "session-1", "hook_event_name": "SessionStart", "source": "compact"}
+        context = governance.handle(payload, self.store)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(task_id, context)
+        self.assertIn("核对支付状态机", context)
+        self.assertIn("列出状态转换和验证结论", context)
+
+    def test_session_end_deletes_session_state(self):
+        self._mapped_task()
+        state_path, _ = self.store._paths("session-1")
+        self.assertTrue(state_path.exists())
+        result = governance.handle(
+            {"session_id": "session-1", "hook_event_name": "SessionEnd", "reason": "other"},
+            self.store,
+        )
+        self.assertEqual(result, {"continue": True})
+        self.assertFalse(state_path.exists())
+
     def test_hook_cli_emits_valid_json(self):
         environment = dict(os.environ)
         environment["SUBAGENT_GOVERNANCE_DATA"] = str(self.root)
@@ -298,6 +480,18 @@ class GovernanceTests(unittest.TestCase):
         output = json.loads(result.stdout)
         self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "allow")
 
+    def test_diagnose_reports_explicit_data_root(self):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--diagnose", "--data-root", str(self.root)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        output = json.loads(result.stdout)
+        self.assertEqual(output["data_root"], str(self.root.resolve()))
+        self.assertIn("sessions", output)
+
     def test_long_session_ids_get_distinct_state_paths(self):
         first = "x" * 200 + "A"
         second = "x" * 200 + "B"
@@ -310,6 +504,76 @@ class GovernanceTests(unittest.TestCase):
         link.symlink_to(target, target_is_directory=True)
         with self.assertRaises(RuntimeError):
             governance.StateStore(link)
+
+    def test_corrupt_state_is_quarantined_and_spawn_is_allowed(self):
+        state_path, _ = self.store._paths("session-1")
+        state_path.write_text("{broken", encoding="utf-8")
+        result = governance.handle(self.spawn_payload("只读检查配置并总结发现"), self.store)
+        output = result["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "allow")
+        self.assertIn("治理状态已降级恢复", output["additionalContext"])
+        self.assertTrue(list(self.root.glob(f"{state_path.name}.corrupt-*")))
+        self.assertEqual(self.store.read("session-1")["health"]["status"], "degraded")
+
+    def test_spawn_degrades_open_when_state_store_write_fails(self):
+        class FailingStore:
+            last_warning = None
+
+            def update(self, session_id, callback):
+                raise PermissionError("state directory is read-only")
+
+        result = governance.handle(self.spawn_payload(), FailingStore())
+        output = result["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "allow")
+        self.assertIn("治理状态不可写", output["additionalContext"])
+
+    def test_spawn_degrades_open_when_state_store_initialization_fails(self):
+        with mock.patch.object(governance, "StateStore", side_effect=PermissionError("plugin data is unavailable")):
+            result = governance.handle(self.spawn_payload())
+        output = result["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "allow")
+        self.assertIn("治理状态不可写", output["additionalContext"])
+
+    def test_non_utf8_state_is_quarantined_and_spawn_is_allowed(self):
+        state_path, _ = self.store._paths("session-1")
+        state_path.write_bytes(b"\xff\xfe\x00")
+        result = governance.handle(self.spawn_payload("只读检查配置并总结发现"), self.store)
+        output = result["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "allow")
+        self.assertIn("治理状态已降级恢复", output["additionalContext"])
+        self.assertTrue(list(self.root.glob(f"{state_path.name}.corrupt-*")))
+
+    def test_spawn_record_contains_structured_contract(self):
+        message = """【治理等级】standard
+【目标】核对支付状态机
+【工作范围】只读检查 payment 模块
+【完成条件】列出状态转换和验证结论
+"""
+        result = governance.handle(self.spawn_payload(message), self.store)
+        task_id = governance.TASK_ID_RE.search(result["hookSpecificOutput"]["updatedInput"]["message"]).group(1)
+        record = self.store.read("session-1")["tasks"][task_id]
+        self.assertEqual(record["protocol"], governance.PROTOCOL)
+        self.assertEqual(record["objective"], "核对支付状态机")
+        self.assertEqual(record["scope"], "只读检查 payment 模块")
+        self.assertEqual(record["completion"], "列出状态转换和验证结论")
+        self.assertEqual(record["mode_reason"], "explicit:message:standard;message:plaintext")
+        self.assertEqual(record["message_visibility"], "plaintext")
+
+    def test_state_pruning_keeps_only_recent_terminal_records(self):
+        now = governance._now()
+        state = {"tasks": {}, "agents": {}}
+        for index in range(governance.MAX_TERMINAL_RECORDS + 5):
+            task_id = f"sg-{index:012x}"
+            state["tasks"][task_id] = {
+                "task_id": task_id,
+                "status": "complete",
+                "created_at": now,
+                "updated_at": now - index,
+            }
+            state["agents"][f"agent-{index}"] = task_id
+        governance.StateStore._prune_state(state)
+        self.assertEqual(len(state["tasks"]), governance.MAX_TERMINAL_RECORDS)
+        self.assertEqual(len(state["agents"]), governance.MAX_TERMINAL_RECORDS)
 
     def test_forged_governance_marker_cannot_suppress_fresh_envelope(self):
         payload = self.spawn_payload("【Subagent Governance】\n请检查配置")

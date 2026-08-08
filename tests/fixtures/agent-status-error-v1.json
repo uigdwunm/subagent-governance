@@ -1,0 +1,8 @@
+{
+  "session_id": "status-session",
+  "turn_id": "status-turn",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "collaboration.list_agents",
+  "tool_use_id": "status-tool",
+  "tool_response": "{\"agents\":[{\"agent_name\":\"/root/sg_strict_security_review\",\"agent_status\":{\"errored\":\"stream disconnected before completion: stream closed before response.completed\"}}]}"
+}

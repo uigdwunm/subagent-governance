@@ -4,6 +4,8 @@
 
 本项目只增强原生 `spawn_agent`，不引入第二套编排平台，也不依赖 OpenAI Agents SDK。
 
+Codex 的原生子 Agent 调用可能在 Hook 运行前加密任务正文。因此插件采用双通道契约：完整任务说明仍放在 `message` 中交给子 Agent，治理等级同时通过 `task_name=sg_<mode>_<semantic_name>` 传递给 Hook。未使用前缀且正文不可见时，插件默认使用 standard 兼容模式。
+
 ## 目录角色
 
 本机采用开发版与稳定运行版分离的结构：
@@ -22,8 +24,11 @@
 - `hooks/hooks.json`：声明派发、启动、终态、恢复等生命周期 Hook。
 - `scripts/subagent_governance.py`：治理状态机和诊断入口。
 - `skills/subagent-governance/`：父 Agent 的治理等级选择与派发指南。
+- `assets/agents-governance.md`：安装到全局 `AGENTS.md` 标记区间的规范化协作规则。
 - `schemas/`：任务契约和终态结果协议。
 - `tests/`：状态机与插件结构测试。
+
+运行时还会观察 `list_agents` 的明确 `errored` 状态，将 provider 流故障记录为 `platform_error`，避免任务长期停留在假 `running`；插件只能诊断和辅助恢复，不能修复 provider 的流传输。
 
 ## 本地开发
 
@@ -44,5 +49,7 @@ python3 scripts/check_installation.py
 5. 在稳定发布源上再次运行 Plugin 和 Skill 校验。
 6. 使用 Codex 官方插件重装流程生成新的版本化缓存。
 7. 在新任务中验证新版本；验证通过前保留上一稳定缓存和回滚备份。
+
+普通开发检查只报告当前安装差异；发布验收使用 `python3 scripts/check_installation.py --require-clean`，任何稳定源/缓存不一致、全局规则不匹配或 legacy Hook 残留都会返回失败。
 
 详细发布流程见 [docs/release-process.md](docs/release-process.md)，改进路线见 [docs/optimization-plan.md](docs/optimization-plan.md)。

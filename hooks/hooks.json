@@ -16,7 +16,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "(^Agent$|.*spawn_agent$)",
+        "matcher": "(^Agent$|.*spawn_agent$|.*followup_task$|.*interrupt_agent$|.*list_agents$)",
         "hooks": [
           {
             "type": "command",
@@ -29,7 +29,7 @@
     ],
     "SessionStart": [
       {
-        "matcher": "startup|resume|compact",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
@@ -37,6 +37,19 @@
             "timeout": 10,
             "statusMessage": "恢复子 Agent 治理状态",
             "additionalContextLimit": 1800
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "other",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/scripts/subagent_governance.py\"",
+            "timeout": 3,
+            "statusMessage": "清理子 Agent 治理状态"
           }
         ]
       }
