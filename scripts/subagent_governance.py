@@ -684,7 +684,7 @@ def _handle_post_tool(payload: dict[str, Any], store: StateStore) -> dict[str, A
     canonical_paths = [
         value for value in _extract_values(
             response,
-            {"canonical_task_path", "canonical_path", "canonical_task_name", "task_path"},
+            {"canonical_task_path", "canonical_path", "canonical_task_name", "task_path", "task_name"},
         )
         if value.startswith("/")
     ]

@@ -27,7 +27,7 @@
     "tool_input": {"task_name": "fixture_task"},
     "tool_response": {
       "agent_id": "fixture-agent",
-      "canonical_task_path": "/root/fixture_task"
+      "task_name": "/root/fixture_task"
     }
   },
   {

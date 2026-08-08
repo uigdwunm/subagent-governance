@@ -25,6 +25,7 @@
 - 明文调用仍支持完整字段校验；不透明调用记录 `message_visibility=opaque`，不伪造结构化字段已被验证的结论。
 - 未带前缀的不透明调用默认 standard，保持第三方和直接 `spawn_agent` 的兼容性。
 - `PostToolUse` 观察 `list_agents`，把 `errored` 对账为 `platform_error`；成功 follow-up 和再次启动恢复原任务状态。
+- 当前 Codex 的 `spawn_agent` 返回使用 `task_name: /root/...` 表示 canonical task path；运行时必须把该真实字段纳入 Agent→治理任务映射，不能只依赖旧测试中的 `canonical_task_path`。
 - 同一任务只允许一次平台错误自动恢复；恢复后再次失败转为 `needs_decision`，不继续消耗请求。
 
 验收：脱敏不透明 payload 能选择显式 strict；无前缀时稳定降级 standard；`list_agents` 中的 `stream disconnected` 不再留下永久 running 记录，重复平台失败也不会形成无限 follow-up 循环。

@@ -164,6 +164,25 @@ class GovernanceTests(unittest.TestCase):
         self.assertEqual(state["tasks"][task_id]["canonical_task_path"], "/root/sample_task")
         self.assertEqual(state["agents"]["/root/sample_task"], task_id)
 
+    def test_post_tool_maps_actual_spawn_task_name_path(self):
+        governance.handle(self.spawn_payload(task_name="sg_light_runtime_smoke"), self.store)
+        payload = {
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "spawn_agent",
+            "tool_use_id": "tool-1",
+            "tool_response": {"task_name": "/root/sg_light_runtime_smoke"},
+        }
+        governance.handle(payload, self.store)
+        state = self.store.read("session-1")
+        task_id = state["agents"]["/root/sg_light_runtime_smoke"]
+        self.assertEqual(state["tasks"][task_id]["status"], "running")
+        self.assertEqual(
+            state["tasks"][task_id]["canonical_task_path"],
+            "/root/sg_light_runtime_smoke",
+        )
+
     def test_post_tool_does_not_treat_error_word_as_failure(self):
         governance.handle(self.spawn_payload("检查 error_handler 并总结结果"), self.store)
         payload = {
