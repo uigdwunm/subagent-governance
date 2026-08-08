@@ -88,6 +88,39 @@ class HookFixtureTests(unittest.TestCase):
             self.assertEqual(record["status"], "platform_error")
             self.assertIn("stream disconnected", record["platform_error"])
 
+    def test_provider_protocol_error_fixture_skips_recovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = governance.StateStore(Path(directory))
+            spawn = self.load_fixture("opaque-spawn-v1.json")
+            spawn["session_id"] = "provider-protocol-session"
+            spawn["tool_use_id"] = "provider-protocol-spawn"
+            spawn["tool_input"]["task_name"] = "sg_light_provider_protocol_probe"
+            result = governance.handle(spawn, store)
+            task_id = governance.TASK_ID_RE.search(
+                result["hookSpecificOutput"]["updatedInput"]["message"]
+            ).group(1)
+
+            governance.handle({
+                "session_id": "provider-protocol-session",
+                "turn_id": "provider-protocol-turn",
+                "hook_event_name": "PostToolUse",
+                "tool_name": "collaboration.spawn_agent",
+                "tool_use_id": "provider-protocol-spawn",
+                "tool_input": spawn["tool_input"],
+                "tool_response": {
+                    "canonical_task_path": "/root/sg_light_provider_protocol_probe",
+                },
+            }, store)
+            governance.handle(
+                self.load_fixture("provider-protocol-error-v1.json"),
+                store,
+            )
+
+            record = store.read("provider-protocol-session")["tasks"][task_id]
+            self.assertEqual(record["status"], "needs_decision")
+            self.assertEqual(record["decision_reason"], "provider_protocol_incompatible")
+            self.assertEqual(record["recovery_count"], 0)
+
     def test_recovery_limit_fixture_handles_real_identifier_drift(self):
         with tempfile.TemporaryDirectory() as directory:
             store = governance.StateStore(Path(directory))

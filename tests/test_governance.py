@@ -542,6 +542,44 @@ class GovernanceTests(unittest.TestCase):
             {"continue": True},
         )
 
+    def test_nonrecoverable_provider_protocol_error_requires_immediate_decision(self):
+        task_id = self._mapped_task()
+        error = (
+            "stream disconnected before completion: Encrypted function output content "
+            "could not be decrypted or decoded."
+        )
+        governance.handle({
+            "session_id": "session-1",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "collaboration.list_agents",
+            "tool_response": {
+                "agents": [
+                    {"agent_name": "agent-123", "agent_status": {"errored": error}},
+                ]
+            },
+        }, self.store)
+
+        record = self.store.read("session-1")["tasks"][task_id]
+        self.assertEqual(record["status"], "needs_decision")
+        self.assertEqual(record["decision_reason"], "provider_protocol_incompatible")
+        self.assertEqual(record["platform_error"], error)
+        self.assertEqual(record["recovery_count"], 0)
+
+        result = governance.handle({
+            "session_id": "session-1",
+            "hook_event_name": "PreToolUse",
+            "tool_name": "collaboration.followup_task",
+            "tool_input": {
+                "target": "agent-123",
+                "message": "请恢复原任务并补发终态。",
+            },
+        }, self.store)
+        self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn(
+            "provider_protocol_incompatible",
+            result["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+
     def test_successful_followup_and_subagent_start_restore_running_state(self):
         task_id = self._mapped_task()
 

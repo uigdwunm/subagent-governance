@@ -13,4 +13,4 @@
 - 状态文件损坏时会隔离损坏副本并重新建立状态；其他状态存储错误告警后降级放行，不把治理组件故障转化为原生 Agent 不可用。
 - `SessionEnd` 只清理主任务的治理状态；它不会用于控制或终止子 Agent。
 - 成功的 `interrupt_agent` 调用将映射任务标记为 `interrupted`；中断失败不会改变任务状态。
-- `PostToolUse` 会观察 `list_agents`，把明确的 `errored` 状态对账为 `platform_error`；插件不把该记录描述成已修复 provider 故障。
+- `PostToolUse` 会观察 `list_agents`，把普通 `errored` 状态对账为 `platform_error`；明确的加密函数输出解码失败会标记为 `provider_protocol_incompatible` 并直接进入 `needs_decision`。插件不把任何此类记录描述成已修复 provider 故障。

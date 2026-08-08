@@ -46,7 +46,7 @@ description: 为 Codex 原生子 Agent 选择 light、standard、strict 或 auto
 - 把需要用户选择的信息映射为“需要决策”，不要把它伪装成完成或阻塞。
 - Hook 达到纠错上限后，把它作为协议错误交给父任务处理，不进行无限续跑。
 - 成功中断的治理任务进入 `interrupted` 终态，不再阻止父任务结束；治理状态不可用时告警并降级放行原生子 Agent。
-- mailbox 明确报告平台执行错误时，先调用目标范围的 `list_agents` 对账。确认 `errored` 后记录为 `platform_error`；允许对同一 Agent 自动恢复一次。恢复后再次确认平台错误时记录为 `needs_decision`，停止自动重试并请求用户决定是否切换 provider、模型或稍后重新派发。
+- mailbox 明确报告平台执行错误时，先调用目标范围的 `list_agents` 对账。普通断流确认 `errored` 后记录为 `platform_error`，允许对同一 Agent 自动恢复一次；恢复后再次确认平台错误时记录为 `needs_decision`。若错误明确表示加密函数输出无法解密或解码，则直接记录 `provider_protocol_incompatible` 并进入 `needs_decision`，不得对同一 Agent 执行无效恢复；请求用户决定是否切换 provider、模型或停止本轮验收。
 
 ## 诊断失败
 
@@ -59,7 +59,7 @@ description: 为 Codex 原生子 Agent 选择 light、standard、strict 或 auto
 5. `orchestration`：父任务重复派发、错误中断、未等待或并发写入冲突。
 6. `state-degraded`：状态文件损坏、不可读写或超限；Hook 应保留告警并避免禁用原生 Agent。
 7. `transport-opaque`：原生工具参数中的任务正文已加密，Hook 不能机械读取正文契约；检查 `task_name` 是否使用 `sg_<mode>_` 前缀。
-8. `platform-error`：`list_agents` 明确报告 Agent `errored`，例如 provider `stream disconnected`；这属于平台执行失败，不是 dispatch 内容错误。
+8. `platform-error`：`list_agents` 明确报告 Agent `errored`，例如 provider `stream disconnected`；这属于平台执行失败，不是 dispatch 内容错误。确定性的加密函数输出解码失败归类为 `provider_protocol_incompatible`，直接需要决策。
 
 不要宣称 Hook 能修复 Codex 内部消息传输；它只能检测、缓解和保留诊断证据。完整兼容边界见 [references/compatibility.md](references/compatibility.md)。
 

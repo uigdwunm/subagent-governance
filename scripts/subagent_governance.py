@@ -39,6 +39,10 @@ STATE_VERSION = 2
 MODE_RE = re.compile(r"【治理等级】\s*(?:[:：]\s*)?(auto|light|standard|strict)\b", re.I)
 TASK_NAME_MODE_RE = re.compile(r"^sg_(auto|light|standard|strict)_(.+)$")
 OPAQUE_MESSAGE_RE = re.compile(r"^[A-Za-z0-9_-]{80,}={0,2}$")
+NONRECOVERABLE_PROVIDER_ERROR_RE = re.compile(
+    r"encrypted function output content could not be decrypted or decoded",
+    re.I,
+)
 TASK_ID_RE = re.compile(r"(?:【任务 ID】|任务 ID[：:]|\[SG[^\]]*task=)(sg-[a-f0-9]{12})", re.I)
 FIELD_RE_TEMPLATE = r"【%s】\s*(?:[:：]\s*)?([^\n]+)"
 STRICT_FIELDS = ("目标", "工作范围", "禁止范围", "完成条件", "验收证据", "上下文策略", "下级子 Agent")
@@ -597,10 +601,15 @@ def _handle_communication(payload: dict[str, Any], store: StateStore) -> dict[st
     warning = getattr(store, "last_warning", None)
     kind = _tool_kind(str(payload.get("tool_name") or ""))
     if kind == "followup" and task_id:
-        def require_platform_decision(current: dict[str, Any]) -> bool:
+        def require_platform_decision(current: dict[str, Any]) -> str | None:
             record = current.get("tasks", {}).get(task_id)
             if not isinstance(record, dict):
-                return False
+                return None
+            if (
+                record.get("status") == "needs_decision"
+                and record.get("decision_reason") == "provider_protocol_incompatible"
+            ):
+                return "provider_protocol_incompatible"
             if (
                 record.get("status") == "platform_error"
                 and int(record.get("recovery_count") or 0) >= MAX_PLATFORM_RECOVERIES
@@ -608,14 +617,20 @@ def _handle_communication(payload: dict[str, Any], store: StateStore) -> dict[st
                 record["status"] = "needs_decision"
                 record["decision_reason"] = "platform_recovery_limit"
                 record["updated_at"] = _now()
-                return True
-            return False
+                return "platform_recovery_limit"
+            return None
 
         try:
-            platform_limit_reached = bool(store.update(session_id, require_platform_decision))
+            platform_decision_reason = store.update(session_id, require_platform_decision)
         except (OSError, RuntimeError) as exc:
             return {"systemMessage": f"Subagent Governance 无法检查平台恢复上限，通信已降级放行：{exc}"}
-        if platform_limit_reached:
+        if platform_decision_reason == "provider_protocol_incompatible":
+            return _deny(
+                "provider_protocol_incompatible：平台明确报告加密函数输出无法解码，"
+                "恢复同一子 Agent 无法修复 provider 协议兼容性，已记录为 needs_decision。"
+                "请父任务向用户请求切换 provider、模型或停止本轮子 Agent 验收。"
+            )
+        if platform_decision_reason == "platform_recovery_limit":
             return _deny(
                 "同一子 Agent 的平台执行错误在一次恢复后再次出现，已停止自动重试并记录为 needs_decision。"
                 "请父任务向用户请求是否切换 provider、模型或稍后重新派发。"
@@ -736,6 +751,10 @@ def _response_failed(response: Any, depth: int = 0) -> bool:
     return False
 
 
+def _provider_protocol_incompatible(error: Any) -> bool:
+    return bool(NONRECOVERABLE_PROVIDER_ERROR_RE.search(str(error or "")))
+
+
 def _handle_post_tool(payload: dict[str, Any], store: StateStore) -> dict[str, Any] | None:
     session_id = str(payload.get("session_id") or "unknown")
     kind = _tool_kind(str(payload.get("tool_name") or ""))
@@ -767,8 +786,15 @@ def _handle_post_tool(payload: dict[str, Any], store: StateStore) -> dict[str, A
                 record["platform_status"] = platform_status
                 record["platform_checked_at"] = _now()
                 if isinstance(platform_status, dict) and platform_status.get("errored"):
-                    record["status"] = "platform_error"
-                    record["platform_error"] = _bounded(platform_status.get("errored"))
+                    platform_error = _bounded(platform_status.get("errored"))
+                    record["platform_error"] = platform_error
+                    if _provider_protocol_incompatible(platform_error):
+                        record["status"] = "needs_decision"
+                        record["decision_reason"] = "provider_protocol_incompatible"
+                        record["platform_error_recoverable"] = False
+                    else:
+                        record["status"] = "platform_error"
+                        record["platform_error_recoverable"] = True
                     record["updated_at"] = _now()
 
         try:
