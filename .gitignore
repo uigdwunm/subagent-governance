@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.pytest_cache/
+.coverage
+coverage.xml
+dist/
+build/
+*.tmp
+*.log
+

@@ -1,0 +1,4 @@
+interface:
+  display_name: "子 Agent 治理"
+  short_description: "分级增强 Codex 子 Agent 的派发、执行、验收和诊断"
+  default_prompt: "使用 $subagent-governance 为当前子 Agent 任务选择治理等级并生成可靠派发。"

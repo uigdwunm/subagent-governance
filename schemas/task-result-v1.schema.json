@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "subagent-governance/task-result-v1",
+  "type": "object",
+  "required": ["protocol", "task_id", "status", "result"],
+  "properties": {
+    "protocol": {"const": "subagent-result-v1"},
+    "task_id": {"type": "string", "minLength": 6},
+    "status": {"enum": ["complete", "blocked", "needs_decision", "protocol_error"]},
+    "result": {"type": "string", "minLength": 1},
+    "evidence": {"type": "array", "items": {"type": "string"}},
+    "remaining": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

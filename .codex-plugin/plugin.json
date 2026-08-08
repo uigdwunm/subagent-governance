@@ -1,0 +1,18 @@
+{
+  "name": "subagent-governance",
+  "version": "0.1.0",
+  "description": "Adaptive lifecycle governance for Codex subagents",
+  "author": {
+    "name": "zhaolaiyuan"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "子 Agent 治理",
+    "shortDescription": "分级增强子 Agent 的派发、执行、验收和诊断",
+    "longDescription": "为 Codex 原生子 Agent 提供 light、standard、strict 和 auto 四种治理等级，在保留直接 spawn_agent 兼容性的同时增强上下文边界、提前结束检测、终态验收、状态恢复和诊断能力。",
+    "developerName": "zhaolaiyuan",
+    "category": "Developer Tools",
+    "capabilities": ["Hooks", "Skills"],
+    "defaultPrompt": "使用 $subagent-governance 为当前子 Agent 任务选择合适的治理等级。"
+  }
+}

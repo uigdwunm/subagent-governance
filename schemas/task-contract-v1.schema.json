@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "subagent-governance/task-contract-v1",
+  "type": "object",
+  "required": ["protocol", "task_id", "mode", "objective", "scope", "completion"],
+  "properties": {
+    "protocol": {"const": "subagent-governance-v1"},
+    "task_id": {"type": "string", "minLength": 6},
+    "mode": {"enum": ["light", "standard", "strict"]},
+    "objective": {"type": "string", "minLength": 1},
+    "scope": {"type": "string", "minLength": 1},
+    "forbidden": {"type": "string"},
+    "completion": {"type": "string", "minLength": 1},
+    "evidence": {"type": "string"},
+    "context_policy": {"type": "string"},
+    "child_agents": {"enum": ["allow", "deny"]}
+  },
+  "additionalProperties": true
+}
