@@ -88,6 +88,28 @@ class HookFixtureTests(unittest.TestCase):
             self.assertEqual(record["status"], "platform_error")
             self.assertIn("stream disconnected", record["platform_error"])
 
+    def test_recovery_limit_fixture_handles_real_identifier_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = governance.StateStore(Path(directory))
+            task_id = None
+            second_followup = None
+            for payload in self.load_fixture("recovery-limit-v1.json"):
+                result = governance.handle(payload, store)
+                if payload["hook_event_name"] == "PreToolUse" and payload["tool_name"] == "spawn_agent":
+                    message = result["hookSpecificOutput"]["updatedInput"]["message"]
+                    task_id = governance.TASK_ID_RE.search(message).group(1)
+                if payload.get("tool_use_id") == "followup-pre-2":
+                    second_followup = result
+            self.assertIsNotNone(task_id)
+            self.assertEqual(second_followup["hookSpecificOutput"]["permissionDecision"], "deny")
+            self.assertIn(
+                "needs_decision",
+                second_followup["hookSpecificOutput"]["permissionDecisionReason"],
+            )
+            record = store.read("recovery-fixture-session")["tasks"][task_id]
+            self.assertEqual(record["recovery_count"], 1)
+            self.assertEqual(record["status"], "needs_decision")
+
 
 if __name__ == "__main__":
     unittest.main()

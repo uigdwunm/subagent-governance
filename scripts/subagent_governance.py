@@ -34,6 +34,7 @@ MAX_TERMINAL_RECORDS = 200
 TERMINAL_RETENTION_SECONDS = 30 * 24 * 60 * 60
 MAX_CONTRACT_TEXT = 600
 MAX_PLATFORM_RECOVERIES = 1
+RESOLVABLE_STATUSES = ACTIVE_STATUSES | {"platform_error"}
 STATE_VERSION = 2
 MODE_RE = re.compile(r"【治理等级】\s*(?:[:：]\s*)?(auto|light|standard|strict)\b", re.I)
 TASK_NAME_MODE_RE = re.compile(r"^sg_(auto|light|standard|strict)_(.+)$")
@@ -590,11 +591,10 @@ def _handle_communication(payload: dict[str, Any], store: StateStore) -> dict[st
     target = str(tool_input.get("target") or "")
     session_id = str(payload.get("session_id") or "unknown")
     try:
-        state = store.read(session_id)
+        task_id = store.update(session_id, lambda state: _resolve_task_id(state, target))
     except (OSError, RuntimeError) as exc:
         return {"systemMessage": f"Subagent Governance 状态不可读，通信已降级放行：{exc}"}
     warning = getattr(store, "last_warning", None)
-    task_id = state.get("agents", {}).get(target)
     kind = _tool_kind(str(payload.get("tool_name") or ""))
     if kind == "followup" and task_id:
         def require_platform_decision(current: dict[str, Any]) -> bool:
@@ -658,6 +658,67 @@ def _extract_values(value: Any, keys: set[str]) -> list[str]:
     return found
 
 
+def _resolve_task_id(state: dict[str, Any], target: str) -> str | None:
+    """Resolve native agent identifiers without relying on one event's ID shape."""
+    if not target:
+        return None
+    agents = state.setdefault("agents", {})
+    mapped = agents.get(target)
+    if mapped:
+        return str(mapped)
+
+    tasks = state.get("tasks", {})
+    canonical_matches = [
+        task_id for task_id, record in tasks.items()
+        if isinstance(record, dict) and record.get("canonical_task_path") == target
+    ]
+    if len(canonical_matches) == 1:
+        agents[target] = canonical_matches[0]
+        return canonical_matches[0]
+
+    if target.startswith("/"):
+        task_name = target.rstrip("/").rsplit("/", 1)[-1]
+        name_matches = [
+            task_id for task_id, record in tasks.items()
+            if (
+                isinstance(record, dict)
+                and record.get("task_name") == task_name
+                and record.get("status") in RESOLVABLE_STATUSES
+            )
+        ]
+        if len(name_matches) == 1:
+            task_id = name_matches[0]
+            record = tasks[task_id]
+            record["canonical_task_path"] = target
+            agents[target] = task_id
+            return task_id
+    return None
+
+
+def _spawn_record(state: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any] | None:
+    tool_use_id = str(payload.get("tool_use_id") or "")
+    matches = [
+        record for record in state.get("tasks", {}).values()
+        if isinstance(record, dict) and record.get("tool_use_id") == tool_use_id
+    ]
+    if len(matches) == 1:
+        return matches[0]
+
+    tool_input = payload.get("tool_input")
+    task_name = str(tool_input.get("task_name") or "") if isinstance(tool_input, dict) else ""
+    turn_id = str(payload.get("turn_id") or "")
+    if not task_name:
+        return None
+    candidates = [
+        record for record in state.get("tasks", {}).values()
+        if isinstance(record, dict) and record.get("task_name") == task_name
+    ]
+    same_turn = [record for record in candidates if turn_id and record.get("turn_id") == turn_id]
+    if len(same_turn) == 1:
+        return same_turn[0]
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def _response_failed(response: Any, depth: int = 0) -> bool:
     if depth > 24:
         return False
@@ -698,7 +759,7 @@ def _handle_post_tool(payload: dict[str, Any], store: StateStore) -> dict[str, A
         def reconcile(state: dict[str, Any]) -> None:
             for entry in entries:
                 target = str(entry.get("agent_name") or "")
-                task_id = state.get("agents", {}).get(target)
+                task_id = _resolve_task_id(state, target)
                 record = state.get("tasks", {}).get(task_id) if task_id else None
                 if not isinstance(record, dict):
                     continue
@@ -723,7 +784,7 @@ def _handle_post_tool(payload: dict[str, Any], store: StateStore) -> dict[str, A
             return None
 
         def recover(state: dict[str, Any]) -> None:
-            task_id = state.get("agents", {}).get(target)
+            task_id = _resolve_task_id(state, target)
             record = state.get("tasks", {}).get(task_id) if task_id else None
             if not isinstance(record, dict):
                 return
@@ -764,10 +825,9 @@ def _handle_post_tool(payload: dict[str, Any], store: StateStore) -> dict[str, A
         return None
 
     def update(state: dict[str, Any]) -> None:
-        matches = [record for record in state["tasks"].values() if record.get("tool_use_id") == tool_use_id]
-        if len(matches) != 1:
+        record = _spawn_record(state, payload)
+        if not record:
             return
-        record = matches[0]
         record["updated_at"] = _now()
         if failed:
             record["status"] = "failed"

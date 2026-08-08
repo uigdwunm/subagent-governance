@@ -183,6 +183,137 @@ class GovernanceTests(unittest.TestCase):
             "/root/sg_light_runtime_smoke",
         )
 
+    def test_post_tool_maps_spawn_when_event_tool_use_ids_differ(self):
+        governance.handle(self.spawn_payload(task_name="sg_light_runtime_probe"), self.store)
+        payload = {
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "spawn_agent",
+            "tool_use_id": "different-post-tool-id",
+            "tool_input": self.spawn_payload(task_name="sg_light_runtime_probe")["tool_input"],
+            "tool_response": {"task_name": "/root/sg_light_runtime_probe"},
+        }
+        governance.handle(payload, self.store)
+        state = self.store.read("session-1")
+        task_id = state["agents"]["/root/sg_light_runtime_probe"]
+        self.assertEqual(state["tasks"][task_id]["status"], "running")
+
+    def test_canonical_path_fallback_enforces_platform_recovery_limit(self):
+        result = governance.handle(
+            self.spawn_payload(
+                "gAAAAA" + "x" * 180,
+                task_name="sg_light_recovery_state_probe",
+            ),
+            self.store,
+        )
+        task_id = governance.TASK_ID_RE.search(
+            result["hookSpecificOutput"]["updatedInput"]["message"]
+        ).group(1)
+        governance.handle({
+            "session_id": "session-1",
+            "hook_event_name": "SubagentStart",
+            "agent_id": "native-agent-uuid",
+        }, self.store)
+
+        status_payload = {
+            "session_id": "session-1",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "list_agents",
+            "tool_response": {
+                "agents": [{
+                    "agent_name": "/root/sg_light_recovery_state_probe",
+                    "agent_status": {"errored": "stream disconnected"},
+                }],
+            },
+        }
+        governance.handle(status_payload, self.store)
+        state = self.store.read("session-1")
+        self.assertEqual(state["agents"]["/root/sg_light_recovery_state_probe"], task_id)
+        self.assertEqual(state["tasks"][task_id]["status"], "platform_error")
+
+        followup = {
+            "session_id": "session-1",
+            "hook_event_name": "PreToolUse",
+            "tool_name": "followup_task",
+            "tool_input": {
+                "target": "/root/sg_light_recovery_state_probe",
+                "message": "请恢复原任务并补发终态。",
+            },
+        }
+        first_result = governance.handle(followup, self.store)
+        self.assertEqual(first_result["hookSpecificOutput"]["permissionDecision"], "allow")
+        governance.handle({
+            "session_id": "session-1",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "followup_task",
+            "tool_input": {"target": "/root/sg_light_recovery_state_probe"},
+            "tool_response": "",
+        }, self.store)
+        governance.handle(status_payload, self.store)
+
+        second_result = governance.handle(followup, self.store)
+        self.assertEqual(second_result["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("needs_decision", second_result["hookSpecificOutput"]["permissionDecisionReason"])
+        record = self.store.read("session-1")["tasks"][task_id]
+        self.assertEqual(record["recovery_count"], 1)
+        self.assertEqual(record["status"], "needs_decision")
+
+    def test_canonical_path_fallback_ignores_completed_same_name_record(self):
+        first = self.spawn_payload(task_name="sg_light_reused_name")
+        first_result = governance.handle(first, self.store)
+        first_task_id = governance.TASK_ID_RE.search(
+            first_result["hookSpecificOutput"]["updatedInput"]["message"]
+        ).group(1)
+        self.store.update(
+            "session-1",
+            lambda state: state["tasks"][first_task_id].update({"status": "complete"}),
+        )
+
+        second = self.spawn_payload(task_name="sg_light_reused_name")
+        second["turn_id"] = "turn-2"
+        second["tool_use_id"] = "tool-2"
+        second_result = governance.handle(second, self.store)
+        second_task_id = governance.TASK_ID_RE.search(
+            second_result["hookSpecificOutput"]["updatedInput"]["message"]
+        ).group(1)
+        governance.handle({
+            "session_id": "session-1",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "list_agents",
+            "tool_response": {
+                "agents": [{
+                    "agent_name": "/root/sg_light_reused_name",
+                    "agent_status": {"errored": "stream disconnected"},
+                }],
+            },
+        }, self.store)
+        state = self.store.read("session-1")
+        self.assertEqual(state["agents"]["/root/sg_light_reused_name"], second_task_id)
+        self.assertEqual(state["tasks"][first_task_id]["status"], "complete")
+        self.assertEqual(state["tasks"][second_task_id]["status"], "platform_error")
+
+    def test_canonical_path_fallback_does_not_guess_between_active_duplicates(self):
+        governance.handle(self.spawn_payload(task_name="sg_light_duplicate"), self.store)
+        second = self.spawn_payload(task_name="sg_light_duplicate")
+        second["turn_id"] = "turn-2"
+        second["tool_use_id"] = "tool-2"
+        governance.handle(second, self.store)
+        governance.handle({
+            "session_id": "session-1",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "list_agents",
+            "tool_response": {
+                "agents": [{
+                    "agent_name": "/root/sg_light_duplicate",
+                    "agent_status": {"errored": "stream disconnected"},
+                }],
+            },
+        }, self.store)
+        state = self.store.read("session-1")
+        self.assertNotIn("/root/sg_light_duplicate", state["agents"])
+        self.assertTrue(all(record["status"] == "pending" for record in state["tasks"].values()))
+
     def test_post_tool_does_not_treat_error_word_as_failure(self):
         governance.handle(self.spawn_payload("检查 error_handler 并总结结果"), self.store)
         payload = {
