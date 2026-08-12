@@ -20,35 +20,48 @@ SPEC.loader.exec_module(governance)
 
 
 class ConcurrencyTests(unittest.TestCase):
-    def test_parallel_spawns_keep_all_state_records(self):
+    def test_parallel_dispatch_preparation_keeps_all_state_and_prepared_records(self):
         with tempfile.TemporaryDirectory() as directory:
             environment = dict(os.environ)
             environment["SUBAGENT_GOVERNANCE_DATA"] = directory
             processes = []
             for index in range(32):
-                payload = {
-                    "session_id": "concurrent-session",
-                    "turn_id": f"turn-{index}",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "spawn_agent",
-                    "tool_use_id": f"tool-{index}",
-                    "tool_input": {
-                        "message": f"只读检查并总结第 {index} 个并发任务，不修改文件",
-                        "task_name": f"task_{index}",
-                        "fork_turns": "none",
-                    },
+                contract = {
+                    "semantic_name": f"task_{index}",
+                    "requested_mode": "light",
+                    "objective": f"只读检查并总结第 {index} 个并发任务",
+                    "background": "并发 PreparedContract 和 StateStore 验证。",
+                    "work_scope": ["当前测试目录"],
+                    "forbidden_scope": ["不得修改业务文件"],
+                    "completion_conditions": ["返回检查结果"],
+                    "evidence_requirements": ["记录生成结果"],
+                    "relevant_files": [],
+                    "current_state": None,
+                    "model": None,
+                    "reasoning_effort": None,
+                    "context_strategy": "isolated",
+                    "context_turns": None,
+                    "context_reason": None,
                 }
                 processes.append(
                     (
                         subprocess.Popen(
-                            [sys.executable, str(SCRIPT)],
+                            [
+                                sys.executable,
+                                str(SCRIPT),
+                                "--prepare-dispatch",
+                                "--session",
+                                "concurrent-session",
+                                "--data-root",
+                                directory,
+                            ],
                             stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE,
                             text=True,
                             env=environment,
                         ),
-                        json.dumps(payload, ensure_ascii=False),
+                        json.dumps(contract, ensure_ascii=False),
                     )
                 )
 
@@ -58,13 +71,57 @@ class ConcurrencyTests(unittest.TestCase):
                 self.assertEqual(process.returncode, 0, stderr)
                 outputs.append(json.loads(stdout))
 
-            task_ids = {
-                governance.TASK_ID_RE.search(item["hookSpecificOutput"]["updatedInput"]["message"]).group(1)
-                for item in outputs
-            }
+            task_ids = {item["task_id"] for item in outputs}
+            task_refs = {item["task_ref"] for item in outputs}
             self.assertEqual(len(task_ids), 32)
-            state = governance.StateStore(Path(directory)).read("concurrent-session")
+            self.assertEqual(len(task_refs), 32)
+            state = governance.StateStore(Path(directory) / "sessions").read("concurrent-session")
             self.assertEqual(set(state["tasks"]), task_ids)
+            prepared = governance.PreparedContractStore(Path(directory) / "prepared")
+            self.assertEqual(prepared.refs("concurrent-session"), task_refs)
+
+    def test_parallel_compare_and_set_allows_one_commit_and_one_conflict(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = governance.StateStore(Path(directory))
+            store.update("cas-session", lambda state: state.update({"marker": 0}))
+            worker = f"""
+import importlib.util
+import sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location('subagent_governance_cas_worker', {str(SCRIPT)!r})
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+store = module.StateStore(Path(sys.argv[1]))
+try:
+    store.compare_and_set(
+        'cas-session',
+        lambda state: state.get('marker') == 0,
+        lambda state: state.update({{'marker': 1}}),
+    )
+except module.StateConflictError:
+    print('conflict')
+else:
+    print('committed')
+"""
+            processes = [
+                subprocess.Popen(
+                    [sys.executable, "-c", worker, directory],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                for _ in range(2)
+            ]
+            outcomes = []
+            for process in processes:
+                stdout, stderr = process.communicate(timeout=15)
+                self.assertEqual(process.returncode, 0, stderr)
+                outcomes.append(stdout.strip())
+
+            self.assertEqual(sorted(outcomes), ["committed", "conflict"])
+            self.assertEqual(store.read("cas-session")["marker"], 1)
 
 
 if __name__ == "__main__":

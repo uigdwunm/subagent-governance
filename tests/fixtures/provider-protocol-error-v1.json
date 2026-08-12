@@ -1,8 +1,0 @@
-{
-  "session_id": "provider-protocol-session",
-  "turn_id": "provider-protocol-turn",
-  "hook_event_name": "PostToolUse",
-  "tool_name": "collaboration.list_agents",
-  "tool_use_id": "provider-protocol-status",
-  "tool_response": "{\"agents\":[{\"agent_name\":\"/root/sg_light_provider_protocol_probe\",\"agent_status\":{\"errored\":\"stream disconnected before completion: Encrypted function output content could not be decrypted or decoded.\"}}]}"
-}

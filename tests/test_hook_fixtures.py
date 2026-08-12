@@ -21,57 +21,158 @@ class HookFixtureTests(unittest.TestCase):
     def load_fixture(self, name):
         return json.loads((ROOT / "tests/fixtures" / name).read_text(encoding="utf-8"))
 
-    def test_complete_lifecycle_fixture(self):
+    @staticmethod
+    def contract(**overrides):
+        value = {
+            "semantic_name": "fixture_task",
+            "requested_mode": "standard",
+            "objective": "检查 fixture 派发状态",
+            "background": "WP-03 fixture。",
+            "work_scope": ["只读检查 fixture"],
+            "forbidden_scope": [],
+            "completion_conditions": ["给出检查结果"],
+            "evidence_requirements": ["记录 Hook 转换"],
+            "relevant_files": [],
+            "current_state": None,
+            "model": None,
+            "reasoning_effort": None,
+            "context_strategy": "isolated",
+            "context_turns": None,
+            "context_reason": None,
+        }
+        value.update(overrides)
+        return value
+
+    def test_dispatch_identity_lifecycle_fixture(self):
         with tempfile.TemporaryDirectory() as directory:
-            store = governance.StateStore(Path(directory))
-            task_id = None
-            state_path, _ = store._paths("fixture-session")
-            for payload in self.load_fixture("lifecycle-v1.json"):
-                if task_id and isinstance(payload.get("last_assistant_message"), str):
-                    payload["last_assistant_message"] = payload["last_assistant_message"].replace(
-                        "{{TASK_ID}}", task_id
-                    )
-                result = governance.handle(payload, store)
-                if payload["hook_event_name"] == "PreToolUse":
-                    message = result["hookSpecificOutput"]["updatedInput"]["message"]
-                    task_id = governance.TASK_ID_RE.search(message).group(1)
-                self.assertIsNotNone(result) if payload["hook_event_name"] != "PostToolUse" else None
-            self.assertFalse(state_path.exists())
+            root = Path(directory)
+            store = governance.StateStore(root / "sessions")
+            prepared_store = governance.PreparedContractStore(root / "prepared")
+            events = self.load_fixture("lifecycle-v1.json")
+            prepared = governance.prepare_dispatch(
+                self.contract(model="gpt-5.6-terra", reasoning_effort="high"),
+                "fixture-session",
+                state_store=store,
+                prepared_store=prepared_store,
+            )
+            spawn = events[1]
+            spawn["tool_input"] = prepared["spawn_args"]
+            self.assertEqual(
+                governance.handle(spawn, store)["hookSpecificOutput"]["permissionDecision"],
+                "allow",
+            )
+            events[2]["tool_response"]["task_name"] = f"/root/{prepared['task_name']}"
+            governance.handle(events[2], store)
+            governance.handle(events[3], store)
+
+            state = store.read("fixture-session")
+            record = state["tasks"][prepared["task_id"]]
+            self.assertEqual(record["identity_status"], "confirmed")
+            self.assertEqual(record["execution_status"], "running")
+            self.assertEqual(
+                state["agents"]["fixture-agent"],
+                {"task_id": prepared["task_id"], "attempt": 1},
+            )
+            self.assertEqual(prepared_store.list_records("fixture-session"), [])
 
     def test_interrupt_lifecycle_fixture(self):
         with tempfile.TemporaryDirectory() as directory:
-            store = governance.StateStore(Path(directory))
-            task_id = None
-            for payload in self.load_fixture("interrupt-v1.json"):
-                result = governance.handle(payload, store)
-                if payload["hook_event_name"] == "PreToolUse":
-                    message = result["hookSpecificOutput"]["updatedInput"]["message"]
-                    task_id = governance.TASK_ID_RE.search(message).group(1)
-            self.assertIsNotNone(task_id)
+            root = Path(directory)
+            store = governance.StateStore(root / "sessions")
+            prepared_store = governance.PreparedContractStore(root / "prepared")
+            dispatch = governance.prepare_dispatch(
+                self.contract(semantic_name="interrupt_fixture"),
+                "interrupt-session",
+                state_store=store,
+                prepared_store=prepared_store,
+            )
+            governance.handle(
+                {
+                    "session_id": "interrupt-session",
+                    "hook_event_name": "PreToolUse",
+                    "tool_name": "spawn_agent",
+                    "tool_use_id": "interrupt-spawn",
+                    "tool_input": dispatch["spawn_args"],
+                },
+                store,
+            )
+            governance.handle(
+                {
+                    "session_id": "interrupt-session",
+                    "hook_event_name": "PostToolUse",
+                    "tool_name": "spawn_agent",
+                    "tool_use_id": "interrupt-spawn",
+                    "tool_response": {"agent_id": "interrupt-agent"},
+                },
+                store,
+            )
+            events = self.load_fixture("interrupt-v1.json")
+            intent = governance.prepare_interrupt(
+                events[0]["tool_input"],
+                "interrupt-session",
+                state_store=store,
+            )
+            events[0]["tool_input"] = intent["native_args"]
+            governance.handle(events[0], store)
+            governance.handle(events[1], store)
             state = store.read("interrupt-session")
-            self.assertEqual(state["tasks"][task_id]["status"], "interrupted")
+            record = state["tasks"][dispatch["task_id"]]
+            self.assertEqual(record["execution_status"], "interrupted")
+            self.assertEqual(record["parent_action"], "decide_disposition")
+            self.assertEqual(state["tombstones"], {})
 
-    def test_opaque_spawn_fixture_uses_task_name_governance(self):
+    def test_opaque_spawn_fixture_uses_task_ref_without_body_classification(self):
         with tempfile.TemporaryDirectory() as directory:
-            store = governance.StateStore(Path(directory))
-            payload = self.load_fixture("opaque-spawn-v1.json")
+            root = Path(directory)
+            store = governance.StateStore(root / "sessions")
+            prepared_store = governance.PreparedContractStore(root / "prepared")
+            prepared = governance.prepare_dispatch(
+                self.contract(
+                    semantic_name="security_review",
+                    requested_mode="strict",
+                    forbidden_scope=["不得修改 fixture"],
+                ),
+                "opaque-session",
+                state_store=store,
+                prepared_store=prepared_store,
+            )
+            payload = self.load_fixture("exact-task-ref-opaque-message-v1.json")
+            payload["tool_input"] = {
+                **prepared["spawn_args"],
+                "message": payload["tool_input"]["message"],
+            }
             result = governance.handle(payload, store)
-            message = result["hookSpecificOutput"]["updatedInput"]["message"]
-            task_id = governance.TASK_ID_RE.search(message).group(1)
-            record = store.read("opaque-session")["tasks"][task_id]
-            self.assertEqual(record["mode"], "strict")
-            self.assertEqual(record["message_visibility"], "opaque")
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
+            record = store.read("opaque-session")["tasks"][prepared["task_id"]]
+            self.assertEqual(record["resolved_mode"], "strict")
+            self.assertNotIn("message_visibility", record)
+            self.assertEqual(record["spawn_tool_use_id"], "opaque-tool")
 
-    def test_agent_status_fixture_reconciles_platform_error(self):
+    def test_agent_status_fixture_writes_wp04_multidimensional_state(self):
         with tempfile.TemporaryDirectory() as directory:
-            store = governance.StateStore(Path(directory))
-            spawn = self.load_fixture("opaque-spawn-v1.json")
-            spawn["session_id"] = "status-session"
-            spawn["tool_use_id"] = "spawn-tool"
-            result = governance.handle(spawn, store)
-            task_id = governance.TASK_ID_RE.search(
-                result["hookSpecificOutput"]["updatedInput"]["message"]
-            ).group(1)
+            root = Path(directory)
+            store = governance.StateStore(root / "sessions")
+            prepared_store = governance.PreparedContractStore(root / "prepared")
+            prepared = governance.prepare_dispatch(
+                self.contract(
+                    semantic_name="security_review",
+                    requested_mode="strict",
+                    forbidden_scope=["不得修改 fixture"],
+                ),
+                "status-session",
+                state_store=store,
+                prepared_store=prepared_store,
+            )
+            governance.handle(
+                {
+                    "session_id": "status-session",
+                    "hook_event_name": "PreToolUse",
+                    "tool_name": "spawn_agent",
+                    "tool_use_id": "spawn-tool",
+                    "tool_input": prepared["spawn_args"],
+                },
+                store,
+            )
 
             governance.handle({
                 "session_id": "status-session",
@@ -84,64 +185,88 @@ class HookFixtureTests(unittest.TestCase):
                 },
             }, store)
             governance.handle(self.load_fixture("agent-status-error-v1.json"), store)
-            record = store.read("status-session")["tasks"][task_id]
-            self.assertEqual(record["status"], "platform_error")
-            self.assertIn("stream disconnected", record["platform_error"])
-
-    def test_provider_protocol_error_fixture_skips_recovery(self):
-        with tempfile.TemporaryDirectory() as directory:
-            store = governance.StateStore(Path(directory))
-            spawn = self.load_fixture("opaque-spawn-v1.json")
-            spawn["session_id"] = "provider-protocol-session"
-            spawn["tool_use_id"] = "provider-protocol-spawn"
-            spawn["tool_input"]["task_name"] = "sg_light_provider_protocol_probe"
-            result = governance.handle(spawn, store)
-            task_id = governance.TASK_ID_RE.search(
-                result["hookSpecificOutput"]["updatedInput"]["message"]
-            ).group(1)
-
-            governance.handle({
-                "session_id": "provider-protocol-session",
-                "turn_id": "provider-protocol-turn",
-                "hook_event_name": "PostToolUse",
-                "tool_name": "collaboration.spawn_agent",
-                "tool_use_id": "provider-protocol-spawn",
-                "tool_input": spawn["tool_input"],
-                "tool_response": {
-                    "canonical_task_path": "/root/sg_light_provider_protocol_probe",
-                },
-            }, store)
-            governance.handle(
-                self.load_fixture("provider-protocol-error-v1.json"),
-                store,
-            )
-
-            record = store.read("provider-protocol-session")["tasks"][task_id]
-            self.assertEqual(record["status"], "needs_decision")
-            self.assertEqual(record["decision_reason"], "provider_protocol_incompatible")
-            self.assertEqual(record["recovery_count"], 0)
+            record = store.read("status-session")["tasks"][prepared["task_id"]]
+            self.assertNotIn("status", record)
+            self.assertEqual(record["execution_status"], "stopped")
+            self.assertEqual(record["platform_observation"], "error")
+            self.assertEqual(record["parent_action"], "recover")
 
     def test_recovery_limit_fixture_handles_real_identifier_drift(self):
         with tempfile.TemporaryDirectory() as directory:
-            store = governance.StateStore(Path(directory))
-            task_id = None
-            second_followup = None
-            for payload in self.load_fixture("recovery-limit-v1.json"):
-                result = governance.handle(payload, store)
-                if payload["hook_event_name"] == "PreToolUse" and payload["tool_name"] == "spawn_agent":
-                    message = result["hookSpecificOutput"]["updatedInput"]["message"]
-                    task_id = governance.TASK_ID_RE.search(message).group(1)
-                if payload.get("tool_use_id") == "followup-pre-2":
-                    second_followup = result
-            self.assertIsNotNone(task_id)
-            self.assertEqual(second_followup["hookSpecificOutput"]["permissionDecision"], "deny")
-            self.assertIn(
-                "needs_decision",
-                second_followup["hookSpecificOutput"]["permissionDecisionReason"],
+            root = Path(directory)
+            store = governance.StateStore(root / "sessions")
+            prepared_store = governance.PreparedContractStore(root / "prepared")
+            target = "/root/sg_light_platform_limit_fixture"
+            dispatch = governance.prepare_dispatch(
+                self.contract(
+                    semantic_name="platform_limit_fixture",
+                    requested_mode="light",
+                    evidence_requirements=[],
+                ),
+                "recovery-fixture-session",
+                state_store=store,
+                prepared_store=prepared_store,
             )
-            record = store.read("recovery-fixture-session")["tasks"][task_id]
-            self.assertEqual(record["recovery_count"], 1)
-            self.assertEqual(record["status"], "needs_decision")
+            governance.handle(
+                {
+                    "session_id": "recovery-fixture-session",
+                    "hook_event_name": "PreToolUse",
+                    "tool_name": "spawn_agent",
+                    "tool_use_id": "spawn-call",
+                    "tool_input": dispatch["spawn_args"],
+                },
+                store,
+            )
+            governance.handle(
+                {
+                    "session_id": "recovery-fixture-session",
+                    "hook_event_name": "PostToolUse",
+                    "tool_name": "spawn_agent",
+                    "tool_use_id": "spawn-call",
+                    "tool_response": {
+                        "agent_id": "native-recovery-agent",
+                        "canonical_task_path": target,
+                    },
+                },
+                store,
+            )
+            events = self.load_fixture("recovery-limit-v1.json")
+            governance.handle(events[0], store)
+            first = governance.prepare_communication(
+                events[1]["tool_input"],
+                "recovery-fixture-session",
+                state_store=store,
+            )
+            events[1]["tool_input"] = first["native_args"]
+            governance.handle(events[1], store)
+            governance.handle(events[2], store)
+            events[3]["agent_id"] = "native-recovery-agent"
+            events[3]["canonical_task_path"] = target
+            governance.handle(events[3], store)
+            governance.handle(events[4], store)
+
+            record = store.read("recovery-fixture-session")["tasks"][dispatch["task_id"]]
+            self.assertEqual(record["recovery_status"], "awaiting_authorization")
+            second = governance.prepare_communication(
+                events[5]["tool_input"],
+                "recovery-fixture-session",
+                authorized_recovery=True,
+                state_store=store,
+            )
+            events[5]["tool_input"] = second["native_args"]
+            governance.handle(events[5], store)
+            governance.handle(events[6], store)
+            with self.assertRaisesRegex(governance.CommunicationPreparationError, "耗尽"):
+                governance.prepare_communication(
+                    events[7]["tool_input"],
+                    "recovery-fixture-session",
+                    authorized_recovery=True,
+                    state_store=store,
+                )
+            record = store.read("recovery-fixture-session")["tasks"][dispatch["task_id"]]
+            self.assertEqual(record["recovery_count"], 2)
+            self.assertEqual(record["recovery_status"], "exhausted")
+            self.assertEqual(record["parent_action"], "ask_user")
 
 
 if __name__ == "__main__":

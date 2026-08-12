@@ -1,0 +1,33 @@
+# 运行边界
+
+- 插件增强 Codex 原生 `spawn_agent`、`send_message`、`followup_task` 和 `interrupt_agent`，不替换其执行通道，不创建第二套编排平台。
+- AI 生成目标、背景、范围、原因、结果、证据和建议等业务内容；脚本只校验当前操作需要的字段存在、类型、长度、枚举、引用和基本组合。
+- 交互、状态和正式结果不使用协议版本作为兼容门禁。未知额外字段兼容忽略；缺少当前操作必需字段时明确列出，不静默迁移、重写或补造事实。
+- `requested_mode=auto` 只按结构化 `task_features` 解析，不读取业务正文、transcript、风险关键词或否定词。
+- 目标 task name 为 `sg_<resolved_mode>_<semantic_name>_t_<task_ref>`。运行时使用 PreparedContract、task ref 唯一性、初始 StateStore 和派发前双硬门禁；旧 `sg_<mode>_<semantic_name>` 名称不再是 governed 兼容入口。
+- 无 `sg_` 前缀的原生 spawn 按 unmanaged 原样放行，不创建任务或 Agent 映射；以 `sg_` 开头但缺少合法 task ref 或发送前凭证时硬拒绝，不得 fail-open。
+- PreToolUse 不读取、分类或改写业务正文，只核对 task ref 对应的持久化事实和可观察原生参数。PostToolUse 只通过已认领的 `tool_use_id` 关联 spawn，不使用同名、同轮或唯一候选。
+- spawn 响应只适配已知顶层或单层结构化字段；未知形状保持 `spawn_observation=unknown`。Agent ID/canonical path 映射固定为 `{task_id, attempt}`，SubagentStart 只接受该映射或事件中的精确 task ref。
+- 原生工具如果不接受额外业务字段，确定性生成器先投影成合法原生参数；不能假设扩展字段一定进入 Hook。
+- `operation_type=normal_message|platform_recovery|result_correction|business_resume` 必须显式提供，不根据工具名、状态或正文猜测。
+- 通信与主动中断使用生成器、StateStore 内单目标唯一 `pending_action`、PreToolUse 原子认领、PostToolUse `tool_use_id` 三态对账、5/20分钟边界和无 TTL 的最小 `last_lifecycle_operation`。不创建 PreparedCommunication、communication ID、通信历史或投递/阅读状态。
+- managed `normal_message` 需要生成器创建的 prepared action；只有 StateStore 暂不可用时才明确告警 fail-open。`platform_recovery`、`result_correction` 和 `business_resume` 的状态写入或认领失败是硬门禁；明确 target 的 interrupt 可以 fail-open，但不能形成虚假治理关联。
+- platform recovery、result correction 和 business resume 的 success/unknown 只有在匹配的精确 `SubagentStart` 后才能把 stopped/not_started 改为 running；failed lifecycle 和 interrupt 不授权启动。business resume 同 Agent跨 attempt 沿用首次 task name，以 lifecycle 证据和精确 Agent映射切换 attempt，不用旧 task ref 猜当前 attempt。
+- 结构化结果是唯一正式业务结果。自然语言回复、summary 或终态卡不能被 Hook解析成正式结果，也不能通过字符数、关键词、任务 ID或固定标题完成业务验收。
+- managed `SubagentStop` 只消费显式对象字段 `task_result`；缺失或机械校验失败时只进入有限结果纠正，不从 `last_assistant_message` 或其他文本补造。真实平台是否提供该字段仍是 `not_checked`。
+- `--submit-result`、`--read-result`、`--reassociate-result` 和 `--parent-disposition` 是当前正式结果与父处置入口。正式结果使用安全确定性文件名，先原子写入并回读，再关联 StateStore；文件成功但关联失败时保留孤立文件并进入 storage unavailable/manual review。
+- 同一 attempt 的同内容重放幂等；不同合法结果不覆盖原文件或建立候选库，只保存冲突 SHA-256 与首次时间。旧 attempt 的合法迟到结果归属原 attempt，重复执行只形成显式处置事实。
+- complete 只进入 pending，必须由父 Agent显式 accept 或 reject。close/select 只写持久化处置并返回需要中断的精确 targets，不自动调用原生工具；select 后由父 Agent显式 prepare/调用 interrupt，success 或后续明确 stopped 才在同一锁内关闭未选 attempt并收口 duplicate，failed/unknown 保持未关闭。
+- `SubagentStop` 放行、结果文件写入、Hook 状态写入或本地 fixture 成功不等于父任务已收到结果、完成业务验收或向用户闭环。
+- 观察尚未发生时使用 JSON `null`；实际观察发生但结果无法确认时使用 `unknown`。unknown 不自动变成 failed、complete、interrupted 或 closed。
+- 平台错误只由明确的 `list_agents` 观察写为 `platform_observation=error`；不解析 Provider、加密、解密或解码文本改变恢复语义。
+- `wait_agent`、目标范围 `list_agents`、恢复用 `followup_task` 和中断必须由父 Agent显式调用。Hook 没有后台定时器，不能自动周期检查或唤醒主线程/子 Agent。
+- 父 Agent等待固定使用20分钟：正常 mailbox/终态/用户输入提前唤醒；明确平台错误立即目标范围 `list_agents`；只有正常超时才巡检。running 时静默继续等待，状态含糊或 list 失败时不得重建或猜测，明确 errored 才进入有限恢复链。
+- 同一 Agent、同一 attempt 最多一次自动平台恢复和一次用户授权恢复；所有等级最多两次结果补交。spawn retry、platform recovery 和 result correction 分别计数。
+- `action_required` 与 `recent_activity` 分离并遍历 current/prior attempts：前者无12小时过滤并保留所有未关闭父动作/权威调用事实，后者只用于最近展示。Stop 三读只阻止机械运行/对账风险；SessionStart 先 reconcile/精确清理再恢复摘要；SessionEnd 仅在 action-required 与有效 tombstone 均为空时删除 Session JSON，稳定 `.lock` 永不删除。
+- tombstone 固定7天，正式 result 只按确定性地址和文件内 task/attempt 精确核对后删除；删除失败保留 tombstone。Hook 不建 scheduler，不按目录年龄、数量或 recent 窗口批量清理。
+- 无治理前缀或未映射任务的特殊原生路径按 unmanaged 兼容边界处理，不创建会阻塞 Stop 的半套状态，也不承诺治理恢复和结果验收。
+- `--diagnose` 使用专用无锁只读解析，不构造 StateStore，不创建或修改数据根、Session、结果、锁、临时/隔离文件，也不 reconcile、清理、修复或回写。全局与单 Session 共用稳定 JSON snapshot，直接消费权威 `action_required` / `recent_activity` 视图，并按精确 result 引用只读复验；exit 0/1/2 只表达扫描完整度和 CLI 合法性。
+- 诊断只报告可观察事实、缺失字段、读取问题和扫描完整度，不输出完整 StateStore/result/evidence，不使用 `delivery-suspected`、`execution` 或 `orchestration` 等推测性根因。`transport_opaque` 只是能力边界，Provider/加密/解密/stream 文本不参与生命周期或根因分类。
+- 轻量 group 只由父 Agent通过 `--upsert-group` 显式创建，持久化 `group_id/objective_summary/members[{task_id,required}]/created_at/updated_at`。`--read-group` 实时从 individual task/result/处置事实派生 `summary_ready` 和 `group_action_required`；optional 成员不影响 required 聚合。group 不拥有 Agent执行、等待、恢复、结果或父处置，不生成 AggregateResult，不建立组状态机、DAG、batch、wave 或调度器。
+- 真实 Hook trust、Plugin/Skill 加载、原生参数形状、task name 可见性、Provider 断流、mailbox 唤醒和父任务展示必须通过真实 Codex 验证；单元测试和 fixture 不能替代。

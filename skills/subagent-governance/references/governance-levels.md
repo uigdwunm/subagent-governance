@@ -1,37 +1,61 @@
 # 治理等级
 
+## 统一原则
+
+- `requested_mode` 可以是 `auto|light|standard|strict`；实际运行等级 `resolved_mode` 只能是 `light|standard|strict`。
+- 显式等级不由插件二次提升或降低，`resolution_reason=explicit_request`。
+- `auto` 只读取结构化 `task_features`，不读取、分类或评分任务正文。
+- 三种实际等级共用同一任务契约和正式结果结构，差异只体现在契约最低数组要求和父 Agent期望的证据强度。
+- 脚本只做字段、类型、长度、枚举、引用和基本组合校验，不判断风险描述是否真实或证据是否充分。
+
 ## Light
 
 - 适用于只读、短时、低风险任务。
-- Hook 只补充任务身份和“本次派发优先”规则。
-- 只阻止空任务和明显 ACK-only 终态。
-- 最多请求一次终态补充。
+- `forbidden_scope[]` 和 `evidence_requirements[]` 可以为空。
+- 结果可以简洁，但仍使用统一结构化结果字段。
+- 网络恢复、状态安全和任务关联能力不会因 light 而关闭。
 
 ## Standard
 
 - 适用于普通编码、研究、诊断和 Review。
-- Hook 增加稳定任务 ID、上下文边界、实际执行要求和实质终态检查。
-- 不强制固定模板，但完成报告必须包含结果及至少一种验证或证据。
-- 最多请求两次终态补充。
+- 至少提供一项 `evidence_requirements[]`。
+- 结果使用统一结构，父 Agent根据实际任务核对验证、证据和剩余事项。
 
 ## Strict
 
-- 适用于高风险、长要求、多阶段、允许下级子 Agent 或并发写入相关任务。
-- 派发必须含目标、范围、禁止范围、完成条件、验收证据、上下文策略和下级 Agent 边界。
-- 完整继承上下文必须有明确理由。
-- 终态必须使用中文终态卡并包含任务 ID、结果、验证、剩余事项和父任务下一步。
-- 最多请求两次终态补充；超过后标记协议错误。
+- 适用于安全、迁移、生产、破坏性操作、并发写入、多阶段验收或复杂协作。
+- 至少提供一项 `forbidden_scope[]` 和一项 `evidence_requirements[]`。
+- strict 的证据要求更完整，但 Hook 不解析自然语言终态卡，不用字符数、关键词或固定标题判断业务完成。
+- 中文终态卡只能从同一份合法结构化结果渲染，属于展示层，不是第二份权威数据。
 
 ## Auto
 
-- 正文为明文时，根据派发中的显式风险词、只读词和治理字段分类；正文在 Hook 层不可见时默认 standard。
-- 高风险信号选择 strict；明确只读且无写入信号选择 light；其他情况选择 standard。
-- Auto 不是安全分类器，也不替代父 Agent 的判断。
-- Auto 可以把高风险信号提升为严格证据要求，但不会因为旧调用缺少 strict 字段而直接拒绝派发，也不强制固定终态卡；只有显式选择 strict 才执行完整派发契约和固定终态格式校验。
-- Auto 分类会忽略明确的禁止范围和否定式护栏，并在状态中记录 `mode_reason`；它仍不是安全分类器。
+`requested_mode=auto` 时必须提供：
 
-## 可观察治理通道
+- `risk=low|medium|high`
+- `read_only`
+- `writes_files`
+- `destructive`
+- `production`
+- `concurrent_write`
+- `multi_stage_acceptance`
+- 可选 `allows_child_agents`
 
-- `task_name` 使用 `sg_<mode>_<semantic_name>` 形式，优先级高于正文中的治理标记。
-- 该前缀只传递治理等级和简短语义名，不承载完整 prompt、敏感信息或验收证据。
-- 正文被原生传输加密时，严格字段仍会交付给子 Agent，但 Hook 不宣称已机械读取或验证这些字段。
+固定解析顺序：
+
+1. `risk=high`，或 `destructive|production|concurrent_write|multi_stage_acceptance|allows_child_agents` 任一为 true：`resolved_mode=strict`、`resolution_reason=auto_strict`。
+2. 无 strict 信号，且 `risk=low + read_only=true + writes_files=false`：`resolved_mode=light`、`resolution_reason=auto_light`。
+3. 其余合法组合：`resolved_mode=standard`、`resolution_reason=auto_standard`。
+
+`read_only=true` 与 `writes_files=true` 是机械矛盾。缺少可选 `allows_child_agents` 不补写 false；它只是不提供这项复杂度信号，不代表插件授予或禁止下级 Agent。
+
+## task name
+
+目标格式为 `sg_<resolved_mode>_<semantic_name>_t_<task_ref>`：
+
+- 不生成 `sg_auto_` 运行时名称。
+- `semantic_name` 只使用小写字母、数字和下划线。
+- `task_ref` 由 `task_id + attempt` 确定性派生，长度按 12、16、20、24、28、32 位依次扩展。
+- 完整名称最多 64 个字符；过长时只截断 semantic name。
+
+运行时已经实现 task ref 的有界碰撞扩展、PreparedContract 原子写入和回读、初始 StateStore `admission="new_task"`、PreToolUse 单次认领以及精确 Agent 身份绑定。业务正文不参与等级、task ref 或身份判断。

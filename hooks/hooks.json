@@ -8,19 +8,21 @@
           {
             "type": "command",
             "command": "python3 \"$PLUGIN_ROOT/scripts/subagent_governance.py\"",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\scripts\\subagent_governance.py\"",
             "timeout": 10,
-            "statusMessage": "检查并补强子 Agent 派发"
+            "statusMessage": "检查子 Agent 派发与通信"
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "(^Agent$|.*spawn_agent$|.*followup_task$|.*interrupt_agent$|.*list_agents$)",
+        "matcher": "(^Agent$|.*spawn_agent$|.*send_message$|.*followup_task$|.*interrupt_agent$|.*list_agents$)",
         "hooks": [
           {
             "type": "command",
             "command": "python3 \"$PLUGIN_ROOT/scripts/subagent_governance.py\"",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\scripts\\subagent_governance.py\"",
             "timeout": 10,
             "statusMessage": "记录子 Agent 生命周期"
           }
@@ -34,6 +36,7 @@
           {
             "type": "command",
             "command": "python3 \"$PLUGIN_ROOT/scripts/subagent_governance.py\"",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\scripts\\subagent_governance.py\"",
             "timeout": 10,
             "statusMessage": "恢复子 Agent 治理状态",
             "additionalContextLimit": 1800
@@ -48,6 +51,7 @@
           {
             "type": "command",
             "command": "python3 \"$PLUGIN_ROOT/scripts/subagent_governance.py\"",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\scripts\\subagent_governance.py\"",
             "timeout": 3,
             "statusMessage": "清理子 Agent 治理状态"
           }
@@ -61,6 +65,7 @@
           {
             "type": "command",
             "command": "python3 \"$PLUGIN_ROOT/scripts/subagent_governance.py\"",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\scripts\\subagent_governance.py\"",
             "timeout": 10,
             "statusMessage": "加载子 Agent 执行边界",
             "additionalContextLimit": 1800
@@ -75,6 +80,7 @@
           {
             "type": "command",
             "command": "python3 \"$PLUGIN_ROOT/scripts/subagent_governance.py\"",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\scripts\\subagent_governance.py\"",
             "timeout": 10,
             "statusMessage": "验收子 Agent 终态"
           }
@@ -87,6 +93,7 @@
           {
             "type": "command",
             "command": "python3 \"$PLUGIN_ROOT/scripts/subagent_governance.py\"",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\scripts\\subagent_governance.py\"",
             "timeout": 10,
             "statusMessage": "检查未完成的子 Agent"
           }

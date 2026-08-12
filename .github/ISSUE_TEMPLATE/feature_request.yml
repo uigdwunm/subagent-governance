@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose a focused improvement to Codex subagent governance
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the Codex subagent coordination problem, not only the preferred implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain the user-visible behavior and how completion could be verified.
+    validations:
+      required: true
+  - type: textarea
+    id: codex_integration
+    attributes:
+      label: Codex integration impact
+      description: Which native Codex tools, Skills, Hooks, lifecycle events, or compatibility boundaries are affected?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Explain whether the goal can be met without a second scheduler, service, or orchestration layer.

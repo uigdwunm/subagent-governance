@@ -3,21 +3,15 @@
     "session_id": "interrupt-session",
     "turn_id": "interrupt-turn",
     "hook_event_name": "PreToolUse",
-    "tool_name": "Agent",
-    "tool_use_id": "interrupt-spawn",
+    "tool_name": "collaboration.interrupt_agent",
+    "tool_use_id": "interrupt-call",
     "tool_input": {
-      "message": "【治理等级】standard\n【目标】执行可中断检查\n【工作范围】只读检查 fixture\n【完成条件】报告检查结果",
-      "task_name": "interrupt_fixture",
-      "fork_turns": "none"
+      "target": "interrupt-agent",
+      "purpose": "停止当前执行",
+      "reason": "父 Agent 已明确决定主动中断",
+      "content": "立即停止当前执行并保留已有结果。",
+      "expected_result": "返回平台中断调用结果"
     }
-  },
-  {
-    "session_id": "interrupt-session",
-    "turn_id": "interrupt-turn",
-    "hook_event_name": "PostToolUse",
-    "tool_name": "Agent",
-    "tool_use_id": "interrupt-spawn",
-    "tool_response": {"agent_id": "interrupt-agent"}
   },
   {
     "session_id": "interrupt-session",
@@ -26,12 +20,6 @@
     "tool_name": "collaboration.interrupt_agent",
     "tool_use_id": "interrupt-call",
     "tool_input": {"target": "interrupt-agent"},
-    "tool_response": {"status": "running"}
-  },
-  {
-    "session_id": "interrupt-session",
-    "hook_event_name": "Stop",
-    "stop_hook_active": false,
-    "last_assistant_message": "interrupted intentionally"
+    "tool_response": {"status": "interrupted"}
   }
 ]

@@ -1,15 +1,46 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "subagent-governance/task-result-v1",
+  "$id": "subagent-governance/task-result",
   "type": "object",
-  "required": ["protocol", "task_id", "status", "result"],
+  "required": [
+    "task_id",
+    "attempt",
+    "business_result",
+    "result",
+    "evidence",
+    "remaining",
+    "suggested_parent_next_step"
+  ],
   "properties": {
-    "protocol": {"const": "subagent-result-v1"},
-    "task_id": {"type": "string", "minLength": 6},
-    "status": {"enum": ["complete", "blocked", "needs_decision", "protocol_error", "failed", "interrupted", "platform_error"]},
-    "result": {"type": "string", "minLength": 1},
-    "evidence": {"type": "array", "items": {"type": "string"}},
-    "remaining": {"type": "array", "items": {"type": "string"}}
+    "task_id": {"$ref": "governance-semantics.schema.json#/$defs/task_id"},
+    "attempt": {"$ref": "governance-semantics.schema.json#/$defs/attempt"},
+    "business_result": {"$ref": "governance-semantics.schema.json#/$defs/business_result"},
+    "result": {"$ref": "governance-semantics.schema.json#/$defs/result_text"},
+    "evidence": {"$ref": "governance-semantics.schema.json#/$defs/text_list"},
+    "remaining": {"$ref": "governance-semantics.schema.json#/$defs/text_list"},
+    "suggested_parent_next_step": {"$ref": "governance-semantics.schema.json#/$defs/business_text"},
+    "blocker": {"$ref": "governance-semantics.schema.json#/$defs/business_text"},
+    "attempted": {"$ref": "governance-semantics.schema.json#/$defs/text_list"},
+    "required_to_resume": {"$ref": "governance-semantics.schema.json#/$defs/business_text"},
+    "failure_reason": {"$ref": "governance-semantics.schema.json#/$defs/business_text"},
+    "retry_conditions": {"$ref": "governance-semantics.schema.json#/$defs/business_text"},
+    "decision_question": {"$ref": "governance-semantics.schema.json#/$defs/business_text"},
+    "options": {"$ref": "governance-semantics.schema.json#/$defs/text_list", "minItems": 1},
+    "recommendation": {"$ref": "governance-semantics.schema.json#/$defs/business_text"}
   },
+  "allOf": [
+    {
+      "if": {"properties": {"business_result": {"const": "blocked"}}},
+      "then": {"required": ["blocker", "attempted", "required_to_resume"]}
+    },
+    {
+      "if": {"properties": {"business_result": {"const": "failed"}}},
+      "then": {"required": ["failure_reason", "attempted", "retry_conditions"]}
+    },
+    {
+      "if": {"properties": {"business_result": {"const": "needs_decision"}}},
+      "then": {"required": ["decision_question", "options", "recommendation"]}
+    }
+  ],
   "additionalProperties": true
 }

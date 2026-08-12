@@ -1,21 +1,30 @@
 {
   "name": "subagent-governance",
-  "version": "0.4.0-rc.9+codex.20260808155909",
-  "description": "Adaptive lifecycle governance for Codex subagents",
+  "version": "0.4.0-rc.10+codex.20260812082602",
+  "description": "Codex-first lifecycle governance for native subagents",
   "author": {
     "name": "zhaolaiyuan"
   },
+  "homepage": "https://github.com/uigdwunm/subagent-governance",
+  "repository": "https://github.com/uigdwunm/subagent-governance",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "subagents",
+    "governance",
+    "lifecycle"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "\u5b50 Agent \u6cbb\u7406",
     "shortDescription": "\u5206\u7ea7\u589e\u5f3a\u5b50 Agent \u7684\u6d3e\u53d1\u3001\u6267\u884c\u3001\u9a8c\u6536\u548c\u8bca\u65ad",
-    "longDescription": "\u4e3a Codex \u539f\u751f\u5b50 Agent \u63d0\u4f9b light\u3001standard\u3001strict \u548c auto \u56db\u79cd\u6cbb\u7406\u7b49\u7ea7\uff0c\u5728\u4fdd\u7559\u76f4\u63a5 spawn_agent \u517c\u5bb9\u6027\u7684\u540c\u65f6\u589e\u5f3a\u4e0a\u4e0b\u6587\u8fb9\u754c\u3001\u63d0\u524d\u7ed3\u675f\u68c0\u6d4b\u3001\u7ec8\u6001\u9a8c\u6536\u3001\u72b6\u6001\u6062\u590d\u548c\u8bca\u65ad\u80fd\u529b\u3002",
+    "longDescription": "\u9762\u5411 Codex \u539f\u751f\u5b50 Agent\u3001Skills \u4e0e Hooks \u7684\u751f\u547d\u5468\u671f\u6cbb\u7406\u63d2\u4ef6\uff0c\u63d0\u4f9b light\u3001standard\u3001strict \u548c auto \u56db\u79cd\u6cbb\u7406\u7b49\u7ea7\uff0c\u5728\u4fdd\u7559\u76f4\u63a5 spawn_agent \u517c\u5bb9\u6027\u7684\u540c\u65f6\u589e\u5f3a\u4efb\u52a1\u5951\u7ea6\u3001\u4e0a\u4e0b\u6587\u4ea4\u63a5\u3001\u8eab\u4efd\u7ed1\u5b9a\u3001\u6709\u5e8f\u7b49\u5f85\u3001\u6709\u9650\u6062\u590d\u3001\u7ed3\u6784\u5316\u7ed3\u679c\u3001\u7236\u4efb\u52a1\u9a8c\u6536\u548c\u53ea\u8bfb\u8bca\u65ad\u80fd\u529b\u3002",
     "developerName": "zhaolaiyuan",
     "category": "Developer Tools",
     "capabilities": [
       "Hooks",
       "Skills"
     ],
-    "defaultPrompt": "\u4f7f\u7528 $subagent-governance \u4e3a\u5f53\u524d\u5b50 Agent \u4efb\u52a1\u9009\u62e9\u5408\u9002\u7684\u6cbb\u7406\u7b49\u7ea7\u3002"
+    "defaultPrompt": "\u4f7f\u7528 $subagent-governance \u4e3a\u5f53\u524d\u5b50 Agent \u4efb\u52a1\u9009\u62e9\u5408\u9002\u7684\u6cbb\u7406\u7b49\u7ea7\uff0c\u5e76\u751f\u6210\u53ef\u9a8c\u8bc1\u7684\u6d3e\u53d1\u5951\u7ea6\u3002"
   }
 }

@@ -5,7 +5,7 @@
   "tool_name": "collaboration.spawn_agent",
   "tool_use_id": "opaque-tool",
   "tool_input": {
-    "task_name": "sg_strict_security_review",
+    "task_name": "sg_strict_security_review_t_0123456789ab",
     "fork_turns": "none",
     "message": "gAAAAAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   }

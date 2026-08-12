@@ -1,0 +1,432 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "subagent-governance/governance-semantics",
+  "title": "Subagent Governance machine semantics",
+  "$defs": {
+    "requested_mode": {
+      "type": "string",
+      "enum": ["auto", "light", "standard", "strict"]
+    },
+    "resolved_mode": {
+      "type": "string",
+      "enum": ["light", "standard", "strict"]
+    },
+    "resolution_reason": {
+      "type": "string",
+      "enum": ["explicit_request", "auto_light", "auto_standard", "auto_strict"]
+    },
+    "risk": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "reasoning_effort": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "xhigh", "max", "ultra"]
+    },
+    "context_strategy": {
+      "type": "string",
+      "enum": ["isolated", "limited", "full"]
+    },
+    "context_turns": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "maximum": 100
+    },
+    "operation_type": {
+      "type": "string",
+      "enum": ["normal_message", "platform_recovery", "result_correction", "business_resume"]
+    },
+    "execution_status": {
+      "type": "string",
+      "enum": ["not_started", "running", "stopped", "interrupted"]
+    },
+    "spawn_observation": {
+      "type": "string",
+      "enum": ["success", "failed", "unknown"]
+    },
+    "identity_status": {
+      "type": "string",
+      "enum": ["unconfirmed", "confirmed"]
+    },
+    "platform_observation": {
+      "type": "string",
+      "enum": ["normal", "error", "unknown"]
+    },
+    "business_result": {
+      "type": "string",
+      "enum": ["complete", "blocked", "failed", "needs_decision"]
+    },
+    "acceptance_status": {
+      "type": "string",
+      "enum": ["pending", "accepted", "rejected"]
+    },
+    "result_protocol_status": {
+      "type": "string",
+      "enum": ["needs_correction", "valid", "exhausted"]
+    },
+    "result_storage_status": {
+      "type": "string",
+      "enum": ["available", "unavailable"]
+    },
+    "recovery_status": {
+      "type": "string",
+      "enum": ["awaiting_authorization", "exhausted"]
+    },
+    "parent_action": {
+      "type": "string",
+      "enum": [
+        "wait",
+        "reconcile",
+        "retry_spawn",
+        "recover",
+        "correct_result",
+        "decide_disposition",
+        "business_resume",
+        "accept_result",
+        "ask_user",
+        "manual_review",
+        "resolve_duplicate"
+      ]
+    },
+    "parent_disposition": {
+      "type": "string",
+      "enum": ["accept_result", "reject_result", "close_task", "select_attempt"]
+    },
+    "call_observation": {
+      "type": "string",
+      "enum": ["success", "failed", "unknown"]
+    },
+    "pending_action_phase": {
+      "type": "string",
+      "enum": ["prepared", "claimed"]
+    },
+    "lifecycle_operation_type": {
+      "type": "string",
+      "enum": ["platform_recovery", "result_correction", "business_resume", "interrupt"]
+    },
+    "semantic_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*$"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "\\S"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "result_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536,
+      "pattern": "\\S"
+    },
+    "business_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000,
+      "pattern": "\\S"
+    },
+    "nullable_business_text": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 20000,
+      "pattern": "\\S"
+    },
+    "short_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 600,
+      "pattern": "\\S"
+    },
+    "nullable_short_text": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 600,
+      "pattern": "\\S"
+    },
+    "model": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "\\S"
+    },
+    "nullable_reasoning_effort": {
+      "anyOf": [
+        {"$ref": "#/$defs/reasoning_effort"},
+        {"type": "null"}
+      ]
+    },
+    "text_list": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000,
+        "pattern": "\\S"
+      }
+    },
+    "task_features": {
+      "type": "object",
+      "required": [
+        "risk",
+        "read_only",
+        "writes_files",
+        "destructive",
+        "production",
+        "concurrent_write",
+        "multi_stage_acceptance"
+      ],
+      "properties": {
+        "risk": {"$ref": "#/$defs/risk"},
+        "read_only": {"type": "boolean"},
+        "writes_files": {"type": "boolean"},
+        "destructive": {"type": "boolean"},
+        "production": {"type": "boolean"},
+        "concurrent_write": {"type": "boolean"},
+        "multi_stage_acceptance": {"type": "boolean"},
+        "allows_child_agents": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "x-semantics": {
+    "task_contract_fields": [
+      "semantic_name",
+      "requested_mode",
+      "resolved_mode",
+      "resolution_reason",
+      "task_features",
+      "objective",
+      "background",
+      "work_scope",
+      "forbidden_scope",
+      "completion_conditions",
+      "evidence_requirements",
+      "relevant_files",
+      "current_state",
+      "model",
+      "reasoning_effort",
+      "context_strategy",
+      "context_turns",
+      "context_reason"
+    ],
+    "task_result_fields": [
+      "task_id",
+      "attempt",
+      "business_result",
+      "result",
+      "evidence",
+      "remaining",
+      "suggested_parent_next_step",
+      "blocker",
+      "attempted",
+      "required_to_resume",
+      "failure_reason",
+      "retry_conditions",
+      "decision_question",
+      "options",
+      "recommendation"
+    ],
+    "task_contract_optional_fields": [
+      "task_features",
+      "model",
+      "reasoning_effort"
+    ],
+    "task_result_base_required_fields": [
+      "task_id",
+      "attempt",
+      "business_result",
+      "result",
+      "evidence",
+      "remaining",
+      "suggested_parent_next_step"
+    ],
+    "task_result_scenario_fields": {
+      "blocked": ["blocker", "attempted", "required_to_resume"],
+      "failed": ["failure_reason", "attempted", "retry_conditions"],
+      "needs_decision": ["decision_question", "options", "recommendation"]
+    },
+    "attempt_state_fields": [
+      "execution_status",
+      "spawn_observation",
+      "identity_status",
+      "platform_observation",
+      "business_result",
+      "acceptance_status",
+      "result_protocol_status",
+      "result_storage_status",
+      "result_conflict",
+      "recovery_status",
+      "parent_action",
+      "spawn_retry_count",
+      "recovery_count",
+      "correction_count"
+    ],
+    "formal_result_state_fields": [
+      "result_reference",
+      "result_sha256",
+      "result_stored_at",
+      "result_conflict_sha256",
+      "result_conflict_first_seen_at"
+    ],
+    "formal_result_storage": {
+      "directory": "results",
+      "file_name_pattern": "^result-[a-f0-9]{64}-attempt-[1-9][0-9]*\\.json$",
+      "digest": "sha256",
+      "canonical_json": true,
+      "state_embeds_full_result": false
+    },
+    "parent_disposition_fields": [
+      "task_id",
+      "attempt",
+      "action",
+      "reason"
+    ],
+    "parent_disposition_reason_max_length": 600,
+    "retry_limits": {
+      "spawn": 2,
+      "recovery": 2,
+      "correction": 2
+    },
+    "communication_fields": [
+      "target",
+      "purpose",
+      "reason",
+      "content",
+      "expected_result",
+      "operation_type"
+    ],
+    "pending_action_fields": [
+      "target",
+      "task_id",
+      "attempt",
+      "task_ref",
+      "operation_type",
+      "phase",
+      "created_at",
+      "expires_at",
+      "tool_use_id",
+      "claimed_at",
+      "reason",
+      "authorized_recovery",
+      "start_observed_at"
+    ],
+    "last_lifecycle_operation_fields": [
+      "operation_type",
+      "target",
+      "tool_use_id",
+      "call_observation",
+      "claimed_at",
+      "completed_at",
+      "reason"
+    ],
+    "operation_native_tools": {
+      "normal_message": "send_message",
+      "platform_recovery": "followup_task",
+      "result_correction": "followup_task",
+      "business_resume": "followup_task",
+      "interrupt": "interrupt_agent"
+    },
+    "context_turns": {
+      "minimum": 1,
+      "maximum": 100
+    },
+    "auto_resolution": {
+      "strict_risks": ["high"],
+      "strict_true_fields": [
+        "destructive",
+        "production",
+        "concurrent_write",
+        "multi_stage_acceptance",
+        "allows_child_agents"
+      ],
+      "light_match": {
+        "risk": "low",
+        "read_only": true,
+        "writes_files": false
+      }
+    },
+    "mode_minimums": {
+      "light": {"forbidden_scope": 0, "evidence_requirements": 0},
+      "standard": {"forbidden_scope": 0, "evidence_requirements": 1},
+      "strict": {"forbidden_scope": 1, "evidence_requirements": 1}
+    },
+    "retention_seconds": {
+      "prepared_unclaimed": 300,
+      "claimed_reconcile": 1200,
+      "recent_activity": 43200,
+      "tombstone": 604800
+    },
+    "wait_timeout_ms": 1200000,
+    "stop_read_attempts": 3,
+    "derived_views": {
+      "action_required": {
+        "includes_prior_attempts": true,
+        "uses_recent_activity_window": false,
+        "primary_rule": "unclosed_parent_action_or_authoritative_call"
+      },
+      "recent_activity": {
+        "includes_prior_attempts": true,
+        "uses_recent_activity_window": true,
+        "authoritative_lifecycle_state": false
+      }
+    },
+    "diagnostic_limits": {
+      "sessions": 128,
+      "attempts_per_session": 256,
+      "groups_per_session": 64,
+      "issues": 256,
+      "output_bytes": 2097152
+    },
+    "group": {
+      "fields": [
+        "group_id",
+        "objective_summary",
+        "members",
+        "created_at",
+        "updated_at"
+      ],
+      "member_fields": ["task_id", "required"],
+      "members_max_items": 128,
+      "group_id_max_length": 128,
+      "objective_summary_max_length": 600,
+      "summary_ready_requires_nonempty_required": true,
+      "optional_members_affect_required_aggregates": false,
+      "persists_derived_status": false
+    },
+    "task_name": {
+      "pattern": "^sg_(light|standard|strict)_[a-z0-9]+(?:_[a-z0-9]+)*_t_[a-f0-9]{12,32}$",
+      "max_length": 64,
+      "task_ref_lengths": [12, 16, 20, 24, 28, 32]
+    },
+    "initial_attempt_state": {
+      "execution_status": "not_started",
+      "spawn_observation": null,
+      "identity_status": "unconfirmed",
+      "platform_observation": null,
+      "business_result": null,
+      "acceptance_status": null,
+      "result_protocol_status": null,
+      "result_storage_status": null,
+      "result_conflict": false,
+      "recovery_status": null,
+      "parent_action": null,
+      "spawn_retry_count": 0,
+      "recovery_count": 0,
+      "correction_count": 0
+    },
+    "business_result_parent_action": {
+      "complete": "accept_result",
+      "blocked": "decide_disposition",
+      "failed": "decide_disposition",
+      "needs_decision": "ask_user"
+    }
+  }
+}

@@ -1,0 +1,57 @@
+name: Bug report
+description: Report reproducible incorrect behavior in Subagent Governance
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report sensitive security issues here. Use the private process in SECURITY.md.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version or commit
+      placeholder: 0.4.0-rc.10 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: codex_surface
+    attributes:
+      label: Codex surface
+      options:
+        - Codex CLI
+        - Codex in the ChatGPT desktop app
+        - Other or unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: operating_system
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include the governance level, operation, lifecycle state, and redacted evidence. Do not include private prompts or Session IDs.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Checks already performed
+      description: List relevant tests, diagnostics, Hook trust checks, or new-task reproduction.

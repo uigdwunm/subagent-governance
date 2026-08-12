@@ -1,33 +1,6 @@
 [
   {
     "session_id": "recovery-fixture-session",
-    "turn_id": "turn-real-shape",
-    "hook_event_name": "PreToolUse",
-    "tool_name": "spawn_agent",
-    "tool_use_id": "spawn-pre-call-id",
-    "tool_input": {
-      "task_name": "sg_light_platform_limit_fixture",
-      "message": "gAAAAAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      "fork_turns": "none",
-      "model": "gpt-5.6-terra",
-      "reasoning_effort": "medium"
-    }
-  },
-  {
-    "session_id": "recovery-fixture-session",
-    "turn_id": "turn-real-shape",
-    "hook_event_name": "PostToolUse",
-    "tool_name": "spawn_agent",
-    "tool_use_id": "spawn-post-item-id",
-    "tool_input": {
-      "task_name": "sg_light_platform_limit_fixture"
-    },
-    "tool_response": {
-      "task_name": "/root/sg_light_platform_limit_fixture"
-    }
-  },
-  {
-    "session_id": "recovery-fixture-session",
     "hook_event_name": "PostToolUse",
     "tool_name": "list_agents",
     "tool_response": {
@@ -48,18 +21,25 @@
     "tool_use_id": "followup-pre-1",
     "tool_input": {
       "target": "/root/sg_light_platform_limit_fixture",
-      "message": "请恢复原任务并补发终态。"
+      "operation_type": "platform_recovery",
+      "purpose": "补充原任务执行",
+      "reason": "前一轮发生平台错误，需要恢复同一任务",
+      "content": "请恢复原任务并补发终态。",
+      "expected_result": "返回实际恢复结果和剩余事项"
     }
   },
   {
     "session_id": "recovery-fixture-session",
     "hook_event_name": "PostToolUse",
     "tool_name": "followup_task",
-    "tool_use_id": "followup-post-1",
-    "tool_input": {
-      "target": "/root/sg_light_platform_limit_fixture"
-    },
+    "tool_use_id": "followup-pre-1",
+    "tool_input": {"target": "/root/sg_light_platform_limit_fixture"},
     "tool_response": ""
+  },
+  {
+    "session_id": "recovery-fixture-session",
+    "hook_event_name": "SubagentStart",
+    "agent_id": "native-agent-after-recovery"
   },
   {
     "session_id": "recovery-fixture-session",
@@ -83,7 +63,33 @@
     "tool_use_id": "followup-pre-2",
     "tool_input": {
       "target": "/root/sg_light_platform_limit_fixture",
-      "message": "请再次恢复原任务。"
+      "operation_type": "platform_recovery",
+      "purpose": "补充用户授权恢复",
+      "reason": "自动恢复后再次出现明确平台错误",
+      "content": "请再次恢复原任务。",
+      "expected_result": "返回实际恢复结果和剩余事项"
+    }
+  },
+  {
+    "session_id": "recovery-fixture-session",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "followup_task",
+    "tool_use_id": "followup-pre-2",
+    "tool_input": {"target": "/root/sg_light_platform_limit_fixture"},
+    "tool_response": {"isError": true, "status": "failed"}
+  },
+  {
+    "session_id": "recovery-fixture-session",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "followup_task",
+    "tool_use_id": "followup-pre-3",
+    "tool_input": {
+      "target": "/root/sg_light_platform_limit_fixture",
+      "operation_type": "platform_recovery",
+      "purpose": "确认恢复上限持续生效",
+      "reason": "恢复额度已经耗尽",
+      "content": "请再次恢复原任务。",
+      "expected_result": "继续拒绝恢复并保留用户决策状态"
     }
   }
 ]
