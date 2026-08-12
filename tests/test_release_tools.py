@@ -486,6 +486,7 @@ class ReleaseToolTests(unittest.TestCase):
             self.assertTrue(report["legacy_hook_mounted"])
 
             escaped_legacy_hook = root / r"hooks\subagent_policy.py"
+            escaped_legacy_hook.parent.mkdir(parents=True, exist_ok=True)
             escaped_legacy_hook.write_text("# Windows-style path\n", encoding="utf-8")
             escaped_args = list(valid_args)
             legacy_hook_index = escaped_args.index("--legacy-hook") + 1

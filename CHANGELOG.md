@@ -2,7 +2,11 @@
 
 All notable changes to this project are documented here. The project follows semantic versioning for public releases; Codex cachebuster metadata may be appended to the Manifest version without changing the public feature version.
 
-## 0.4.0-rc.11
+## 0.4.0-rc.12
+
+- Fixed the Windows regression test fixture so its platform-specific Hook directory exists before writing the test file.
+
+## 0.4.0-rc.11 (unreleased candidate)
 
 - Fixed Windows CI portability for temporary home-directory resolution and regular-expression assertions.
 - Recognized JSON-escaped Windows paths when checking whether a retained legacy Hook is still mounted.
