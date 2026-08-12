@@ -2,7 +2,12 @@
 
 All notable changes to this project are documented here. The project follows semantic versioning for public releases; Codex cachebuster metadata may be appended to the Manifest version without changing the public feature version.
 
-## 0.4.0-rc.10
+## 0.4.0-rc.11
+
+- Fixed Windows CI portability for temporary home-directory resolution and regular-expression assertions.
+- Recognized JSON-escaped Windows paths when checking whether a retained legacy Hook is still mounted.
+
+## 0.4.0-rc.10 (unreleased candidate)
 
 - Added a public Git-backed Marketplace entry and external installation flow.
 - Added Windows Hook commands, cross-platform file locking, Windows-aware release tools, and a macOS/Linux/Windows CI matrix.

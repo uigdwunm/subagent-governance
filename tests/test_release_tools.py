@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -337,6 +338,7 @@ class ReleaseToolTests(unittest.TestCase):
             result = subprocess.run(
                 [
                     sys.executable, str(CHECK_SCRIPT),
+                    "--development-root", str(development),
                     "--stable-root", str(stable),
                     "--cache-parent", str(cache_parent),
                     "--agents-file", str(agents),
@@ -482,6 +484,22 @@ class ReleaseToolTests(unittest.TestCase):
             self.assertFalse(report["runtime_healthy"])
             self.assertIn("legacy_hook_unmounted", report["runtime_issues"])
             self.assertTrue(report["legacy_hook_mounted"])
+
+            escaped_legacy_hook = root / r"hooks\subagent_policy.py"
+            escaped_legacy_hook.write_text("# Windows-style path\n", encoding="utf-8")
+            escaped_args = list(valid_args)
+            legacy_hook_index = escaped_args.index("--legacy-hook") + 1
+            escaped_args[legacy_hook_index] = str(escaped_legacy_hook)
+            active_hooks_config.write_text(
+                json.dumps({"command": f"python3 {escaped_legacy_hook}"}), encoding="utf-8"
+            )
+            escaped_result = subprocess.run(
+                escaped_args, capture_output=True, text=True, check=False
+            )
+            self.assertEqual(escaped_result.returncode, 1)
+            escaped_report = json.loads(escaped_result.stdout)
+            self.assertIn("legacy_hook_unmounted", escaped_report["runtime_issues"])
+            self.assertTrue(escaped_report["legacy_hook_mounted"])
 
     def test_installation_check_reports_manifest_and_marker_errors_as_json(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -938,7 +956,7 @@ class ReleaseToolTests(unittest.TestCase):
             (target / "marker").write_text("new", encoding="utf-8")
             (source / "marker").write_text("old", encoding="utf-8")
 
-            with self.assertRaisesRegex(RuntimeError, str(snapshot)) as caught:
+            with self.assertRaisesRegex(RuntimeError, re.escape(str(snapshot))) as caught:
                 reinstall_tool.restore_snapshot(snapshot, cache_parent)
 
             self.assertIn(str(target), str(caught.exception))

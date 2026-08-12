@@ -107,7 +107,7 @@ class DispatchIdentityTests(unittest.TestCase):
         codex_root = self.root / ".codex"
         installed_script = (
             codex_root
-            / "plugins/cache/personal/subagent-governance/0.4.0-rc.10/scripts"
+            / "plugins/cache/personal/subagent-governance/0.4.0-rc.11/scripts"
             / "subagent_governance.py"
         )
         expected_root = (

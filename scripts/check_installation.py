@@ -121,9 +121,13 @@ def config_references_hook(config_path: Path, hook_path: Path) -> bool:
     if not config_path.exists():
         return False
     text = config_path.read_text(encoding="utf-8")
-    candidates = {str(hook_path)}
+    raw_candidates = {str(hook_path)}
     if hook_path.exists() or hook_path.is_symlink():
-        candidates.add(str(hook_path.resolve()))
+        raw_candidates.add(str(hook_path.resolve()))
+    candidates = raw_candidates | {
+        json.dumps(candidate, ensure_ascii=False)[1:-1]
+        for candidate in raw_candidates
+    }
     return any(candidate in text for candidate in candidates)
 
 
