@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The project follows semantic versioning for public releases; Codex cachebuster metadata may be appended to the Manifest version without changing the public feature version.
 
-## Unreleased
+## 0.4.0-rc.13
 
 - Replaced the four-plane outcome model with StateStore format 5 and three canonical execution planes: dispatch, observation, and closure.
 - Added stdin-only `--record-terminal-notification` with exact sender/task/attempt binding and idempotent replay.
@@ -33,6 +33,8 @@ All notable changes to this project are documented here. The project follows sem
 - Fixed Stop and SessionEnd advisory summaries to derive execution status from canonical observation facts.
 - Removed the unreachable `start_observed_at` lifecycle field, obsolete CLI selectors, and duplicate recovery branches.
 - Removed the ineffective `SubagentStart` and `SubagentStop` runtime Hooks, deleted the unused closure-state helper and parameter plumbing, constrained authorization CLI combinations, and persisted recovery authorization only for the final authorized recovery claim.
+
+## Unreleased
 
 ## 0.4.0-rc.12
 
