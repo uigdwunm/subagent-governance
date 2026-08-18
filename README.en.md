@@ -1,20 +1,24 @@
 # Subagent Governance
 
-English | [简体中文](README.md)
+[简体中文](README.md) | English
 
-Codex-first lifecycle governance for native subagents. It turns delegation, execution, waiting, recovery, and acceptance from informal context-dependent coordination into an explicit, traceable, recoverable, and verifiable workflow.
+A Codex-first lifecycle governance plugin for native subagents. It keeps the native `spawn_agent`, messaging, waiting, recovery, and interrupt tools while adding explicit task contracts, deterministic dispatch admission, terminal-notification tracking, lifecycle closure, and read-only diagnostics.
 
-The plugin is designed and tested primarily for Codex native subagent tools, Codex Skills, Codex Hooks, Codex CLI, and Codex in the ChatGPT desktop app. It extends native `spawn_agent`; it does not introduce a second orchestration platform or replace Codex sandboxing, approvals, models, or the parent agent's judgment.
+It does not introduce a second orchestrator, define a business-result JSON format, persist result bodies, or replace the parent agent's judgment.
 
-## Core capabilities
+Version 5 StateStore reads, updates, and CAS callbacks expose only `dispatch_record`, `observation_record`, and `closure_record`. Legacy v1-v4 execution fields are accepted only as one-way migration input: reads convert them in memory, and the next successful write persists v5 without recreating a compatibility projection or maintaining a second state model.
 
-- Adaptive `light`, `standard`, `strict`, and `auto` governance levels.
-- Explicit task contracts covering the objective, scope, prohibitions, completion criteria, model, reasoning effort, and context inheritance.
-- Deterministic dispatch and exact agent-to-task identity binding.
-- Ordered waiting, bounded recovery, explicit communication, and interrupt reconciliation.
-- Structured formal results with evidence, remaining work, and a suggested parent next step.
-- Separate execution completion, result validity, and parent acceptance states.
-- Read-only diagnostics and lightweight multi-agent grouping without a second scheduler or group state machine.
+## Capabilities
+
+- `light`, `standard`, `strict`, and structured `auto` governance modes
+- Explicit objectives, scope, completion conditions, model, reasoning effort, and context strategy
+- PreparedContract-based dispatch identity and bounded retries
+- Ordered waiting, exact-target platform observations, and limited recovery
+- Explicit normal messaging, platform recovery, business resume, and interrupt reconciliation
+- Three canonical execution planes: dispatch, observation, and closure
+- Minimal terminal-notification facts bound to the exact native sender
+- Lifecycle-only parent disposition: `close_task`
+- Read-only diagnostics and lightweight required-member groups
 
 ## Install
 
@@ -23,29 +27,58 @@ codex plugin marketplace add uigdwunm/subagent-governance --ref main
 codex plugin add subagent-governance@subagent-governance
 ```
 
-Then start a new Codex task, open `/hooks`, review and trust the seven plugin Hooks, and start another new task for a smoke test.
+Start a new Codex task after installation, review the plugin hooks with `/hooks`, then test an explicit `$subagent-governance` dispatch.
 
-Example:
+## Terminal notifications
 
-```text
-Use $subagent-governance in light mode to delegate a read-only review of the README installation steps.
+Subagents report their actual result, evidence, and remaining work through the native final reply. The parent can record only the minimal lifecycle observation:
+
+```bash
+python3 scripts/subagent_governance.py --record-terminal-notification --session <session_id>
 ```
 
-Supported environments:
+```json
+{
+  "sender_target": "/root/<exact-native-agent-target>",
+  "task_id": "<task_id>",
+  "attempt": 1,
+  "terminal_status": "completed"
+}
+```
 
-- Codex CLI and Codex in the ChatGPT desktop app
-- macOS, Linux, and Windows
-- Python 3.11 or 3.12
+The runtime requires an exact dispatch-target and task/attempt match. Identical notifications are idempotent; conflicting terminal statuses preserve the first fact and require reconciliation. Notification bodies are neither scanned nor stored, and no `results/` directory is created.
 
-## Boundaries and data
+The parent reads the native reply and decides whether to continue or close. `--parent-disposition` supports only `close_task`.
 
-- The core runtime does not initiate network requests and contains no telemetry.
-- Runtime state and formal results are stored locally in the current user's Codex plugin data directory.
-- This is a collaboration-governance layer, not a security sandbox. Parent agents, child agents, and local CLI operations remain within the permissions granted by Codex and the current OS user.
-- Hook trust, event delivery, native agent identity, and tool responses remain Codex platform boundaries.
-- Existing tasks may retain references to the plugin cache loaded when they started; validate upgrades in a new task.
+## Privacy and boundaries
 
-See the [Chinese README](README.md) for complete installation, upgrade, diagnostics, and maintenance instructions. See [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [CHANGELOG.md](CHANGELOG.md) for project governance.
+- The core runtime does not initiate network access and has no telemetry.
+- Local state contains bounded task metadata, identity mappings, lifecycle facts, notification observations, and tombstones.
+- Version 5 does not read or delete legacy result files. Existing files remain for manual cleanup.
+- The plugin does not register `SubagentStart` or `SubagentStop`; neither event participates in state maintenance or notification handling.
+- Exact `list_agents` terminal observations wait for the native notification; they do not synthesize completion.
+- Parent Stop remains advisory and fail-open.
+
+## Diagnostics
+
+```bash
+python3 scripts/subagent_governance.py --diagnose --data-root /path/to/governance-data
+python3 scripts/subagent_governance.py --diagnose --data-root /path/to/governance-data --session <session_id>
+```
+
+Diagnostics are read-only: they do not create locks, repair state, scan legacy results, or write back observations.
+
+## Development
+
+```bash
+python3 -m unittest discover -s tests -v
+python3 -m py_compile scripts/subagent_governance.py
+python3 scripts/release_preflight.py --mode development
+python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
+python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/subagent-governance
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

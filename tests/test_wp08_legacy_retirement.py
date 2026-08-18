@@ -42,41 +42,22 @@ class LegacyRetirementTests(unittest.TestCase):
         remaining = sorted(name for name in retired if hasattr(governance, name))
         self.assertEqual(remaining, [])
 
-    def test_historical_nonmanaged_mapping_is_warned_and_not_executed(self):
-        with tempfile.TemporaryDirectory() as directory:
-            store = governance.StateStore(Path(directory) / "sessions")
-            now = governance._now()
-
-            def add_historical(state):
-                state["tasks"]["historical-task"] = {
-                    "task_id": "historical-task",
-                    "attempt": 1,
-                    "status": "running",
-                    "retry_count": 0,
-                    "created_at": now,
-                    "updated_at": now,
-                }
-                state["agents"]["historical-agent"] = {
-                    "task_id": "historical-task",
-                    "attempt": 1,
-                }
-
-            store.update("session-1", add_historical)
-            result = governance.handle(
-                {
-                    "session_id": "session-1",
-                    "hook_event_name": "SubagentStop",
-                    "agent_id": "historical-agent",
-                    "last_assistant_message": "状态：完成\n自由文本结果",
-                },
-                store,
-            )
-            record = store.read("session-1")["tasks"]["historical-task"]
-            self.assertTrue(result["continue"])
-            self.assertIn("历史或非 managed", result["systemMessage"])
-            self.assertEqual(record["status"], "running")
-            self.assertNotIn("result_document", record)
-            self.assertNotIn("protocol_errors", record)
+    def test_unconsumed_helpers_are_absent_from_runtime_and_authoritative_inventory(self):
+        runtime = SCRIPT.read_text(encoding="utf-8")
+        inventory = (ROOT / "docs/project-function-inventory.md").read_text(
+            encoding="utf-8"
+        )
+        retired = (
+            "_pop_execution_fact",
+            "_resolve_task_id",
+            "_bind_identity_target",
+            "_task_disposition_complete",
+        )
+        for symbol in retired:
+            with self.subTest(symbol=symbol, source="runtime"):
+                self.assertNotIn(symbol, runtime)
+            with self.subTest(symbol=symbol, source="authoritative_inventory"):
+                self.assertNotIn(symbol, inventory)
 
     def test_authoritative_views_ignore_historical_nonmanaged_records(self):
         state = {
@@ -97,7 +78,22 @@ class LegacyRetirementTests(unittest.TestCase):
         }
         self.assertEqual(governance._action_required_records(state), [])
         self.assertEqual(governance._recent_activity_records(state), [])
-        self.assertEqual(governance._stop_blocking_records(state), [])
+        self.assertFalse(hasattr(governance, "_managed_stop_blocking"))
+        self.assertFalse(hasattr(governance, "_stop_blocking_records"))
+
+    def test_attempt_iteration_uses_task_level_managed_authority(self):
+        state = {
+            "tasks": {
+                "historical-task": {
+                    "managed": False,
+                    "executions": {
+                        "1": {"managed": True, "attempt": 1},
+                    },
+                }
+            }
+        }
+
+        self.assertEqual(governance._iter_task_attempts(state), [])
 
     def test_opaque_fixture_has_current_exact_identity_name(self):
         fixtures = ROOT / "tests/fixtures"

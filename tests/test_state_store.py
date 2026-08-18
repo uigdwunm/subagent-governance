@@ -55,25 +55,77 @@ class StateStoreSafetyTests(unittest.TestCase):
             ],
         )
 
-    def test_empty_state_has_minimum_unversioned_shape(self):
+    def test_empty_state_has_versioned_session_envelope(self):
         state = self.store.read("session-1")
 
         self.assertEqual(
             set(state),
-            {"session_id", "tasks", "agents", "health", "tombstones", "updated_at"},
+            {
+                "state_format_version",
+                "session_id",
+                "tasks",
+                "agents",
+                "health",
+                "tombstones",
+            },
         )
         self.assertEqual(state["session_id"], "session-1")
-        self.assertNotIn("version", state)
+        self.assertEqual(
+            state["state_format_version"], governance.STATE_FORMAT_VERSION
+        )
 
-    def test_initial_attempt_state_uses_wp01_machine_semantics(self):
-        expected = governance.AttemptState().to_record()
+    def test_state_store_has_no_legacy_initial_attempt_projection(self):
+        self.assertFalse(hasattr(governance, "AttemptState"))
+        self.assertFalse(hasattr(self.store, "initial_attempt_state"))
 
-        first = self.store.initial_attempt_state()
-        second = self.store.initial_attempt_state()
+    def test_new_governed_record_uses_canonical_work_item_and_executions(self):
+        contract = governance.TaskContract(
+            semantic_name="state_store",
+            requested_mode="standard",
+            resolved_mode="standard",
+            resolution_reason="explicit_request",
+            task_features=None,
+            objective="验证 canonical work item",
+            background="S1 local test",
+            work_scope=["StateStore"],
+            forbidden_scope=[],
+            completion_conditions=["canonical record exists"],
+            evidence_requirements=["unit test"],
+            relevant_files=[],
+            current_state=None,
+            model=None,
+            reasoning_effort=None,
+            context_strategy="isolated",
+            context_turns=None,
+            context_reason=None,
+        )
+        record = governance._initial_task_record(
+            1, "0123456789ab", "sg_standard_state_store_t_0123456789ab", contract, 100
+        )
 
-        self.assertEqual(first, expected)
-        self.assertEqual(first, governance.MACHINE_SEMANTICS["x-semantics"]["initial_attempt_state"])
-        self.assertIsNot(first, second)
+        self.assertEqual(record["work_item"]["lifecycle"], "open")
+        self.assertEqual(record["work_item"]["current_attempt"], 1)
+        self.assertNotIn("task_id", record)
+        self.assertNotIn("objective_summary", record["work_item"])
+        self.assertNotIn("updated_at", record["work_item"])
+        self.assertNotIn("action_required", record["work_item"])
+        self.assertNotIn("task_id", record["executions"]["1"])
+        self.assertNotIn("attempt", record["executions"]["1"])
+        self.assertNotIn("managed", record["executions"]["1"])
+        self.assertNotIn("created_at", record["executions"]["1"])
+        self.assertNotIn("activity_at", record["executions"]["1"])
+        self.assertNotIn("recovery_status", record["executions"]["1"])
+        self.assertNotIn("task_id", record["executions"]["1"]["dispatch_record"])
+        self.assertNotIn("attempt", record["executions"]["1"]["dispatch_record"])
+        self.assertNotIn("task_ref", record["executions"]["1"]["dispatch_record"])
+        self.assertNotIn("claimed_at", record["executions"]["1"]["dispatch_record"])
+        self.assertNotIn("response_observed_at", record["executions"]["1"]["dispatch_record"])
+        self.assertNotIn("bound_task_id", record["executions"]["1"]["observation_record"])
+        self.assertNotIn("bound_attempt", record["executions"]["1"]["observation_record"])
+        self.assertNotIn("runtime_alias", record["executions"]["1"]["observation_record"])
+        self.assertNotIn("binding_basis", record["executions"]["1"]["observation_record"])
+        self.assertNotIn("task_id", record["executions"]["1"]["closure_record"])
+        self.assertNotIn("attempt", record["executions"]["1"]["closure_record"])
 
     def test_corrupt_state_stays_in_place_and_is_unavailable(self):
         state_path, _ = self.store._paths("session-1")
@@ -174,7 +226,6 @@ class StateStoreSafetyTests(unittest.TestCase):
             "agents": {},
             "health": {"status": "ok"},
             "tombstones": {},
-            "updated_at": governance._now(),
         }
         state_path.write_text(json.dumps(value), encoding="utf-8")
         state_path.chmod(0o600)
@@ -348,20 +399,14 @@ class StateStoreSafetyTests(unittest.TestCase):
 
     def test_expired_tombstones_cleanup_is_exact_and_keeps_lock(self):
         now = governance._now()
-        calls = []
-
         def add_state(state):
             state["tasks"]["unresolved"] = {"status": "blocked", "updated_at": 0}
             state["tombstones"].update({
-                "task-old:1": {
-                    "task_id": "task-old",
-                    "attempt": 1,
+                "tenant:task-old:1": {
                     "close_reason": "explicit close",
                     "closed_at": now - governance.RETENTION_SECONDS["tombstone"] - 1,
                 },
                 "task-recent:2": {
-                    "task_id": "task-recent",
-                    "attempt": 2,
                     "close_reason": "explicit close",
                     "closed_at": now - governance.RETENTION_SECONDS["tombstone"] + 1,
                 },
@@ -371,38 +416,32 @@ class StateStoreSafetyTests(unittest.TestCase):
         removed = self.store.cleanup_expired_tombstones(
             "session-1",
             now=now,
-            result_cleanup=lambda task_id, attempt: calls.append((task_id, attempt)),
         )
 
         state = self.store.read("session-1")
         _state_path, lock_path = self.store._paths("session-1")
-        self.assertEqual(removed, [("task-old", 1)])
-        self.assertEqual(calls, [("task-old", 1)])
-        self.assertNotIn("task-old:1", state["tombstones"])
+        self.assertEqual(removed, [("tenant:task-old", 1)])
+        self.assertNotIn("tenant:task-old:1", state["tombstones"])
         self.assertIn("task-recent:2", state["tombstones"])
         self.assertIn("unresolved", state["tasks"])
         self.assertTrue(lock_path.is_file())
 
-    def test_result_cleanup_failure_keeps_tombstone(self):
+    def test_result_cleanup_callback_is_not_part_of_tombstone_api(self):
         now = governance._now()
 
         def add_tombstone(state):
             state["tombstones"]["task-old:1"] = {
-                "task_id": "task-old",
-                "attempt": 1,
                 "close_reason": "explicit close",
                 "closed_at": now - governance.RETENTION_SECONDS["tombstone"] - 1,
             }
 
         self.store.update("session-1", add_tombstone)
 
-        with self.assertRaises(governance.StateWriteError):
+        with self.assertRaises(TypeError):
             self.store.cleanup_expired_tombstones(
                 "session-1",
                 now=now,
-                result_cleanup=lambda _task_id, _attempt: (_ for _ in ()).throw(
-                    OSError("result cleanup failed")
-                ),
+                result_cleanup=lambda _task_id, _attempt: None,
             )
 
         self.assertIn("task-old:1", self.store.read("session-1")["tombstones"])
@@ -412,14 +451,13 @@ class StateStoreSafetyTests(unittest.TestCase):
 
         def add_invalid(state):
             state["tombstones"]["invalid"] = {
-                "task_id": "task-old",
-                "attempt": 1,
+                "close_reason": "explicit close",
                 "closed_at": now - governance.RETENTION_SECONDS["tombstone"] - 1,
             }
 
         self.store.update("session-1", add_invalid)
 
-        with self.assertRaisesRegex(governance.StateValidationError, "close_reason"):
+        with self.assertRaisesRegex(governance.StateValidationError, "身份键"):
             self.store.cleanup_expired_tombstones("session-1", now=now)
 
         self.assertIn("invalid", self.store.read("session-1")["tombstones"])

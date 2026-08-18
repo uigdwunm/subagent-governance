@@ -1,0 +1,50 @@
+{
+  "contract_name": "codex-hook-events-v1",
+  "source_url": "https://learn.chatgpt.com/docs/hooks",
+  "source_redirect": "https://developers.openai.com/codex/hooks",
+  "checked_date": "2026-08-14",
+  "applicability": "Current release behavior documented on the OpenAI Hooks page; generated main-branch schemas and transcript/rollout internals are excluded.",
+  "common": {
+    "required_keys": ["session_id", "cwd", "hook_event_name", "model"],
+    "optional_keys": ["transcript_path"],
+    "nullable_keys": ["transcript_path"],
+    "notes": {
+      "session_id": "Subagent hooks use the parent session id.",
+      "transcript_path": "Optional convenience path; transcript format is not a stable hook interface."
+    }
+  },
+  "events": {
+    "SessionStart": {
+      "required_keys": ["source", "permission_mode"],
+      "optional_keys": []
+    },
+    "SessionEnd": {
+      "required_keys": ["reason"],
+      "optional_keys": []
+    },
+    "PreToolUse": {
+      "required_keys": ["turn_id", "tool_name", "tool_use_id", "tool_input", "permission_mode"],
+      "optional_keys": []
+    },
+    "PostToolUse": {
+      "required_keys": ["turn_id", "tool_name", "tool_use_id", "tool_input", "tool_response", "permission_mode"],
+      "optional_keys": []
+    },
+    "SubagentStart": {
+      "required_keys": ["turn_id", "agent_id", "agent_type", "permission_mode"],
+      "optional_keys": [],
+      "excluded_correctness_keys": ["agent_transcript_path", "task_name", "canonical_task_path", "task_result"]
+    },
+    "SubagentStop": {
+      "required_keys": ["turn_id", "agent_id", "agent_type", "stop_hook_active", "permission_mode"],
+      "optional_keys": ["agent_transcript_path", "last_assistant_message"],
+      "nullable_keys": ["agent_transcript_path", "last_assistant_message"],
+      "excluded_correctness_keys": ["task_result"]
+    },
+    "Stop": {
+      "required_keys": ["turn_id", "stop_hook_active", "permission_mode"],
+      "optional_keys": ["last_assistant_message"],
+      "nullable_keys": ["last_assistant_message"]
+    }
+  }
+}

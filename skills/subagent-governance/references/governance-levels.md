@@ -23,7 +23,7 @@
 
 ## Strict
 
-- 适用于安全、迁移、生产、破坏性操作、并发写入、多阶段验收或复杂协作。
+- 适用于安全、迁移、生产、破坏性操作、并发写入或复杂协作。
 - 至少提供一项 `forbidden_scope[]` 和一项 `evidence_requirements[]`。
 - strict 的证据要求更完整，但 Hook 不解析自然语言终态卡，不用字符数、关键词或固定标题判断业务完成。
 - 中文终态卡只能从同一份合法结构化结果渲染，属于展示层，不是第二份权威数据。
@@ -38,16 +38,14 @@
 - `destructive`
 - `production`
 - `concurrent_write`
-- `multi_stage_acceptance`
-- 可选 `allows_child_agents`
 
 固定解析顺序：
 
-1. `risk=high`，或 `destructive|production|concurrent_write|multi_stage_acceptance|allows_child_agents` 任一为 true：`resolved_mode=strict`、`resolution_reason=auto_strict`。
+1. `risk=high`，或 `destructive|production|concurrent_write` 任一为 true：`resolved_mode=strict`、`resolution_reason=auto_strict`。
 2. 无 strict 信号，且 `risk=low + read_only=true + writes_files=false`：`resolved_mode=light`、`resolution_reason=auto_light`。
 3. 其余合法组合：`resolved_mode=standard`、`resolution_reason=auto_standard`。
 
-`read_only=true` 与 `writes_files=true` 是机械矛盾。缺少可选 `allows_child_agents` 不补写 false；它只是不提供这项复杂度信号，不代表插件授予或禁止下级 Agent。
+`read_only=true` 与 `writes_files=true` 是机械矛盾。
 
 ## task name
 

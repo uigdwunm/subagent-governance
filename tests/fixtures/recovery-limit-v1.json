@@ -3,6 +3,9 @@
     "session_id": "recovery-fixture-session",
     "hook_event_name": "PostToolUse",
     "tool_name": "list_agents",
+    "tool_input": {
+      "path_prefix": "/root/sg_light_platform_limit_fixture"
+    },
     "tool_response": {
       "agents": [
         {
@@ -45,6 +48,9 @@
     "session_id": "recovery-fixture-session",
     "hook_event_name": "PostToolUse",
     "tool_name": "list_agents",
+    "tool_input": {
+      "path_prefix": "/root/sg_light_platform_limit_fixture"
+    },
     "tool_response": {
       "agents": [
         {

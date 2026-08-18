@@ -148,7 +148,7 @@ issues: Issue[]
 
 固定仅输出：
 
-- 引用：`task_id`、`attempt`、`is_current_attempt`、`agent_id`、`canonical_task_path`。
+- 引用：`task_id`、`attempt`、`agent_id`、`canonical_task_path`；current attempt 由 `work_item.current_attempt` 判定。
 - 状态：`execution_status`、`spawn_observation`、`identity_status`、`platform_observation`、`business_result`、`acceptance_status`、`result_protocol_status`、`result_storage_status`、`result_conflict`、`recovery_status`、`parent_action`。
 - 计数：`spawn_retry_count`、`recovery_count`、`correction_count`。
 - 时间：`activity_at` 与有值时的 `created_at/updated_at/platform_checked_at/spawn_claimed_at/spawn_post_observed_at/result_stored_at/attempt_closed_at`，统一放入 `timestamps`。

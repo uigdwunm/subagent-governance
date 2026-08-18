@@ -1,243 +1,123 @@
-# Subagent Governance 分阶段改造总览
+# Subagent Governance v5 改造总览
 
-## 一、文档定位
+## 文档定位
 
-- 本文依据 `docs/project-function-inventory.md` 生成，用于指导后续各阶段详细修改方案的编写和执行。
-- 主盘点文档是产品边界、字段语义、状态转换和删除裁决的唯一权威来源；本文只负责安排实施顺序，不重复定义完整协议。
-- 后续阶段方案如果与主盘点冲突，必须先回到主盘点处理冲突，不能直接以阶段方案覆盖既有裁决。
-- 本文默认只授权修改当前开发仓库，不授权写入稳定发布源、Marketplace、运行缓存、Hook trust 或 Registry。
-- 当前改造应拆成八个阶段。允许在单个阶段内部进一步拆分任务，但不能跳过前置依赖，也不能把全部阶段合并成一次性大改。
-- 当前实施状态（2026-08-12）：WP-01～WP-08 均已完成开发仓库本地实施；稳定发布、安装和真实平台验收尚未执行。下文保留阶段目标和依赖，作为实现导航与历史证据，不表示仍有待开发工作包。
+- 本文是 v5 实施导航，具体产品边界以 `docs/project-function-inventory.md` 为准。
+- v4 的四平面、TaskResult、正式结果文件、结果补交、结果冲突和 accept/reject 业务验收已经退休。
+- 当前开发只修改本仓库；稳定发布、安装、Marketplace、运行缓存和 Hook trust 需要单独授权。
+- 当前状态（2026-08-18）：WP-01～WP-08 已完成开发仓库实施和本地测试、validator 验证。真实平台验证与稳定发布不在本轮范围内。
 
-## 二、总体改造路线
-
-整体顺序为：
+## 总体路线
 
 ```text
 WP-01 语义与 Schema 基线
-  → WP-02 StateStore 安全底座
-  → WP-03 确定性派发与身份绑定
-  → WP-04 通信与生命周期操作
-  → WP-05 正式结果与父任务闭环
-  → WP-06 等待、恢复和会话闭环
-  → WP-07 最小诊断与轻量 group
-  → WP-08 旧路径退役与发布验证
+  -> WP-02 StateStore 安全底座
+  -> WP-03 确定性派发与身份绑定
+  -> WP-04 通信与生命周期操作
+  -> WP-05 终态通知通道
+  -> WP-06 等待、恢复和会话闭环
+  -> WP-07 最小诊断与轻量 group
+  -> WP-08 旧路径退役与发布准备
 ```
 
-实施遵循以下总原则：
+共同原则：
 
-1. 先固定语义和数据边界，再修改运行时状态机。
-2. 先建立可靠的新主路径，再原子退役旧路径。
-3. 任何业务内容由 AI 生成，插件只做机械结构校验。
-4. 派发、通信、平台观察、业务结果和父任务动作必须分层。
-5. `unknown` 只能通过更强证据或明确处置推进，不能自动当作失败或成功。
-6. 未解决任务不能因时间、容量、会话结束或治理组件异常静默消失。
-7. 每个阶段都必须有独立验证证据，不能把最终总测试代替阶段验收。
+1. 插件只维护机械可验证的调用、观察和生命周期事实。
+2. 子 Agent 的原生最终回复是父 Agent 阅读业务结果的通道；插件不扫描或持久化通知正文。
+3. 平台终态观察不等于终态通知，也不生成业务结论。
+4. 父处置只关闭任务；继续执行必须通过显式 `business_resume` 创建新 attempt，不表达 accept/reject 业务验收。
+5. `unknown` 只能通过更强证据或显式处置推进，不能自动解释成成功或失败。
+6. 未解决任务不能因超时、容量、会话结束或治理组件异常静默消失。
 
-## 三、阶段总览
+## 阶段总览
 
 | 阶段 | 核心目标 | 主要产出 | 前置依赖 |
 | --- | --- | --- | --- |
-| WP-01 | 固定协议语义和机械边界 | 统一 Schema、运行时常量、生成规则和一致性测试 | 无 |
-| WP-02 | 建立可靠的最小持久状态 | 最小 StateStore、稳定锁、原子写入、容量与损坏处理 | WP-01 |
-| WP-03 | 建立确定性派发主路径 | 生成器、PreparedContract、task ref、身份精确绑定 | WP-01、WP-02 |
-| WP-04 | 建立显式通信和生命周期操作 | operation type、pending action、恢复、补交、继续和中断对账 | WP-02、WP-03 |
-| WP-05 | 建立权威结果和父任务闭环 | 完整结果文件、有限纠正、验收、冲突和显式处置入口 | WP-01～WP-04 |
-| WP-06 | 完成等待、异常恢复和会话闭环 | action-required、巡检、Session、Stop、多 attempt 和 tombstone | WP-02～WP-05 |
-| WP-07 | 收敛支撑能力 | 无副作用诊断、轻量 group 和派生汇总视图 | WP-02、WP-05、WP-06 |
-| WP-08 | 清除旧设计并完成发布准备 | 旧路径退役、全仓验证、真实平台矩阵和回滚边界证据 | WP-01～WP-07 |
+| WP-01 | 固定协议语义和机械边界 | v5 Schema、运行时常量、一致性测试 | 无 |
+| WP-02 | 建立可靠的最小持久状态 | 三平面 StateStore、稳定锁、原子写入、容量边界 | WP-01 |
+| WP-03 | 建立确定性派发主路径 | PreparedContract、task ref、精确 identity/provenance | WP-01、WP-02 |
+| WP-04 | 建立显式通信和生命周期操作 | pending operation、恢复、继续和中断对账 | WP-02、WP-03 |
+| WP-05 | 建立终态通知观察通道 | exact sender 绑定、幂等通知记录、父处置入口 | WP-01～WP-04 |
+| WP-06 | 完成等待、异常恢复和会话闭环 | action-required、巡检、Session、Stop、tombstone | WP-02～WP-05 |
+| WP-07 | 收敛支撑能力 | 无副作用诊断、轻量 group、派生视图 | WP-02、WP-05、WP-06 |
+| WP-08 | 清除旧设计并完成发布准备 | v4 结果路径退役、全仓验证、发布边界 | WP-01～WP-07 |
 
-## 四、各阶段大致修改方案
+## 阶段边界
 
 ### WP-01 语义与 Schema 基线
 
-目标：先把后续所有实现共同依赖的参数、状态、结果和父动作语义固定下来，消除文档、Schema、Skill、分发资产和 Python 常量之间的漂移。
-
-主要工作：
-
-- 统一任务契约、正式结果、治理等级、上下文策略和父任务处置的结构定义。
-- 固定状态枚举、空值与 `unknown` 的区别、有限次数和机械组合校验。
-- 删除协议版本门禁、自然语言关键词分类和业务语义验收目标。
-- 建立核心字段与枚举的一致性测试。
-
-阶段产出：可供后续阶段直接引用的当前 Schema、运行时语义常量和生成规则。
-
-退出条件：所有协议入口使用同一组已确认语义，后续实现不再需要自行发明字段或状态值。
+- 统一 TaskContract、治理等级、上下文策略、execution 三平面和父生命周期动作。
+- 固定状态枚举、空值与 `unknown`、有限次数和机械组合校验。
+- 建立 Schema、Skill、运行时和测试的一致性检查。
 
 ### WP-02 StateStore 安全底座
 
-目标：把 StateStore 收缩成可靠、最小、可恢复的生命周期底座，为之后所有跨 Hook 状态转换提供安全写入边界。
-
-主要工作：
-
-- 建立每个 Session 一份最小状态文件和稳定锁文件。
-- 实现锁内 compare-and-set、原子替换和回读验证。
-- 明确初始字段、容量边界、损坏保全、组件降级和读取失败行为。
-- 区分未解决任务、已关闭 attempt、tombstone 和结果文件的精确清理责任。
-
-阶段产出：后续派发、通信、结果和恢复路径可以依赖的持久状态接口。
-
-退出条件：状态损坏不会伪装成空 Session，未解决任务不会被通用裁剪，关键转换失败不会被记录成成功。
+- 每个 Session 使用一份 JSON 和稳定 lock。
+- 锁内 compare-and-set、原子替换并回读验证。
+- 损坏状态不得伪装为空 Session；未解决任务不得被通用裁剪。
+- canonical execution 只包含 `dispatch_record`、`observation_record` 和 `closure_record`。
 
 ### WP-03 确定性派发与身份绑定
 
-目标：让每次受治理派发都从结构化参数生成，并能在正文不可见、PostToolUse 缺失或启动迟到时精确关联原任务。
-
-主要工作：
-
-- 实现任务生成器和结构化 `auto` 解析。
-- 生成并短期保存 PreparedContract、初始 StateStore 记录和 task ref。
-- 让 governed spawn 在原生调用前完成硬门禁和回读确认。
-- 根据可靠原生响应或精确 `SubagentStart` 绑定 Agent 身份。
-- 删除正文解析、明密文猜测和弱候选身份匹配。
-
-阶段产出：稳定的派发参数、用户说明、完整首句、任务名称和身份关联链。
-
-退出条件：受治理派发不依赖业务正文可见性，success、failed、unknown 和迟到启动均有明确状态去向。
+- 结构化参数生成 TaskContract 和确定性 task ref。
+- governed spawn 在原生调用前完成 preparation、claim 和回读门禁。
+- identity 只由可靠原生响应或精确 target provenance 建立。
+- 删除业务正文解析和弱候选身份匹配。
 
 ### WP-04 通信与生命周期操作
 
-目标：把普通通信、平台恢复、结果补交、业务继续和主动中断变成含义明确、次数受限且可对账的操作。
+- 使用显式 operation type 区分普通消息、平台恢复、business resume 和中断。
+- pending operation 使用 prepared/claimed 两阶段与 `tool_use_id` 对账。
+- follow-up 和 interrupt 分别处理 success、failed、unknown。
+- 派发重试与平台恢复使用独立计数；不存在结果补交或结果纠正操作。
 
-主要工作：
+### WP-05 终态通知通道
 
-- 使用显式 operation type 生成用户说明和子 Agent 消息。
-- 使用两阶段 pending action 关联下一次原生工具调用。
-- 分别处理普通消息、平台恢复、结果补交和 business resume。
-- 为 follow-up 与 interrupt 建立 success、failed、unknown 转换。
-- 隔离派发重试、平台恢复和结果纠正的次数。
-
-阶段产出：不依赖正文猜测的通信与生命周期操作主路径。
-
-退出条件：unknown 不会触发自动重发，中断结果未知不会伪造 interrupted，各类操作不会互相消耗次数或越权改变业务结果。
-
-### WP-05 正式结果与父任务闭环
-
-目标：让子 Agent 的业务结果拥有完整、稳定、可验收的权威来源，并由父 Agent显式完成验收和处置。
-
-主要工作：
-
-- 按 `task_id + attempt` 保存完整结构化结果文件。
-- 固定先写结果、回读验证、再关联 StateStore 的提交顺序。
-- 实现幂等重放、冲突保护、迟到结果和有限结果补交。
-- 区分业务结果、结果协议、结果存储和父 Agent验收。
-- 增加 accept、reject、close 和重复 attempt 选择等显式父任务处置入口。
-
-阶段产出：结构化正式结果、父验收状态和完整的任务处置链。
-
-退出条件：结果不再被截断或从自由文本推断，complete 不再自动等于 accepted，冲突结果不会覆盖已有权威结果。
+- 父 Agent 从原生 child notification 获得业务结果，并提交 exact sender target、task、attempt 和 terminal status 的最小观察。
+- 相同通知幂等；terminal status 冲突保留首个事实并进入 reconcile。
+- 通知正文、证据和业务判断不进入 StateStore。
+- `close_task` 只表达生命周期关闭；继续执行由 `business_resume` 创建新 attempt，不维护业务验收状态。
 
 ### WP-06 等待、恢复和会话闭环
 
-目标：使未解决任务能够跨网络断流、长时间等待、上下文压缩和会话恢复继续处理，并最终得到明确处置。
-
-主要工作：
-
-- 拆分 recent activity 与 action-required 视图。
-- 落实20分钟通知等待、目标范围对账和同 Agent有限恢复。
-- 完成 SessionStart、SessionEnd、Stop 和状态读取失败规则。
-- 处理 spawn 结果未知、多 attempt、重复执行、中断后处置和业务继续。
-- 统一明确关闭、7天 tombstone 和精确结果清理。
-
-阶段产出：从派发到等待、恢复、验收或关闭的完整生命周期闭环。
-
-退出条件：网络失败不会导致假运行或无限重试，未解决任务跨 Session 保留，任务关闭不会遗留其他未处置 attempt。
+- recent activity 与 action-required 分离。
+- 正常等待20分钟后只做一次精确目标巡检；平台错误立即巡检。
+- 平台终态先到时进入 `await_notification`；精确通知到达后进入 `await_parent`。
+- Stop 固定 advisory/fail-open；SessionEnd 不删除未决任务或保留期 tombstone。
 
 ### WP-07 最小诊断与轻量 group
 
-目标：在不建立诊断平台或多 Agent编排系统的前提下，提供足够的只读定位和多任务关联能力。
+- 诊断无锁、只读、无副作用，不扫描 transcript、通知正文或旧结果目录。
+- 输出 execution、identity、platform observation、notification、closure 和 allowed actions。
+- group 只保存成员和 required 标志，聚合通知/关闭 readiness 与 individual action-required。
+- 不引入 DAG、调度器、AggregateResult 或组级业务状态机。
 
-主要工作：
+### WP-08 旧路径退役与发布准备
 
-- 将诊断重写为无副作用、稳定 JSON 的规范化快照。
-- 只报告可观察事实、缺失字段、扫描完整度和下一步提示。
-- 增加父 Agent显式创建的轻量 group，只保存 individual task 引用。
-- 实时派生 summary ready 和 group action required，不建立组状态机。
+- 删除 TaskResult Schema、结果读写 API、摘要/冲突字段、纠正重试和 accept/reject 分支。
+- v4 -> v5 迁移删除旧结果字段；只有精确绑定的旧父记录可降维成 notification。
+- v5 不读取、创建或删除旧磁盘 `results/`；历史数据由用户确认后手工清理。
+- 当前文档、测试、Manifest 和 validator 必须只把 v5 描述为现行协议。
 
-阶段产出：最小诊断入口和轻量多任务汇总辅助。
+## 验收
 
-退出条件：诊断不会修改治理数据，group 不拥有执行状态，individual task 继续作为唯一权威来源。
-
-### WP-08 旧路径退役与发布验证
-
-目标：在新主路径全部可用后清除已被替代的实现、测试和文档目标，并形成稳定发布所需证据。
-
-主要工作：
-
-- 删除正文分类与改写、自由文本终态、旧混合状态和弱身份猜测。
-- 删除多余存储层、复杂诊断、完整编排和版本迁移残留。
-- 更新 README、发布流程、fixture 和全仓一致性测试。
-- 完成本地验证，并逐项记录真实 Codex 验收结果。
-- 验证 N/N-1 整体回滚和开发仓库、稳定源、运行缓存边界。
-
-阶段产出：没有旧路径残留消费者的开发仓库，以及可判断是否允许发布的验收记录。
-
-退出条件：全套本地验证通过，真实平台项目均记录为 passed、failed 或 not_checked；只有获得用户明确发布授权后，才能更新稳定源和运行缓存。
-
-本地实施结论：旧混合状态、自由文本终态、legacy生命周期分支、诊断/Session薄桥和过时fixture/断言已退役；当前文档、文件覆盖与发布准备记录已收口。真实新版本加载、Hook trust、Provider/Session/结构化Stop/group链路和真实N/N-1整体回滚仍为 `not_checked`，因此不能把本地完成表述为稳定发布验收完成。
-
-## 五、里程碑划分
-
-| 里程碑 | 包含阶段 | 达成结果 |
-| --- | --- | --- |
-| M1 语义与状态底座 | WP-01～WP-02 | 后续状态机拥有统一语义和可靠持久化基础 |
-| M2 派发与交互主链 | WP-03～WP-04 | 新任务可以稳定派发、关联、通信和有限恢复 |
-| M3 结果与生命周期闭环 | WP-05～WP-06 | 任务可以形成权威结果并跨会话完成处置 |
-| M4 支撑收敛与发布准备 | WP-07～WP-08 | 诊断和 group 保持轻量，旧设计退役并具备发布证据 |
-
-每个里程碑完成后都应进行一次跨阶段回归，确认前一阶段建立的语义和状态转换没有被后续阶段重新解释。
-
-## 六、后续详细方案的统一要求
-
-后续为某一阶段生成详细修改方案时，至少应包含：
-
-1. 本阶段要解决的现状问题和可复现证据。
-2. 明确的修改文件、函数或数据结构范围。
-3. 新旧路径切换顺序及需要原子退役的旧消费者。
-4. 涉及的状态转换、失败路径和 `unknown` 路径。
-5. 先增加或改写哪些测试，再实施哪些代码修改。
-6. 本阶段完成条件、验证命令和无法本地验证的真实平台项。
-7. 对下一阶段提供的稳定接口和仍需保留的临时兼容路径。
-8. 明确不在本阶段处理的事项，防止范围向相邻阶段扩张。
-
-详细方案不得重新讨论已经在主盘点中确认的产品方向；只有发现新的代码事实导致既有裁决无法实现时，才应暂停并提出具体冲突。
-
-## 七、共同验证与执行规则
-
-涉及运行时代码的阶段至少执行：
+运行时代码变更至少执行：
 
 ```bash
 python3 -m unittest discover -s tests -v
 python3 -m py_compile scripts/subagent_governance.py
+python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
+python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/subagent-governance
+git diff --check
 ```
 
-并根据修改范围补充 Plugin validator、Skill validator、JSON Schema/fixture 校验、发布工具测试和 `git diff --check`。
+本地验证不能证明 Hook trust、真实通知投递、provider 行为或安装缓存选择。未执行的新任务真实插件测试必须标记为 `not_checked`，不得据此宣称稳定发布验收完成。
 
-执行过程中还必须遵守：
+## 参考关系
 
-- 修改运行时代码前先增加能够稳定复现缺口的最小测试。
-- 每阶段只修改直接相关内容，不进行无关重构或清理。
-- 删除旧路径前确认新路径已经拥有真实消费者和测试。
-- 无法在本地证明的真实平台行为统一标记为 `not_checked`。
-- 开发仓库改造完成与稳定版发布验收分别判断。
-- 未获得发布授权前，不修改任何稳定发布源、Marketplace、运行缓存、Hook trust 或 Registry。
-
-## 八、总体验收边界
-
-完成 WP-01～WP-08 后，开发仓库应达到以下状态：
-
-- 四项核心能力均由实际运行路径和测试支撑。
-- SG-F01～SG-F08 的保留能力均有明确消费者。
-- 已删除大项不存在残留字段、分支、测试或文档要求。
-- 派发、通信、恢复、中断、结果和父处置均覆盖 success、failed 和 unknown。
-- 未解决任务不会被静默丢弃，已关闭任务可以按 tombstone 规则精确清理。
-- 本地验证全部通过，真实平台证据被如实记录。
-
-只有在发布关键项实际通过，或用户明确接受尚未验证的风险并授权发布后，才能继续生成和执行稳定版发布方案。
-
-## 九、参考关系
-
-- 产品边界和全部详细裁决：`docs/project-function-inventory.md`。
-- 当前阶段执行导航：本文。
-- 单阶段具体文件、步骤和测试：后续独立详细修改方案。
-- 真实发布、安装和回滚操作：`docs/release-process.md`，且必须另行取得用户授权。
+- 当前功能与删除裁决：`docs/project-function-inventory.md`
+- 机器语义：`schemas/governance-semantics.schema.json`
+- Agent 执行协议：`skills/subagent-governance/SKILL.md`
+- 运行边界：`skills/subagent-governance/references/runtime-boundaries.md`
+- 发布流程：`docs/release-process.md`，仅在另行取得授权后执行
+- `docs/redesign/` 与 `docs/function-inventory/SG-F*.md`：v4 历史证据，不是 v5 权威来源

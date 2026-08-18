@@ -1,0 +1,64 @@
+{
+  "state_format_version": 1,
+  "session_id": "slice-2-legacy",
+  "tasks": {
+    "sg-slice-2-legacy": {
+      "managed": true,
+      "task_id": "sg-slice-2-legacy",
+      "work_item": {
+        "objective_summary": "迁移旧 execution 状态",
+        "lifecycle": "open",
+        "current_attempt": 1,
+        "created_at": 100,
+        "updated_at": 140,
+        "attempt_count": 1
+      },
+      "executions": {
+        "1": {
+          "managed": true,
+          "task_id": "sg-slice-2-legacy",
+          "attempt": 1,
+          "task_ref": "0123456789ab",
+          "task_name": "sg_standard_slice_2_legacy_t_0123456789ab",
+          "semantic_name": "slice_2_legacy",
+          "requested_mode": "standard",
+          "resolved_mode": "standard",
+          "resolution_reason": "explicit_request",
+          "contract_summary": {},
+          "contract_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "dispatch_kind": "initial",
+          "origin_task_name": "sg_standard_slice_2_legacy_t_0123456789ab",
+          "transition": null,
+          "execution_status": "running",
+          "spawn_observation": "success",
+          "identity_status": "unconfirmed",
+          "platform_observation": null,
+          "business_result": null,
+          "acceptance_status": null,
+          "result_protocol_status": null,
+          "result_storage_status": null,
+          "result_conflict": false,
+          "recovery_status": null,
+          "parent_action": "reconcile",
+          "spawn_retry_count": 0,
+          "recovery_count": 0,
+          "correction_count": 0,
+          "spawn_tool_use_id": "tool-slice-2",
+          "spawn_claimed_at": 110,
+          "spawn_post_observed_at": 120,
+          "agent_id": null,
+          "canonical_task_path": null,
+          "spawn_observed_canonical_path": "/root/sg_standard_slice_2_legacy_t_0123456789ab",
+          "created_at": 100,
+          "updated_at": 140
+        }
+      }
+    }
+  },
+  "agents": {},
+  "health": {
+    "status": "ok"
+  },
+  "tombstones": {},
+  "updated_at": 140
+}

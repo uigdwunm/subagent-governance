@@ -21,10 +21,10 @@ Subagent Governance is a local Codex plugin. It runs with the authority of the c
 
 The plugin's security responsibilities include:
 
-- rejecting unsafe paths, symbolic links, malformed state, invalid identities, conflicting results, and unauthorized governed lifecycle transitions where the platform exposes enough facts;
+- rejecting unsafe paths, symbolic links, malformed state, invalid identities, conflicting terminal observations, and unauthorized governed lifecycle transitions where the platform exposes enough facts;
 - using bounded input, file locking, atomic replacement, and readback validation;
 - preventing governance failures from silently creating false success states;
-- avoiding disclosure of complete task prompts, business results, or evidence through diagnostics;
+- avoiding disclosure of complete task prompts, terminal notification bodies, business results, or evidence through diagnostics;
 - keeping external command execution argument-based rather than shell-interpolated.
 
 Codex remains responsible for sandboxing, approvals, tool authorization, Hook event delivery, Hook trust, native Agent identity, and model behavior.
@@ -50,8 +50,8 @@ These issues can still be important bugs, especially when they create false term
 
 - The core runtime does not initiate network requests and contains no telemetry.
 - Codex may access the configured Git Marketplace during installation or upgrade.
-- Runtime state and formal results are stored in the current user's local Codex plugin data directory.
-- Diagnostic output is intentionally bounded and omits complete business result and evidence content.
+- Bounded lifecycle and terminal-notification metadata is stored in the current user's local Codex plugin data directory.
+- The plugin does not persist terminal notification bodies or business results. Diagnostic output is intentionally bounded and omits that content.
 - Raw platform acceptance logs may contain host paths and Session identifiers and must not be committed; the repository ignores `docs/real-platform-test-*.md`.
 
 ## Supported versions

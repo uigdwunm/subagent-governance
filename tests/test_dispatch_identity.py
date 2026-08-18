@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import copy
+import stat
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -27,6 +30,11 @@ class DispatchIdentityTests(unittest.TestCase):
         self.temporary.cleanup()
 
     @staticmethod
+    def current_execution(state, task_id):
+        task = state["tasks"][task_id]
+        return task["executions"][str(task["work_item"]["current_attempt"])]
+
+    @staticmethod
     def contract(**overrides):
         value = {
             "semantic_name": "Payment Review",
@@ -38,7 +46,6 @@ class DispatchIdentityTests(unittest.TestCase):
                 "destructive": False,
                 "production": False,
                 "concurrent_write": False,
-                "multi_stage_acceptance": False,
             },
             "objective": "实现支付状态检查并验证结果",
             "background": "WP-01 和 WP-02 已完成。",
@@ -103,6 +110,418 @@ class DispatchIdentityTests(unittest.TestCase):
             r"^sg_standard_payment_review_t_[a-f0-9]{12}$",
         )
 
+    def test_dispatch_persists_task_contract_digest_without_deliverable_projection(self):
+        prepared = self.prepare()
+        state = self.store.read("session-1")
+        execution = state["tasks"][prepared["task_id"]]["executions"]["1"]
+        self.assertNotIn("deliverable_contract", execution)
+        for retired in ("semantic_name", "requested_mode", "resolution_reason"):
+            self.assertNotIn(retired, execution)
+        self.assertEqual(
+            set(execution["contract_summary"]),
+            {"objective", "model"},
+        )
+        self.assertNotIn("completion_conditions", execution["contract_summary"])
+        self.assertNotIn("deliverable_contract", prepared)
+        self.assertEqual(execution["contract_digest"], prepared["contract_digest"])
+        self.assertEqual(
+            prepared["contract_digest"],
+            governance.contract_digest(governance._contract_from_input(prepared["contract"])),
+        )
+        changed = governance._contract_from_input(
+            {**prepared["contract"], "objective": "另一个业务目标"}
+        )
+        self.assertNotEqual(prepared["contract_digest"], governance.contract_digest(changed))
+        stored = self.prepared_store().read("session-1", prepared["task_ref"])
+        self.assertNotIn("deliverable_contract", stored)
+        self.assertEqual(stored["contract_digest"], prepared["contract_digest"])
+
+    def test_spawn_retry_rejects_changed_contract_by_complete_digest(self):
+        prepared = self.prepare()
+        governance.handle(self.pre_payload(prepared), self.store)
+        governance.handle(
+            {
+                "session_id": "session-1",
+                "hook_event_name": "PostToolUse",
+                "tool_name": "spawn_agent",
+                "tool_use_id": "spawn-call-1",
+                "tool_response": {"isError": True},
+            },
+            self.store,
+        )
+
+        with self.assertRaisesRegex(
+            governance.DispatchPreparationError,
+            "完整契约不一致",
+        ):
+            governance.prepare_spawn_retry(
+                self.contract(semantic_name="Another Task"),
+                "session-1",
+                prepared["task_id"],
+                state_store=self.store,
+                prepared_store=self.prepared_store(),
+            )
+
+    def test_initial_spawn_claim_uses_only_derived_action_required(self):
+        prepared = self.prepare()
+
+        governance.handle(self.pre_payload(prepared), self.store)
+
+        state = self.store.read("session-1")
+        task = state["tasks"][prepared["task_id"]]
+        execution = task["executions"]["1"]
+        self.assertEqual(governance._dispatch_tool_use_id(execution), "spawn-call-1")
+        self.assertIsNone(governance._spawn_observation(execution))
+        self.assertIsNone(governance._parent_action(execution))
+        self.assertNotIn("action_required", task["work_item"])
+        self.assertEqual(
+            [
+                (record["task_id"], record["attempt"])
+                for record in governance._action_required_records(state)
+            ],
+            [(prepared["task_id"], 1)],
+        )
+
+    def test_spawn_retry_uses_canonical_execution_when_root_projection_disagrees(self):
+        prepared = self.prepare()
+        governance.handle(self.pre_payload(prepared), self.store)
+        governance.handle(
+            {
+                "session_id": "session-1", "hook_event_name": "PostToolUse",
+                "tool_name": "spawn_agent", "tool_use_id": "spawn-call-1",
+                "tool_response": {"unexpected": True},
+            }, self.store,
+        )
+        self.store.update(
+            "session-1",
+            lambda state: state["tasks"][prepared["task_id"]].update(
+                {
+                    "spawn_observation": "failed",
+                    "identity_status": "unconfirmed",
+                    "spawn_not_created": True,
+                    "spawn_retry_count": 0,
+                }
+            ),
+        )
+        with self.assertRaisesRegex(governance.DispatchPreparationError, "明确 failed"):
+            governance.prepare_spawn_retry(
+                self.contract(), "session-1", prepared["task_id"],
+                state_store=self.store, prepared_store=self.prepared_store(),
+            )
+
+    def test_closed_execution_rejects_retry_prepare_and_prepared_retry_claim(self):
+        initial = self.prepare()
+        governance.handle(self.pre_payload(initial), self.store)
+        governance.handle(
+            {
+                "session_id": "session-1", "hook_event_name": "PostToolUse",
+                "tool_name": "spawn_agent", "tool_use_id": "spawn-call-1",
+                "tool_response": {"isError": True},
+            }, self.store,
+        )
+        retry = governance.prepare_spawn_retry(
+            self.contract(), "session-1", initial["task_id"],
+            state_store=self.store, prepared_store=self.prepared_store(),
+        )
+        governance.apply_parent_disposition(
+            {
+                "task_id": initial["task_id"], "attempt": 1,
+                "action": "close_task", "reason": "关闭 failed execution",
+            },
+            "session-1", state_store=self.store, now=1_150,
+        )
+
+        retry_payload = self.pre_payload(retry)
+        retry_payload["tool_use_id"] = "retry-after-close"
+        denied = governance.handle(retry_payload, self.store)
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        state = self.store.read("session-1")
+        record = state["tasks"][initial["task_id"]]["executions"]["1"]
+        self.assertTrue(governance._execution_is_closed(record))
+        self.assertNotEqual(governance._dispatch_tool_use_id(record), "retry-after-close")
+        self.assertEqual(state["tasks"][initial["task_id"]]["work_item"]["lifecycle"], "tombstoned")
+        self.assertNotIn(retry["task_ref"], self.prepared_store().refs("session-1"))
+
+        with self.assertRaisesRegex(governance.DispatchPreparationError, "tombstoned|关闭"):
+            governance.prepare_spawn_retry(
+                self.contract(), "session-1", initial["task_id"],
+                state_store=self.store, prepared_store=self.prepared_store(), now=1_200,
+            )
+
+    def test_retired_select_attempt_disposition_is_rejected_without_state_change(self):
+        initial = self.prepare()
+        before = copy.deepcopy(self.store.read("session-1"))
+
+        with self.assertRaisesRegex(governance.ParentDispositionError, "close_task"):
+            governance.apply_parent_disposition(
+                {
+                    "task_id": initial["task_id"],
+                    "attempt": initial["attempt"],
+                    "action": "select_attempt",
+                    "reason": "已退役的 duplicate 处置",
+                },
+                "session-1",
+                state_store=self.store,
+                now=1_250,
+            )
+
+        self.assertEqual(self.store.read("session-1"), before)
+
+    def test_initial_claim_persist_then_raise_restores_unclaimed_contract(self):
+        initial = self.prepare()
+        before = copy.deepcopy(self.store.read("session-1")["tasks"][initial["task_id"]])
+        original_update = self.store.update
+        update_calls = 0
+
+        def persist_then_report_failure(*args, **kwargs):
+            nonlocal update_calls
+            update_calls += 1
+            result = original_update(*args, **kwargs)
+            if update_calls == 1:
+                raise RuntimeError("simulated initial claim readback failure")
+            return result
+
+        payload = self.pre_payload(initial)
+        payload["tool_use_id"] = "initial-claim-partial"
+        with mock.patch.object(self.store, "update", side_effect=persist_then_report_failure):
+            denied = governance.handle(payload, self.store)
+
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertEqual(
+            self.store.read("session-1")["tasks"][initial["task_id"]], before
+        )
+        prepared = self.prepared_store().read("session-1", initial["task_ref"])
+        self.assertFalse(prepared["consumed"])
+        self.assertIsNone(prepared["tool_use_id"])
+        self.assertIn(initial["task_ref"], self.prepared_store().refs("session-1"))
+
+    def test_prepared_claim_persist_then_raise_restores_unclaimed_contract(self):
+        initial = self.prepare()
+        before = copy.deepcopy(self.store.read("session-1")["tasks"][initial["task_id"]])
+        original_write = governance.PreparedContractStore._write_path
+        write_calls = 0
+
+        def persist_then_report_failure(prepared_store, *args, **kwargs):
+            nonlocal write_calls
+            write_calls += 1
+            result = original_write(prepared_store, *args, **kwargs)
+            if write_calls == 1:
+                raise governance.PreparedContractWriteError(
+                    "simulated PreparedContract claim readback failure"
+                )
+            return result
+
+        payload = self.pre_payload(initial)
+        payload["tool_use_id"] = "prepared-claim-partial"
+        with mock.patch.object(
+            governance.PreparedContractStore,
+            "_write_path",
+            persist_then_report_failure,
+        ):
+            denied = governance.handle(payload, self.store)
+
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertEqual(
+            self.store.read("session-1")["tasks"][initial["task_id"]], before
+        )
+        prepared = self.prepared_store().read("session-1", initial["task_ref"])
+        self.assertFalse(prepared["consumed"])
+        self.assertIsNone(prepared["tool_use_id"])
+        self.assertIsNone(prepared["claimed_at"])
+        retried = governance.handle(payload, self.store)
+        self.assertEqual(
+            retried["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+
+    def test_prepared_claim_failure_preserves_concurrently_changed_contract(self):
+        initial = self.prepare()
+        before = copy.deepcopy(self.store.read("session-1")["tasks"][initial["task_id"]])
+        original_write = governance.PreparedContractStore._write_path
+        write_calls = 0
+
+        def persist_change_then_report_failure(
+            prepared_store,
+            path,
+            session_id,
+            task_ref,
+            record,
+        ):
+            nonlocal write_calls
+            write_calls += 1
+            result = original_write(
+                prepared_store,
+                path,
+                session_id,
+                task_ref,
+                record,
+            )
+            if write_calls == 1:
+                changed = copy.deepcopy(record)
+                changed["post_observed_at"] = 1_234
+                original_write(
+                    prepared_store,
+                    path,
+                    session_id,
+                    task_ref,
+                    changed,
+                )
+                raise governance.PreparedContractWriteError(
+                    "simulated claim failure after concurrent change"
+                )
+            return result
+
+        payload = self.pre_payload(initial)
+        payload["tool_use_id"] = "prepared-claim-diverged"
+        with mock.patch.object(
+            governance.PreparedContractStore,
+            "_write_path",
+            persist_change_then_report_failure,
+        ):
+            denied = governance.handle(payload, self.store)
+
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("degraded", str(denied))
+        self.assertEqual(
+            self.store.read("session-1")["tasks"][initial["task_id"]], before
+        )
+        prepared = self.prepared_store().read("session-1", initial["task_ref"])
+        self.assertTrue(prepared["consumed"])
+        self.assertEqual(prepared["tool_use_id"], "prepared-claim-diverged")
+        self.assertEqual(prepared["post_observed_at"], 1_234)
+
+    def test_initial_claim_pre_callback_failure_keeps_unclaimed_contract_and_task(self):
+        initial = self.prepare()
+        before = copy.deepcopy(self.store.read("session-1")["tasks"][initial["task_id"]])
+        payload = self.pre_payload(initial)
+        payload["tool_use_id"] = "initial-pre-callback-failure"
+
+        with mock.patch.object(
+            self.store,
+            "update",
+            side_effect=RuntimeError("simulated StateStore failure before claim callback"),
+        ):
+            denied = governance.handle(payload, self.store)
+
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertEqual(
+            self.store.read("session-1")["tasks"][initial["task_id"]], before
+        )
+        prepared = self.prepared_store().read("session-1", initial["task_ref"])
+        self.assertFalse(prepared["consumed"])
+        self.assertIsNone(prepared["tool_use_id"])
+        self.assertIn(initial["task_ref"], self.prepared_store().refs("session-1"))
+
+    def test_retry_claim_pre_callback_failure_keeps_unclaimed_contract_and_state(self):
+        initial = self.prepare()
+        governance.handle(self.pre_payload(initial), self.store)
+        governance.handle(
+            {
+                "session_id": "session-1", "hook_event_name": "PostToolUse",
+                "tool_name": "spawn_agent", "tool_use_id": "spawn-call-1",
+                "tool_response": {"isError": True},
+            }, self.store,
+        )
+        retry = governance.prepare_spawn_retry(
+            self.contract(), "session-1", initial["task_id"],
+            state_store=self.store, prepared_store=self.prepared_store(),
+        )
+        before = copy.deepcopy(self.store.read("session-1")["tasks"][initial["task_id"]])
+        payload = self.pre_payload(retry)
+        payload["tool_use_id"] = "retry-pre-callback-failure"
+
+        with mock.patch.object(
+            self.store,
+            "update",
+            side_effect=RuntimeError("simulated StateStore failure before claim callback"),
+        ):
+            denied = governance.handle(payload, self.store)
+
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertEqual(
+            self.store.read("session-1")["tasks"][initial["task_id"]], before
+        )
+        prepared = self.prepared_store().read("session-1", retry["task_ref"])
+        self.assertFalse(prepared["consumed"])
+        self.assertIsNone(prepared["tool_use_id"])
+        self.assertIn(retry["task_ref"], self.prepared_store().refs("session-1"))
+
+    def test_pre_callback_failure_with_concurrent_change_is_degraded_without_reopening_contract(self):
+        initial = self.prepare()
+        original_update = self.store.update
+        update_calls = 0
+
+        def concurrently_change_then_report_pre_callback_failure(*args, **kwargs):
+            nonlocal update_calls
+            update_calls += 1
+            if update_calls == 1:
+                original_update(
+                    "session-1",
+                    lambda state: state["tasks"][initial["task_id"]].update(
+                        {"concurrent_pre_callback_note": "must-survive"}
+                    ),
+                    required_fields=("tasks", "tombstones"),
+                )
+                raise RuntimeError("simulated StateStore failure before claim callback")
+            return original_update(*args, **kwargs)
+
+        payload = self.pre_payload(initial)
+        payload["tool_use_id"] = "initial-pre-callback-concurrent"
+        with mock.patch.object(
+            self.store,
+            "update",
+            side_effect=concurrently_change_then_report_pre_callback_failure,
+        ):
+            denied = governance.handle(payload, self.store)
+
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("degraded", str(denied))
+        task = self.store.read("session-1")["tasks"][initial["task_id"]]
+        self.assertEqual(task["concurrent_pre_callback_note"], "must-survive")
+        self.assertIsNone(task["executions"]["1"]["dispatch_record"]["tool_use_id"])
+        prepared = self.prepared_store().read("session-1", initial["task_ref"])
+        self.assertTrue(prepared["consumed"])
+        self.assertEqual(prepared["tool_use_id"], "initial-pre-callback-concurrent")
+
+    def test_retry_claim_persist_then_raise_restores_unclaimed_contract(self):
+        initial = self.prepare()
+        governance.handle(self.pre_payload(initial), self.store)
+        governance.handle(
+            {
+                "session_id": "session-1", "hook_event_name": "PostToolUse",
+                "tool_name": "spawn_agent", "tool_use_id": "spawn-call-1",
+                "tool_response": {"isError": True},
+            }, self.store,
+        )
+        retry = governance.prepare_spawn_retry(
+            self.contract(), "session-1", initial["task_id"],
+            state_store=self.store, prepared_store=self.prepared_store(),
+        )
+        before = copy.deepcopy(self.store.read("session-1")["tasks"][initial["task_id"]])
+        original_update = self.store.update
+        update_calls = 0
+
+        def persist_then_report_failure(*args, **kwargs):
+            nonlocal update_calls
+            update_calls += 1
+            result = original_update(*args, **kwargs)
+            if update_calls == 1:
+                raise RuntimeError("simulated retry claim readback failure")
+            return result
+
+        payload = self.pre_payload(retry)
+        payload["tool_use_id"] = "retry-claim-partial"
+        with mock.patch.object(self.store, "update", side_effect=persist_then_report_failure):
+            denied = governance.handle(payload, self.store)
+
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertEqual(
+            self.store.read("session-1")["tasks"][initial["task_id"]], before
+        )
+        prepared = self.prepared_store().read("session-1", retry["task_ref"])
+        self.assertFalse(prepared["consumed"])
+        self.assertIsNone(prepared["tool_use_id"])
+        self.assertIn(retry["task_ref"], self.prepared_store().refs("session-1"))
+
     def test_installed_cache_generator_and_hook_share_plugin_data_root_without_env(self):
         codex_root = self.root / ".codex"
         installed_script = (
@@ -142,7 +561,9 @@ class DispatchIdentityTests(unittest.TestCase):
         self.assertTrue(persisted["consumed"])
         self.assertEqual(persisted["tool_use_id"], "spawn-call-1")
         self.assertEqual(
-            state["tasks"][prepared["task_id"]]["spawn_tool_use_id"],
+            self.current_execution(state, prepared["task_id"])["dispatch_record"][
+                "tool_use_id"
+            ],
             "spawn-call-1",
         )
 
@@ -235,6 +656,38 @@ class DispatchIdentityTests(unittest.TestCase):
         self.assertEqual(record["attempt"], 1)
         self.assertFalse(record["consumed"])
         self.assertNotIn("prepared_ref", record)
+        self.assertNotIn("initial_task_snapshot", record)
+        self.assertNotIn("initial_task_snapshot_sha256", record)
+        self.assertEqual(
+            governance._initial_task_post_state(record),
+            self.store.read("session-1")["tasks"][prepared["task_id"]],
+        )
+
+        invalid_attempt = copy.deepcopy(record)
+        invalid_attempt["attempt"] = 2
+        with self.assertRaisesRegex(
+            governance.PreparedContractValidationError, "attempt 必须为1"
+        ):
+            governance.PreparedContractStore._validate_record(
+                invalid_attempt,
+                "session-1",
+                prepared["task_ref"],
+                self.root / "invalid-initial-attempt.json",
+            )
+
+    def test_prepared_contract_rechecks_opened_file_metadata(self):
+        prepared = self.prepare()
+        prepared_store = self.prepared_store()
+        path, _lock_path = prepared_store._paths("session-1", prepared["task_ref"])
+        opened_as_symlink = SimpleNamespace(st_mode=stat.S_IFLNK, st_size=0)
+
+        with mock.patch.object(
+            governance.os, "fstat", return_value=opened_as_symlink
+        ):
+            with self.assertRaisesRegex(
+                governance.PreparedContractValidationError, "普通文件"
+            ):
+                prepared_store._read_path(path, "session-1", prepared["task_ref"])
 
     def test_prepared_contract_readback_failure_is_not_reported_as_success(self):
         prepared_store = self.prepared_store()
@@ -249,7 +702,9 @@ class DispatchIdentityTests(unittest.TestCase):
             return original_read(*args, **kwargs)
 
         with mock.patch.object(prepared_store, "_read_path", side_effect=fail_readback):
-            with self.assertRaises(governance.DispatchPreparationError):
+            with self.assertRaisesRegex(
+                governance.DispatchPreparationError, "simulated readback failure"
+            ):
                 governance.prepare_dispatch(
                     self.contract(),
                     "session-1",
@@ -258,6 +713,221 @@ class DispatchIdentityTests(unittest.TestCase):
                     task_id_factory=lambda: "sg-task-readback",
                 )
         self.assertEqual(self.store.read("session-1")["tasks"], {})
+        self.assertEqual(prepared_store.list_records("session-1"), [])
+
+    def test_initial_prepare_persist_then_error_exactly_rolls_back_task_before_contract(self):
+        prepared_store = self.prepared_store()
+        original_compare_and_set = self.store.compare_and_set
+        compare_calls = 0
+        delete_observations = []
+
+        def persist_then_report_failure(*args, **kwargs):
+            nonlocal compare_calls
+            compare_calls += 1
+            result = original_compare_and_set(*args, **kwargs)
+            if compare_calls == 1:
+                raise governance.StateWriteError("simulated initial persist-then-error")
+            return result
+
+        original_delete_if = prepared_store.delete_if
+
+        def observe_delete(session_id, task_ref, predicate, **kwargs):
+            delete_observations.append(
+                "sg-task-initial-exact" in self.store.read("session-1")["tasks"]
+            )
+            return original_delete_if(session_id, task_ref, predicate, **kwargs)
+
+        with mock.patch.object(
+            self.store, "compare_and_set", side_effect=persist_then_report_failure
+        ), mock.patch.object(prepared_store, "delete_if", side_effect=observe_delete):
+            with self.assertRaisesRegex(
+                governance.DispatchPreparationError,
+                "simulated initial persist-then-error",
+            ):
+                governance.prepare_dispatch(
+                    self.contract(),
+                    "session-1",
+                    state_store=self.store,
+                    prepared_store=prepared_store,
+                    task_id_factory=lambda: "sg-task-initial-exact",
+                )
+
+        self.assertEqual(delete_observations, [False])
+        self.assertNotIn(
+            "sg-task-initial-exact", self.store.read("session-1")["tasks"]
+        )
+        self.assertEqual(prepared_store.list_records("session-1"), [])
+
+    def test_initial_prepare_persist_then_error_retains_concurrently_changed_task_and_contract(self):
+        prepared_store = self.prepared_store()
+        original_compare_and_set = self.store.compare_and_set
+        compare_calls = 0
+
+        def persist_change_then_report_failure(*args, **kwargs):
+            nonlocal compare_calls
+            compare_calls += 1
+            result = original_compare_and_set(*args, **kwargs)
+            if compare_calls == 1:
+                original_compare_and_set(
+                    "session-1",
+                    lambda state: "sg-task-initial-diverged" in state["tasks"],
+                    lambda state: state["tasks"]["sg-task-initial-diverged"]
+                    ["work_item"].update({"concurrent_extension": "retained"}),
+                    required_fields=("tasks", "tombstones"),
+                )
+                raise governance.StateWriteError(
+                    "simulated initial persist-then-concurrent-error"
+                )
+            return result
+
+        with mock.patch.object(
+            self.store, "compare_and_set", side_effect=persist_change_then_report_failure
+        ):
+            with self.assertRaisesRegex(
+                governance.DispatchPreparationError,
+                "degraded.*rollback-incomplete.*PreparedContract retained",
+            ):
+                governance.prepare_dispatch(
+                    self.contract(),
+                    "session-1",
+                    state_store=self.store,
+                    prepared_store=prepared_store,
+                    task_id_factory=lambda: "sg-task-initial-diverged",
+                )
+
+        state = self.store.read("session-1")
+        task = state["tasks"]["sg-task-initial-diverged"]
+        execution = task["executions"]["1"]
+        self.assertEqual(task["work_item"]["concurrent_extension"], "retained")
+        self.assertEqual(governance._parent_action(execution), "reconcile")
+        self.assertEqual(state["health"]["status"], "degraded")
+        self.assertEqual(len(prepared_store.list_records("session-1")), 1)
+        action_required = governance._action_required_records(state)
+        self.assertEqual(
+            [(record["task_id"], record["attempt"]) for record in action_required],
+            [("sg-task-initial-diverged", 1)],
+        )
+        diagnostic, _exit_code = governance._build_diagnostic_document(
+            "session-1", self.root
+        )
+        diagnostic_item = diagnostic["sessions"][0]["work_items"][0]
+        self.assertTrue(diagnostic_item["action_required"])
+        session_start = governance.handle(
+            {
+                "session_id": "session-1",
+                "hook_event_name": "SessionStart",
+                "source": "resume",
+            },
+            self.store,
+        )
+        context = session_start["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("sg-task-initial-diverged", context)
+        self.assertIn("reconcile", context)
+
+    def test_initial_prepare_task_cleanup_write_failure_is_action_required_and_retains_contract(self):
+        prepared_store = self.prepared_store()
+        original_compare_and_set = self.store.compare_and_set
+        compare_calls = 0
+
+        def fail_cleanup_after_persist(*args, **kwargs):
+            nonlocal compare_calls
+            compare_calls += 1
+            if compare_calls == 1:
+                result = original_compare_and_set(*args, **kwargs)
+                raise governance.StateWriteError("simulated initial write readback error")
+            if compare_calls == 2:
+                raise governance.StateWriteError("simulated task cleanup write failure")
+            return original_compare_and_set(*args, **kwargs)
+
+        with mock.patch.object(
+            self.store, "compare_and_set", side_effect=fail_cleanup_after_persist
+        ):
+            with self.assertRaisesRegex(
+                governance.DispatchPreparationError,
+                "rollback-incomplete.*task cleanup write failure.*PreparedContract retained",
+            ):
+                governance.prepare_dispatch(
+                    self.contract(),
+                    "session-1",
+                    state_store=self.store,
+                    prepared_store=prepared_store,
+                    task_id_factory=lambda: "sg-task-cleanup-failure",
+                )
+
+        state = self.store.read("session-1")
+        execution = state["tasks"]["sg-task-cleanup-failure"]["executions"]["1"]
+        self.assertEqual(governance._parent_action(execution), "reconcile")
+        self.assertEqual(state["health"]["status"], "degraded")
+        self.assertEqual(len(prepared_store.list_records("session-1")), 1)
+
+    def test_initial_prepare_contract_cleanup_failure_reports_orphan_after_safe_task_delete(self):
+        prepared_store = self.prepared_store()
+        original_compare_and_set = self.store.compare_and_set
+        compare_calls = 0
+
+        def persist_then_report_failure(*args, **kwargs):
+            nonlocal compare_calls
+            compare_calls += 1
+            result = original_compare_and_set(*args, **kwargs)
+            if compare_calls == 1:
+                raise governance.StateWriteError("simulated initial gate readback error")
+            return result
+
+        with mock.patch.object(
+            self.store, "compare_and_set", side_effect=persist_then_report_failure
+        ), mock.patch.object(
+            prepared_store,
+            "delete_if",
+            side_effect=governance.PreparedContractWriteError(
+                "simulated PreparedContract cleanup failure"
+            ),
+        ):
+            with self.assertRaisesRegex(
+                governance.DispatchPreparationError,
+                "rollback-incomplete.*PreparedContract cleanup failure.*orphan",
+            ):
+                governance.prepare_dispatch(
+                    self.contract(),
+                    "session-1",
+                    state_store=self.store,
+                    prepared_store=prepared_store,
+                    task_id_factory=lambda: "sg-task-prepared-cleanup-failure",
+                )
+
+        self.assertNotIn(
+            "sg-task-prepared-cleanup-failure", self.store.read("session-1")["tasks"]
+        )
+        self.assertEqual(len(prepared_store.list_records("session-1")), 1)
+
+    def test_initial_prepare_state_readback_failure_retains_credential_and_reports_incomplete(self):
+        prepared_store = self.prepared_store()
+        original_read = self.store.read
+        read_calls = 0
+
+        def fail_after_occupancy_read(*args, **kwargs):
+            nonlocal read_calls
+            read_calls += 1
+            if read_calls == 1:
+                return original_read(*args, **kwargs)
+            raise governance.StateValidationError("simulated StateStore readback failure")
+
+        with mock.patch.object(self.store, "read", side_effect=fail_after_occupancy_read):
+            with self.assertRaisesRegex(
+                governance.DispatchPreparationError,
+                "rollback-incomplete.*StateStore readback failure.*PreparedContract retained",
+            ):
+                governance.prepare_dispatch(
+                    self.contract(),
+                    "session-1",
+                    state_store=self.store,
+                    prepared_store=prepared_store,
+                    task_id_factory=lambda: "sg-task-state-readback-failure",
+                )
+
+        self.assertIn(
+            "sg-task-state-readback-failure", original_read("session-1")["tasks"]
+        )
+        self.assertEqual(len(prepared_store.list_records("session-1")), 1)
 
     def test_state_store_gate_failure_removes_prepared_contract_and_rejects(self):
         prepared_store = self.prepared_store()
@@ -295,8 +965,328 @@ class DispatchIdentityTests(unittest.TestCase):
         self.assertNotIn(prepared["task_id"], self.store.read("session-1")["tasks"])
         self.assertEqual(self.prepared_store().list_records("session-1"), [])
 
+    def test_unclaimed_initial_expiry_retains_concurrent_change_and_marks_reconcile(self):
+        prepared = governance.prepare_dispatch(
+            self.contract(), "session-1", state_store=self.store,
+            prepared_store=self.prepared_store(),
+            task_id_factory=lambda: "sg-task-expiry-diverged", now=1_000,
+        )
+        self.store.update(
+            "session-1",
+            lambda state: state["tasks"][prepared["task_id"]]["work_item"].update(
+                {"concurrent_extension": "retained"}
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            governance.PreparedContractConflictError,
+            "degraded.*rollback-incomplete.*PreparedContract retained",
+        ):
+            governance.reconcile_prepared_dispatches(
+                "session-1", state_store=self.store,
+                prepared_store=self.prepared_store(), now=1_301,
+            )
+
+        state = self.store.read("session-1")
+        task = state["tasks"][prepared["task_id"]]
+        self.assertEqual(task["work_item"]["concurrent_extension"], "retained")
+        self.assertEqual(
+            task["executions"]["1"]["closure_record"]["parent_action"], "reconcile"
+        )
+        self.assertEqual(state["health"]["status"], "degraded")
+        self.assertEqual(len(self.prepared_store().list_records("session-1")), 1)
+
+    def test_unclaimed_initial_expiry_task_cleanup_failure_retains_contract(self):
+        prepared = governance.prepare_dispatch(
+            self.contract(), "session-1", state_store=self.store,
+            prepared_store=self.prepared_store(),
+            task_id_factory=lambda: "sg-task-expiry-cleanup-failure", now=1_000,
+        )
+        original_compare_and_set = self.store.compare_and_set
+        compare_calls = 0
+
+        def fail_cleanup_then_allow_marker(*args, **kwargs):
+            nonlocal compare_calls
+            compare_calls += 1
+            if compare_calls == 1:
+                raise governance.StateWriteError("simulated expiry task cleanup failure")
+            return original_compare_and_set(*args, **kwargs)
+
+        with mock.patch.object(
+            self.store, "compare_and_set", side_effect=fail_cleanup_then_allow_marker
+        ):
+            with self.assertRaisesRegex(
+                governance.PreparedContractConflictError,
+                "rollback-incomplete.*expiry task cleanup failure.*PreparedContract retained",
+            ):
+                governance.reconcile_prepared_dispatches(
+                    "session-1", state_store=self.store,
+                    prepared_store=self.prepared_store(), now=1_301,
+                )
+
+        state = self.store.read("session-1")
+        self.assertEqual(
+            state["tasks"][prepared["task_id"]]["executions"]["1"]["closure_record"][
+                "parent_action"
+            ],
+            "reconcile",
+        )
+        self.assertEqual(len(self.prepared_store().list_records("session-1")), 1)
+
+    def test_unclaimed_initial_expiry_contract_cleanup_failure_leaves_retryable_orphan(self):
+        prepared_store = self.prepared_store()
+        prepared = governance.prepare_dispatch(
+            self.contract(), "session-1", state_store=self.store,
+            prepared_store=prepared_store,
+            task_id_factory=lambda: "sg-task-expiry-prepared-failure", now=1_000,
+        )
+        with mock.patch.object(
+            prepared_store,
+            "delete_if",
+            side_effect=governance.PreparedContractWriteError(
+                "simulated expiry PreparedContract cleanup failure"
+            ),
+        ):
+            with self.assertRaisesRegex(
+                governance.PreparedContractConflictError,
+                "rollback-incomplete.*PreparedContract cleanup failure.*orphan",
+            ):
+                governance.reconcile_prepared_dispatches(
+                    "session-1", state_store=self.store,
+                    prepared_store=prepared_store, now=1_301,
+                )
+
+        self.assertNotIn(prepared["task_id"], self.store.read("session-1")["tasks"])
+        self.assertEqual(len(prepared_store.list_records("session-1")), 1)
+
+    def test_unclaimed_initial_expiry_does_not_delete_concurrently_changed_contract(self):
+        prepared_store = self.prepared_store()
+        prepared = governance.prepare_dispatch(
+            self.contract(), "session-1", state_store=self.store,
+            prepared_store=prepared_store,
+            task_id_factory=lambda: "sg-task-expiry-contract-diverged", now=1_000,
+        )
+        original_delete_if = prepared_store.delete_if
+        changed = False
+
+        def change_then_delete(session_id, task_ref, predicate, **kwargs):
+            nonlocal changed
+            if not changed:
+                changed = True
+                prepared_store.compare_and_set(
+                    session_id,
+                    task_ref,
+                    lambda _value: True,
+                    lambda value: value.update(
+                        {"concurrent_credential_extension": "retained"}
+                    ),
+                )
+            return original_delete_if(
+                session_id, task_ref, predicate, **kwargs
+            )
+
+        with mock.patch.object(
+            prepared_store, "delete_if", side_effect=change_then_delete
+        ):
+            with self.assertRaisesRegex(
+                governance.PreparedContractConflictError,
+                "rollback-incomplete.*exact delete.*orphan",
+            ):
+                governance.reconcile_prepared_dispatches(
+                    "session-1", state_store=self.store,
+                    prepared_store=prepared_store, now=1_301,
+                )
+
+        self.assertNotIn(prepared["task_id"], self.store.read("session-1")["tasks"])
+        retained = prepared_store.read("session-1", prepared["task_ref"])
+        self.assertEqual(retained["concurrent_credential_extension"], "retained")
+
+    def test_unclaimed_initial_expiry_deletes_task_absent_orphan(self):
+        prepared_store = self.prepared_store()
+        prepared = governance.prepare_dispatch(
+            self.contract(), "session-1", state_store=self.store,
+            prepared_store=prepared_store,
+            task_id_factory=lambda: "sg-task-expiry-orphan", now=1_000,
+        )
+        self.store.update(
+            "session-1",
+            lambda state: state["tasks"].pop(prepared["task_id"]),
+        )
+
+        result = governance.reconcile_prepared_dispatches(
+            "session-1", state_store=self.store,
+            prepared_store=prepared_store, now=1_301,
+        )
+
+        self.assertEqual(result, {"expired": 1, "reconciled": 0})
+        self.assertEqual(prepared_store.list_records("session-1"), [])
+
+    def test_unclaimed_initial_exact_cleanup_rejects_every_task_field_change(self):
+        mutations = {
+            "extension": lambda task: task["work_item"].update(
+                {"concurrent_extension": "retained"}
+            ),
+            "timestamp": lambda task: task["executions"]["1"].update(
+                {"updated_at": 9_999}
+            ),
+            "observation": lambda task: governance._apply_canonical_execution_update(
+                task["executions"]["1"], "observation_observed_at", 9_998
+            ),
+            "claim": lambda task: governance._apply_canonical_execution_update(
+                task["executions"]["1"], "dispatch_tool_use_id", "concurrent-claim"
+            ),
+            "closure_parent_action": lambda task: governance._apply_canonical_execution_update(
+                task["executions"]["1"], "closure_parent_action", "wait"
+            ),
+        }
+        for index, (name, mutate) in enumerate(mutations.items()):
+            with self.subTest(field=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                store = governance.StateStore(root / "sessions")
+                prepared_store = governance.PreparedContractStore(root / "prepared")
+                task_id = f"sg-task-exact-field-{index}"
+                prepared_result = governance.prepare_dispatch(
+                    self.contract(), "session-fields", state_store=store,
+                    prepared_store=prepared_store,
+                    task_id_factory=lambda value=task_id: value, now=1_000,
+                )
+                stored_prepared = prepared_store.read(
+                    "session-fields", prepared_result["task_ref"]
+                )
+
+                store.update(
+                    "session-fields",
+                    lambda state: mutate(state["tasks"][task_id]),
+                )
+                cleanup = governance._cleanup_initial_attempt(
+                    "session-fields",
+                    stored_prepared,
+                    store,
+                    error_context=f"field mutation: {name}",
+                    now=1_301,
+                )
+
+                self.assertFalse(cleanup["safe_for_prepared_delete"])
+                state = store.read("session-fields")
+                self.assertIn(task_id, state["tasks"])
+                execution = state["tasks"][task_id]["executions"]["1"]
+                if name == "observation":
+                    self.assertEqual(
+                        execution["observation_record"]["observed_at"],
+                        9_998,
+                    )
+                if name == "timestamp":
+                    self.assertEqual(execution["updated_at"], 9_999)
+                if name == "claim":
+                    self.assertEqual(
+                        governance._dispatch_tool_use_id(execution), "concurrent-claim"
+                    )
+                self.assertEqual(governance._parent_action(execution), "reconcile")
+                self.assertEqual(len(prepared_store.list_records("session-fields")), 1)
+
+    def test_initial_rollback_marker_preserves_newer_unavailable_health_facts(self):
+        prepared_result = governance.prepare_dispatch(
+            self.contract(), "session-health-race", state_store=self.store,
+            prepared_store=self.prepared_store(),
+            task_id_factory=lambda: "sg-task-health-race", now=1_000,
+        )
+        prepared = self.prepared_store().read(
+            "session-health-race", prepared_result["task_ref"]
+        )
+        observed_task = copy.deepcopy(
+            self.store.read("session-health-race")["tasks"][prepared["task_id"]]
+        )
+        newer_health_marker = {
+            "status": "rollback_incomplete",
+            "task_ref": "newer-health-writer",
+            "observed_at": 9_999,
+            "error": "newer health observation",
+        }
+        self.store.update(
+            "session-health-race",
+            lambda state: state["health"].update(
+                {
+                    "status": "unavailable",
+                    "initial_preparation_rollback": copy.deepcopy(
+                        newer_health_marker
+                    ),
+                    "concurrent_health_fact": "retained",
+                }
+            ),
+        )
+
+        marked = governance._mark_initial_rollback_incomplete(
+            "session-health-race",
+            prepared,
+            self.store,
+            observed_task,
+            error="older F10 cleanup observation",
+            now=1_301,
+        )
+
+        self.assertTrue(marked)
+        state = self.store.read("session-health-race")
+        execution = state["tasks"][prepared["task_id"]]["executions"]["1"]
+        self.assertEqual(governance._parent_action(execution), "reconcile")
+        self.assertEqual(
+            execution["initial_preparation_rollback"]["observed_at"], 1_301
+        )
+        self.assertEqual(state["health"]["status"], "unavailable")
+        self.assertEqual(
+            state["health"]["initial_preparation_rollback"],
+            newer_health_marker,
+        )
+        self.assertEqual(state["health"]["concurrent_health_fact"], "retained")
+
+    def test_initial_rollback_marker_preserves_invalid_health_shape_for_diagnose(self):
+        prepared_result = governance.prepare_dispatch(
+            self.contract(), "session-health-invalid", state_store=self.store,
+            prepared_store=self.prepared_store(),
+            task_id_factory=lambda: "sg-task-health-invalid", now=1_000,
+        )
+        prepared = self.prepared_store().read(
+            "session-health-invalid", prepared_result["task_ref"]
+        )
+        observed_task = copy.deepcopy(
+            self.store.read("session-health-invalid")["tasks"][prepared["task_id"]]
+        )
+        self.store.update(
+            "session-health-invalid",
+            lambda state: state["health"].update(
+                {
+                    "status": "invalid-health-status",
+                    "initial_preparation_rollback": "invalid-marker-shape",
+                    "diagnostic_fact": {"must": "survive"},
+                }
+            ),
+        )
+
+        governance._mark_initial_rollback_incomplete(
+            "session-health-invalid",
+            prepared,
+            self.store,
+            observed_task,
+            error="F10 marker with invalid health shape",
+            now=1_301,
+        )
+
+        state = self.store.read("session-health-invalid")
+        health = state["health"]
+        self.assertEqual(health["status"], "invalid-health-status")
+        self.assertEqual(
+            health["initial_preparation_rollback"], "invalid-marker-shape"
+        )
+        self.assertEqual(health["diagnostic_fact"], {"must": "survive"})
+        execution = state["tasks"][prepared["task_id"]]["executions"]["1"]
+        self.assertEqual(governance._parent_action(execution), "reconcile")
+        self.assertEqual(
+            execution["initial_preparation_rollback"]["observed_at"], 1_301
+        )
+
     def test_pre_tool_use_consumes_prepared_contract_once_and_checks_native_parameters(self):
         prepared = self.prepare()
+        stored_prepared = self.prepared_store().read("session-1", prepared["task_ref"])
+        self.assertNotIn("message_sha256", stored_prepared["native_parameters"])
         mismatch = governance.handle(self.pre_payload(prepared, fork_turns="all"), self.store)
         self.assertEqual(mismatch["hookSpecificOutput"]["permissionDecision"], "deny")
         record = self.prepared_store().read("session-1", prepared["task_ref"])
@@ -313,8 +1303,9 @@ class DispatchIdentityTests(unittest.TestCase):
         record = self.prepared_store().read("session-1", prepared["task_ref"])
         self.assertTrue(record["consumed"])
         self.assertEqual(record["tool_use_id"], "spawn-call-1")
-        state_record = self.store.read("session-1")["tasks"][prepared["task_id"]]
-        self.assertEqual(state_record["spawn_tool_use_id"], "spawn-call-1")
+        state = self.store.read("session-1")
+        state_record = self.current_execution(state, prepared["task_id"])
+        self.assertEqual(governance._dispatch_tool_use_id(state_record), "spawn-call-1")
 
         repeated = governance.handle(self.pre_payload(prepared), self.store)
         self.assertEqual(repeated["hookSpecificOutput"]["permissionDecision"], "deny")
@@ -343,9 +1334,10 @@ class DispatchIdentityTests(unittest.TestCase):
             now=claimed_at + 1_199,
         )
         self.assertEqual(early["reconciled"], 0)
-        record = self.store.read("session-1")["tasks"][prepared["task_id"]]
-        self.assertIsNone(record["spawn_observation"])
-        self.assertIsNone(record["parent_action"])
+        state = self.store.read("session-1")
+        record = self.current_execution(state, prepared["task_id"])
+        self.assertIsNone(governance._spawn_observation(record))
+        self.assertIsNone(governance._parent_action(record))
 
         late = governance.reconcile_prepared_dispatches(
             "session-1",
@@ -354,14 +1346,15 @@ class DispatchIdentityTests(unittest.TestCase):
             now=claimed_at + 1_200,
         )
         self.assertEqual(late["reconciled"], 1)
-        record = self.store.read("session-1")["tasks"][prepared["task_id"]]
-        self.assertEqual(record["spawn_observation"], "unknown")
-        self.assertEqual(record["execution_status"], "not_started")
-        self.assertEqual(record["identity_status"], "unconfirmed")
-        self.assertEqual(record["parent_action"], "reconcile")
+        state = self.store.read("session-1")
+        record = self.current_execution(state, prepared["task_id"])
+        self.assertEqual(governance._spawn_observation(record), "unknown")
+        self.assertEqual(governance._execution_status(record), "not_started")
+        self.assertEqual(governance._identity_status(record), "unconfirmed")
+        self.assertEqual(governance._parent_action(record), "reconcile")
         self.assertTrue(self.prepared_store().read("session-1", prepared["task_ref"])["consumed"])
 
-    def test_post_tool_spawn_success_binds_exact_identity_and_deletes_contract(self):
+    def test_post_tool_spawn_success_remains_unbound(self):
         prepared = self.prepare()
         governance.handle(self.pre_payload(prepared), self.store)
         result = governance.handle(
@@ -379,16 +1372,12 @@ class DispatchIdentityTests(unittest.TestCase):
         )
         self.assertIsNone(result)
         state = self.store.read("session-1")
-        record = state["tasks"][prepared["task_id"]]
-        self.assertEqual(record["spawn_observation"], "success")
-        self.assertEqual(record["identity_status"], "confirmed")
-        self.assertEqual(record["execution_status"], "running")
-        self.assertEqual(record["parent_action"], "wait")
-        expected_mapping = {"task_id": prepared["task_id"], "attempt": 1}
-        self.assertEqual(state["agents"]["agent-1"], expected_mapping)
-        self.assertEqual(state["agents"]["/root/sg_standard_payment_review"], expected_mapping)
-        self.assertEqual(self.prepared_store().list_records("session-1"), [])
-
+        record = self.current_execution(state, prepared["task_id"])
+        self.assertEqual(governance._spawn_observation(record), "success")
+        self.assertEqual(governance._identity_status(record), "unconfirmed")
+        self.assertEqual(governance._execution_status(record), "not_started")
+        self.assertEqual(governance._parent_action(record), "reconcile")
+        self.assertTrue(self.prepared_store().list_records("session-1"))
     def test_post_tool_success_without_identity_stays_not_started_and_reconcile(self):
         prepared = self.prepare()
         governance.handle(self.pre_payload(prepared), self.store)
@@ -402,11 +1391,12 @@ class DispatchIdentityTests(unittest.TestCase):
             },
             self.store,
         )
-        record = self.store.read("session-1")["tasks"][prepared["task_id"]]
-        self.assertEqual(record["spawn_observation"], "success")
-        self.assertEqual(record["identity_status"], "unconfirmed")
-        self.assertEqual(record["execution_status"], "not_started")
-        self.assertEqual(record["parent_action"], "reconcile")
+        state = self.store.read("session-1")
+        record = self.current_execution(state, prepared["task_id"])
+        self.assertEqual(governance._spawn_observation(record), "success")
+        self.assertEqual(governance._identity_status(record), "unconfirmed")
+        self.assertEqual(governance._execution_status(record), "not_started")
+        self.assertEqual(governance._parent_action(record), "reconcile")
 
     def test_post_tool_failed_and_unknown_have_distinct_transitions(self):
         failed = self.prepare()
@@ -421,9 +1411,10 @@ class DispatchIdentityTests(unittest.TestCase):
             },
             self.store,
         )
-        failed_record = self.store.read("session-1")["tasks"][failed["task_id"]]
-        self.assertEqual(failed_record["spawn_observation"], "failed")
-        self.assertEqual(failed_record["parent_action"], "retry_spawn")
+        state = self.store.read("session-1")
+        failed_record = self.current_execution(state, failed["task_id"])
+        self.assertEqual(governance._spawn_observation(failed_record), "failed")
+        self.assertEqual(governance._parent_action(failed_record), "retry_spawn")
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -449,9 +1440,10 @@ class DispatchIdentityTests(unittest.TestCase):
                 },
                 store,
             )
-            record = store.read("session-unknown")["tasks"][unknown["task_id"]]
-            self.assertEqual(record["spawn_observation"], "unknown")
-            self.assertEqual(record["parent_action"], "reconcile")
+            state = store.read("session-unknown")
+            record = self.current_execution(state, unknown["task_id"])
+            self.assertEqual(governance._spawn_observation(record), "unknown")
+            self.assertEqual(governance._parent_action(record), "reconcile")
             self.assertEqual(store.read("session-unknown")["agents"], {})
 
     def test_spawn_retry_counts_are_claimed_before_call_and_bounded(self):
@@ -479,9 +1471,10 @@ class DispatchIdentityTests(unittest.TestCase):
         retry_payload["tool_use_id"] = "spawn-call-2"
         allowed = governance.handle(retry_payload, self.store)
         self.assertEqual(allowed["hookSpecificOutput"]["permissionDecision"], "allow")
-        claimed = self.store.read("session-1")["tasks"][prepared["task_id"]]
+        state = self.store.read("session-1")
+        claimed = self.current_execution(state, prepared["task_id"])
         self.assertEqual(claimed["spawn_retry_count"], 1)
-        self.assertIsNone(claimed["spawn_observation"])
+        self.assertIsNone(governance._spawn_observation(claimed))
 
         governance.handle(
             {
@@ -493,9 +1486,10 @@ class DispatchIdentityTests(unittest.TestCase):
             },
             self.store,
         )
-        failed_once = self.store.read("session-1")["tasks"][prepared["task_id"]]
+        state = self.store.read("session-1")
+        failed_once = self.current_execution(state, prepared["task_id"])
         self.assertEqual(failed_once["spawn_retry_count"], 1)
-        self.assertEqual(failed_once["parent_action"], "ask_user")
+        self.assertEqual(governance._parent_action(failed_once), "ask_user")
 
         with self.assertRaisesRegex(governance.DispatchPreparationError, "明确授权"):
             governance.prepare_spawn_retry(
@@ -517,7 +1511,8 @@ class DispatchIdentityTests(unittest.TestCase):
         final_payload = self.pre_payload(final_retry)
         final_payload["tool_use_id"] = "spawn-call-3"
         governance.handle(final_payload, self.store)
-        claimed_final = self.store.read("session-1")["tasks"][prepared["task_id"]]
+        state = self.store.read("session-1")
+        claimed_final = self.current_execution(state, prepared["task_id"])
         self.assertEqual(claimed_final["spawn_retry_count"], 2)
 
         governance.handle(
@@ -530,13 +1525,31 @@ class DispatchIdentityTests(unittest.TestCase):
             },
             self.store,
         )
-        exhausted = self.store.read("session-1")["tasks"][prepared["task_id"]]
-        self.assertEqual(exhausted["execution_status"], "stopped")
-        self.assertEqual(exhausted["parent_action"], "decide_disposition")
-        self.assertEqual(exhausted["spawn_close_reason"], "spawn_retry_exhausted")
-        tombstone = self.store.read("session-1")["tombstones"][f"{prepared['task_id']}:1"]
-        self.assertEqual(tombstone["close_reason"], "spawn_retry_exhausted")
-        self.assertEqual(tombstone["task_ref"], prepared["task_ref"])
+        state = self.store.read("session-1")
+        exhausted = self.current_execution(state, prepared["task_id"])
+        self.assertEqual(governance._execution_status(exhausted), "stopped")
+        self.assertEqual(governance._parent_action(exhausted), "decide_disposition")
+        self.assertNotIn("spawn_close_reason", exhausted)
+        self.assertNotIn(
+            f"{prepared['task_id']}:1",
+            state["tombstones"],
+        )
+        self.assertFalse(governance._execution_is_closed(exhausted))
+        self.assertEqual(
+            [
+                (record["task_id"], record["attempt"])
+                for record in governance._action_required_records(state)
+            ],
+            [(prepared["task_id"], 1)],
+        )
+        snapshot, issues, incomplete = governance._build_work_item_decision_snapshot(
+            state,
+            prepared["task_id"],
+        )
+        self.assertEqual(snapshot["lifecycle"], "open")
+        self.assertTrue(snapshot["action_required"])
+        self.assertFalse(incomplete)
+        self.assertEqual(issues, [])
         with self.assertRaisesRegex(governance.DispatchPreparationError, "已经耗尽"):
             governance.prepare_spawn_retry(
                 self.contract(),
@@ -581,10 +1594,11 @@ class DispatchIdentityTests(unittest.TestCase):
             self.store,
         )
 
-        record = self.store.read("session-1")["tasks"][prepared["task_id"]]
-        self.assertEqual(record["spawn_observation"], "unknown")
+        state = self.store.read("session-1")
+        record = self.current_execution(state, prepared["task_id"])
+        self.assertEqual(governance._spawn_observation(record), "unknown")
         self.assertEqual(record["spawn_retry_count"], 1)
-        self.assertEqual(record["parent_action"], "reconcile")
+        self.assertEqual(governance._parent_action(record), "reconcile")
         with self.assertRaisesRegex(governance.DispatchPreparationError, "明确 failed"):
             governance.prepare_spawn_retry(
                 self.contract(),
@@ -595,57 +1609,20 @@ class DispatchIdentityTests(unittest.TestCase):
                 prepared_store=self.prepared_store(),
             )
 
-    def test_late_subagent_start_binds_by_task_ref_after_unknown(self):
+    def test_retry_requires_reliable_not_created_fact(self):
         prepared = self.prepare()
         governance.handle(self.pre_payload(prepared), self.store)
-        governance.handle(
-            {
-                "session_id": "session-1",
-                "hook_event_name": "PostToolUse",
-                "tool_name": "spawn_agent",
-                "tool_use_id": "spawn-call-1",
-                "tool_response": {"unexpected": True},
-            },
-            self.store,
+        self.store.update(
+            "session-1",
+            lambda state: state["tasks"][prepared["task_id"]]["executions"]["1"].update(
+                {"spawn_observation": "failed", "identity_status": "unconfirmed"}
+            ),
         )
-        result = governance.handle(
-            {
-                "session_id": "session-1",
-                "hook_event_name": "SubagentStart",
-                "agent_id": "late-agent",
-                "task_name": prepared["task_name"],
-            },
-            self.store,
-        )
-        record = self.store.read("session-1")["tasks"][prepared["task_id"]]
-        self.assertEqual(record["identity_status"], "confirmed")
-        self.assertEqual(record["execution_status"], "running")
-        self.assertEqual(record["parent_action"], "wait")
-        self.assertIn("治理状态：running", result["hookSpecificOutput"]["additionalContext"])
-        self.assertEqual(self.prepared_store().list_records("session-1"), [])
-
-    def test_identity_confirmation_contract_delete_failure_only_warns(self):
-        prepared = self.prepare()
-        governance.handle(self.pre_payload(prepared), self.store)
-        with mock.patch.object(
-            governance.PreparedContractStore,
-            "delete",
-            side_effect=governance.PreparedContractWriteError("simulated delete failure"),
-        ):
-            result = governance.handle(
-                {
-                    "session_id": "session-1",
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "spawn_agent",
-                    "tool_use_id": "spawn-call-1",
-                    "tool_response": {"agent_id": "agent-delete-warning"},
-                },
-                self.store,
+        with self.assertRaisesRegex(governance.DispatchPreparationError, "明确 failed"):
+            governance.prepare_spawn_retry(
+                self.contract(), "session-1", prepared["task_id"],
+                state_store=self.store, prepared_store=self.prepared_store(),
             )
-        record = self.store.read("session-1")["tasks"][prepared["task_id"]]
-        self.assertEqual(record["identity_status"], "confirmed")
-        self.assertEqual(record["spawn_observation"], "success")
-        self.assertIn("收缩失败", result["systemMessage"])
 
     def test_unmanaged_spawn_is_allowed_without_creating_state(self):
         payload = {
@@ -723,41 +1700,6 @@ class DispatchIdentityTests(unittest.TestCase):
         self.assertEqual(observation["observation"], "unknown")
         self.assertIsNone(observation["agent_id"])
         self.assertIsNone(observation["canonical_path"])
-
-    def test_subagent_start_without_task_ref_does_not_bind_unique_candidate(self):
-        initial = {
-            "task_id": "sg-task-0001",
-            "attempt": 1,
-            "task_ref": "0123456789ab",
-            "task_name": "sg_standard_candidate_t_0123456789ab",
-            "resolved_mode": "standard",
-            "status": "pending",
-            **governance.AttemptState().to_record(),
-            "created_at": governance._now(),
-            "updated_at": governance._now(),
-        }
-        self.store.update(
-            "session-1",
-            lambda state: state["tasks"].update({"sg-task-0001": initial}),
-            admission="new_task",
-        )
-
-        result = governance.handle(
-            {
-                "session_id": "session-1",
-                "hook_event_name": "SubagentStart",
-                "agent_id": "unrelated-agent",
-            },
-            self.store,
-        )
-
-        state = self.store.read("session-1")
-        self.assertNotIn("unrelated-agent", state["agents"])
-        self.assertEqual(state["tasks"]["sg-task-0001"]["identity_status"], "unconfirmed")
-        self.assertIn(
-            "治理任务 ID：未映射",
-            result["hookSpecificOutput"]["additionalContext"],
-        )
 
 
 if __name__ == "__main__":

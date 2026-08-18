@@ -20,8 +20,11 @@ Marketplace 继续指向稳定发布源。开发仓库永远不直接作为已�
 5. 已记录回滚目标和上一稳定缓存路径。
 6. 目标 `assets/agents-governance.md` 只包含合法的最小 Skill 入口并通过结构测试；发布前的全局标记区间应继续与当前稳定版一致，不要求提前匹配尚未安装的目标资产。
 7. 对仍需由目标运行时继续处理的活动治理记录，只按下一次真实操作所需字段做结构预检；未知额外字段忽略，缺失字段明确列出，不按 stored version 拒绝，不执行状态迁移矩阵。
+8. 活动治理记录必须具备 canonical `work_item + executions`；旧 root current/`prior_attempts` 只能作为历史诊断事实，发布流程不得原地迁移、补写或把它们计为可继续执行的活动任务。
 
 仅做本地发布准备时，到上述只读检查和仓库验证为止。替换稳定发布源、更新 Marketplace/运行缓存、应用全局规则、确认 Hook trust 或清理缓存都属于另行授权的发布操作。
+
+本地全量、validator 和只读安装检查通过也不等于目标版本已经加载。真实插件、Hook 和平台链路未执行时必须记录 `not_checked`，不能用旧稳定版或现有缓存状态代替。
 
 ## 建议步骤
 
@@ -104,10 +107,10 @@ python3 ~/plugins/subagent-governance/scripts/apply_agents_block.py --check --di
 - 发布验收只能记录 `passed`、`failed` 或 `not_checked`；不能把仓库测试、trust hash 记录存在或 `codex plugin add` 返回 0 折算成真实验收成功。
 - 先运行 `codex plugin list --marketplace personal --json`，记录 plugin ID、installed/enabled、Marketplace、稳定来源和目标完整版本。字段缺失或 Schema 不识别时记录 `not_checked`，不要猜测。
 - 在新 Codex 任务中验证 Skill 和 Hook。已经打开的任务可能固定旧缓存，不能用于证明目标新版本已经加载。
-- 在交互式 `/hooks` 中确认七个目标 Hook 的当前定义均为 enabled、trusted，且当前 `~/.codex/hooks.json` 没有旧 Hook 挂载。配置中的 trust hash 记录存在不等于当前定义已 trusted；未挂载的旧脚本路径可以暂时保留给已打开任务。
+- 在交互式 `/hooks` 中确认五个目标 Hook 的当前定义均为 enabled、trusted，且当前 `~/.codex/hooks.json` 没有旧 Hook 挂载。配置中的 trust hash 记录存在不等于当前定义已 trusted；未挂载的旧脚本路径可以暂时保留给已打开任务。
 - 禁止使用 `--dangerously-bypass-hook-trust` 完成发布验收，也不要直接编辑 `config.toml` 中的 trust 记录。
 - 用一个没有显式写 `$subagent-governance`、但确实适合只读子 Agent 的请求验证最小全局入口会先加载目标版本 Skill；随后派发一个 `light` 只读 smoke Agent，记录用户可见派发说明、Agent 标识、终态通知和父任务闭环。
-- smoke 至少验证 PreToolUse、PostToolUse、SubagentStart、SubagentStop 和父任务 Stop；新任务启动提供 SessionStart 证据。SessionEnd 必须有实际事件或状态证据，不能仅凭关闭任务推定成功。
+- smoke 至少验证 PreToolUse、PostToolUse 和父任务 Stop；新任务启动提供 SessionStart 证据。SessionEnd 必须有实际事件或状态证据，不能仅凭关闭任务推定成功。
 - 先运行 `scripts/check_installation.py` 检查当前运行安装；默认退出码只由目录隔离、稳定源/当前缓存、全局规则、缓存安全和旧独立 Hook 挂载决定。该脚本是只读文件系统检查，不替代活动任务字段预检或真实平台验收。
 - 完成目标版本验证和 N-2 清理后，再运行 `scripts/check_installation.py --require-development-sync --require-retention-policy --expected-previous-version <升级前完整版本>`，要求开发治理规则已经进入稳定资产、只保留一份历史缓存，且该缓存确实是发布前记录的 N-1。
 - 检查报告中的 `release_ready` 当前为 `null`；该脚本不替代版本/cachebuster、Git tag、候选副本、测试、validator 和安全审查组成的 release preflight。

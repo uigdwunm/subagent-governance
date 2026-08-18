@@ -34,7 +34,7 @@ On Windows, use `py -3` in place of `python3` where appropriate.
 - Add a minimal reliable regression test before fixing runtime bugs.
 - Keep protocol, Skill, Hook, Schema, and runtime semantics aligned.
 - Treat unknown platform responses as unknown; do not silently convert them to success or failure.
-- Preserve structured formal results and explicit parent disposition as separate lifecycle stages.
+- Preserve terminal notification observation and explicit parent lifecycle disposition as separate stages; do not add business-result persistence or acceptance state.
 - Keep diagnostic operations read-only.
 - Do not add network services, telemetry, databases, background daemons, or a second Agent scheduler without an explicitly approved project-level design change.
 

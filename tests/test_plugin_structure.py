@@ -14,7 +14,7 @@ class PluginStructureTests(unittest.TestCase):
         hooks = json.loads((ROOT / "hooks/hooks.json").read_text(encoding="utf-8"))["hooks"]
         self.assertEqual(
             set(hooks),
-            {"PreToolUse", "PostToolUse", "SessionStart", "SessionEnd", "SubagentStart", "SubagentStop", "Stop"},
+            {"PreToolUse", "PostToolUse", "SessionStart", "SessionEnd", "Stop"},
         )
 
     def test_hook_commands_use_plugin_root(self):
@@ -82,17 +82,6 @@ class PluginStructureTests(unittest.TestCase):
                 "matcher": "other",
                 "timeout": 3,
                 "statusMessage": "清理子 Agent 治理状态",
-            },
-            "SubagentStart": {
-                "matcher": ".*",
-                "timeout": 10,
-                "statusMessage": "加载子 Agent 执行边界",
-                "additionalContextLimit": 1800,
-            },
-            "SubagentStop": {
-                "matcher": ".*",
-                "timeout": 10,
-                "statusMessage": "验收子 Agent 终态",
             },
             "Stop": {
                 "timeout": 10,
@@ -255,20 +244,15 @@ class PluginStructureTests(unittest.TestCase):
             (ROOT / "schemas/governance-semantics.schema.json").read_text(encoding="utf-8")
         )
         contract = json.loads((ROOT / "schemas/task-contract-v1.schema.json").read_text(encoding="utf-8"))
-        result = json.loads((ROOT / "schemas/task-result-v1.schema.json").read_text(encoding="utf-8"))
         machine = semantics["x-semantics"]
 
         self.assertEqual(list(contract["properties"]), machine["task_contract_fields"])
-        self.assertEqual(list(result["properties"]), machine["task_result_fields"])
         self.assertNotIn("protocol", contract["properties"])
-        self.assertNotIn("protocol", result["properties"])
-        self.assertNotIn("status", result["properties"])
-        self.assertEqual(
-            semantics["$defs"]["business_result"]["enum"],
-            ["complete", "blocked", "failed", "needs_decision"],
-        )
+        self.assertFalse((ROOT / "schemas/task-result-v1.schema.json").exists())
+        self.assertNotIn("task_result_fields", machine)
+        self.assertNotIn("business_result", semantics["$defs"])
+        self.assertIn("terminal_notification_channel", machine)
         self.assertTrue(contract["additionalProperties"])
-        self.assertTrue(result["additionalProperties"])
 
     def test_agents_governance_asset_has_single_marker_pair(self):
         text = (ROOT / "assets/agents-governance.md").read_text(encoding="utf-8")

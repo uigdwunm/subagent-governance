@@ -31,186 +31,50 @@ else:
     msvcrt = None
 
 
-SEMANTICS_PATH = Path(__file__).resolve().parents[1] / "schemas/governance-semantics.schema.json"
+# The facade keeps the historical module-level names stable for hooks and
+# tests while the low-coupling definitions live in dedicated modules.
+try:
+    from scripts.governance_semantics import *
+    from scripts.governance_semantics import (
+        _DECISION_ACTION_ORDER,
+        _load_machine_semantics,
+        _semantic_enum,
+        _semantic_values,
+    )
+except ModuleNotFoundError:
+    from governance_semantics import *
+    from governance_semantics import (
+        _DECISION_ACTION_ORDER,
+        _load_machine_semantics,
+        _semantic_enum,
+        _semantic_values,
+    )
 
+try:
+    from scripts.governance_errors import *
+    from scripts.governance_errors import _state_store_exception_category
+except ModuleNotFoundError:
+    from governance_errors import *
+    from governance_errors import _state_store_exception_category
 
-def _load_machine_semantics() -> dict[str, Any]:
-    try:
-        value = json.loads(SEMANTICS_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"无法读取治理机器语义源：{SEMANTICS_PATH}") from exc
-    if not isinstance(value, dict) or not isinstance(value.get("$defs"), dict):
-        raise RuntimeError(f"治理机器语义源缺少 $defs：{SEMANTICS_PATH}")
-    if not isinstance(value.get("x-semantics"), dict):
-        raise RuntimeError(f"治理机器语义源缺少 x-semantics：{SEMANTICS_PATH}")
-    return value
-
-
-MACHINE_SEMANTICS = _load_machine_semantics()
-SEMANTIC_DEFINITIONS = MACHINE_SEMANTICS["$defs"]
-SEMANTIC_RULES = MACHINE_SEMANTICS["x-semantics"]
-
-
-def _semantic_enum(name: str) -> frozenset[str]:
-    definition = SEMANTIC_DEFINITIONS.get(name)
-    values = definition.get("enum") if isinstance(definition, dict) else None
-    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
-        raise RuntimeError(f"治理机器语义源中的枚举 {name} 无效")
-    return frozenset(values)
-
-
-REQUESTED_MODES = _semantic_enum("requested_mode")
-RESOLVED_MODES = _semantic_enum("resolved_mode")
-VALID_MODES = set(REQUESTED_MODES)
-RESOLUTION_REASONS = _semantic_enum("resolution_reason")
-RISKS = _semantic_enum("risk")
-REASONING_EFFORTS = _semantic_enum("reasoning_effort")
-CONTEXT_STRATEGIES = _semantic_enum("context_strategy")
-OPERATION_TYPES = _semantic_enum("operation_type")
-EXECUTION_STATUSES = _semantic_enum("execution_status")
-SPAWN_OBSERVATIONS = _semantic_enum("spawn_observation")
-IDENTITY_STATUSES = _semantic_enum("identity_status")
-PLATFORM_OBSERVATIONS = _semantic_enum("platform_observation")
-BUSINESS_RESULTS = _semantic_enum("business_result")
-ACCEPTANCE_STATUSES = _semantic_enum("acceptance_status")
-RESULT_PROTOCOL_STATUSES = _semantic_enum("result_protocol_status")
-RESULT_STORAGE_STATUSES = _semantic_enum("result_storage_status")
-RECOVERY_STATUSES = _semantic_enum("recovery_status")
-PARENT_ACTIONS = _semantic_enum("parent_action")
-PARENT_DISPOSITIONS = _semantic_enum("parent_disposition")
-CALL_OBSERVATIONS = _semantic_enum("call_observation")
-LIFECYCLE_OPERATION_TYPES = _semantic_enum("lifecycle_operation_type")
-RETRY_LIMITS = dict(SEMANTIC_RULES["retry_limits"])
-RETENTION_SECONDS = dict(SEMANTIC_RULES["retention_seconds"])
-OPERATION_NATIVE_TOOLS = dict(SEMANTIC_RULES["operation_native_tools"])
-BUSINESS_RESULT_PARENT_ACTION = dict(SEMANTIC_RULES["business_result_parent_action"])
-AUTO_RESOLUTION = dict(SEMANTIC_RULES["auto_resolution"])
-MODE_MINIMUMS = dict(SEMANTIC_RULES["mode_minimums"])
-CONTEXT_TURNS = dict(SEMANTIC_RULES["context_turns"])
-TASK_CONTRACT_OPTIONAL_FIELDS = tuple(SEMANTIC_RULES["task_contract_optional_fields"])
-TASK_RESULT_BASE_REQUIRED_FIELDS = tuple(SEMANTIC_RULES["task_result_base_required_fields"])
-TASK_RESULT_SCENARIO_FIELDS = dict(SEMANTIC_RULES["task_result_scenario_fields"])
-INITIAL_ATTEMPT_STATE = dict(SEMANTIC_RULES["initial_attempt_state"])
-FORMAL_RESULT_STORAGE = dict(SEMANTIC_RULES["formal_result_storage"])
-DIAGNOSTIC_LIMITS = dict(SEMANTIC_RULES["diagnostic_limits"])
-GROUP_SEMANTICS = dict(SEMANTIC_RULES["group"])
-PARENT_DISPOSITION_REASON_MAX_LENGTH = int(
-    SEMANTIC_RULES["parent_disposition_reason_max_length"]
-)
-TASK_NAME_PATTERN = str(SEMANTIC_RULES["task_name"]["pattern"])
-TASK_NAME_MAX_LENGTH = int(SEMANTIC_RULES["task_name"]["max_length"])
-TASK_REF_LENGTHS = tuple(int(value) for value in SEMANTIC_RULES["task_name"]["task_ref_lengths"])
-TASK_NAME_RE = re.compile(
-    r"^sg_(light|standard|strict)_([a-z0-9]+(?:_[a-z0-9]+)*)_t_([a-f0-9]{12,32})$"
-)
-
-MAX_HOOK_INPUT_BYTES = 2 * 1024 * 1024
-MAX_PREPARED_BYTES = MAX_HOOK_INPUT_BYTES
-NEW_TASK_SOFT_LIMIT_BYTES = 3 * 1024 * 1024
-MAX_STATE_BYTES = 4 * 1024 * 1024
-MAX_RESULT_BYTES = MAX_HOOK_INPUT_BYTES
-MAX_CONTRACT_TEXT = int(SEMANTIC_DEFINITIONS["short_text"]["maxLength"])
-SESSION_SUMMARY_RECORD_LIMIT = 8
-SESSION_SUMMARY_CONTEXT_LIMIT = 1800
-SESSION_SUMMARY_FIELD_LIMIT = 96
-STOP_READ_ATTEMPTS = int(SEMANTIC_RULES["stop_read_attempts"])
-STOP_READ_RETRY_DELAY_SECONDS = 0.05
-DIAGNOSTIC_SESSION_LIMIT = int(DIAGNOSTIC_LIMITS["sessions"])
-DIAGNOSTIC_ATTEMPT_LIMIT = int(DIAGNOSTIC_LIMITS["attempts_per_session"])
-DIAGNOSTIC_GROUP_LIMIT = int(DIAGNOSTIC_LIMITS["groups_per_session"])
-DIAGNOSTIC_ISSUE_LIMIT = int(DIAGNOSTIC_LIMITS["issues"])
-DIAGNOSTIC_OUTPUT_BYTES = int(DIAGNOSTIC_LIMITS["output_bytes"])
-GROUP_MEMBER_LIMIT = int(GROUP_SEMANTICS["members_max_items"])
-GROUP_ID_MAX_LENGTH = int(GROUP_SEMANTICS["group_id_max_length"])
-GROUP_OBJECTIVE_MAX_LENGTH = int(GROUP_SEMANTICS["objective_summary_max_length"])
-
-
-class StateStoreError(RuntimeError):
-    """Base class for explicit StateStore failures."""
-
-
-class StateValidationError(StateStoreError):
-    """The existing state or requested write is structurally unsafe."""
-
-
-class StateCapacityError(StateStoreError):
-    """The requested state exceeds a configured admission boundary."""
-
-
-class StateConflictError(StateStoreError):
-    """A compare-and-set predicate did not match the locked state."""
-
-
-class StateWriteError(StateStoreError):
-    """The state could not be atomically written and verified."""
-
-
-class PreparedContractError(RuntimeError):
-    """Base class for PreparedContract persistence and validation failures."""
-
-
-class PreparedContractValidationError(PreparedContractError):
-    """A PreparedContract is missing required mechanical facts or is unsafe."""
-
-
-class PreparedContractConflictError(PreparedContractError):
-    """A PreparedContract compare-and-set predicate did not match."""
-
-
-class PreparedContractWriteError(PreparedContractError):
-    """A PreparedContract could not be atomically written and verified."""
-
-
-class DispatchPreparationError(RuntimeError):
-    """The deterministic dispatch package could not pass both hard gates."""
-
-
-class CommunicationPreparationError(RuntimeError):
-    """A communication or interrupt package could not pass mechanical gates."""
-
-
-class ResultSubmissionError(RuntimeError):
-    """A formal TaskResult could not be safely submitted or associated."""
-
-
-class ResultStorageError(ResultSubmissionError):
-    """A mechanically valid TaskResult could not be stored or read back."""
-
-
-class ParentDispositionError(RuntimeError):
-    """A parent disposition request failed mechanical validation."""
-
-
-class ParentDispositionConflict(ParentDispositionError):
-    """A parent disposition conflicts with the current persisted task facts."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        interrupt_targets: list[str] | None = None,
-        current_attempt: int | None = None,
-    ):
-        super().__init__(message)
-        self.interrupt_targets = list(interrupt_targets or [])
-        self.current_attempt = current_attempt
-
-
-class GroupValidationError(RuntimeError):
-    """A lightweight group request or persisted group is mechanically invalid."""
-
-
-class GroupNotFoundError(GroupValidationError):
-    """The requested lightweight group does not exist in the Session."""
-
-
-class DiagnosticReadError(RuntimeError):
-    """A read-only diagnostic target could not be normalized."""
-
-    def __init__(self, code: str, message: str, *, context: dict[str, Any] | None = None):
-        super().__init__(message)
-        self.code = code
-        self.context = dict(context or {})
+try:
+    from scripts.governance_storage import (
+        PrivateStorageCapacityError,
+        PrivateStorageError,
+        PrivateStorageWriteError,
+        atomic_write_bytes,
+        locked_file,
+        read_private_bytes,
+    )
+except ModuleNotFoundError:
+    from governance_storage import (
+        PrivateStorageCapacityError,
+        PrivateStorageError,
+        PrivateStorageWriteError,
+        atomic_write_bytes,
+        locked_file,
+        read_private_bytes,
+    )
 
 
 @dataclass(frozen=True)
@@ -221,22 +85,16 @@ class TaskFeatures:
     destructive: bool
     production: bool
     concurrent_write: bool
-    multi_stage_acceptance: bool
-    allows_child_agents: bool | None = None
 
     def to_record(self) -> dict[str, Any]:
-        record = {
+        return {
             "risk": self.risk,
             "read_only": self.read_only,
             "writes_files": self.writes_files,
             "destructive": self.destructive,
             "production": self.production,
             "concurrent_write": self.concurrent_write,
-            "multi_stage_acceptance": self.multi_stage_acceptance,
         }
-        if self.allows_child_agents is not None:
-            record["allows_child_agents"] = self.allows_child_agents
-        return record
 
 
 @dataclass(frozen=True)
@@ -283,84 +141,890 @@ class TaskContract:
         }
 
 
-@dataclass(frozen=True)
-class TaskResult:
-    task_id: str
-    attempt: int
-    business_result: str
-    result: str
-    evidence: list[str]
-    remaining: list[str]
-    suggested_parent_next_step: str
-    blocker: str | None = None
-    attempted: list[str] | None = None
-    required_to_resume: str | None = None
-    failure_reason: str | None = None
-    retry_conditions: str | None = None
-    decision_question: str | None = None
-    options: list[str] | None = None
-    recommendation: str | None = None
+def _initial_plane_records() -> dict[str, dict[str, Any]]:
+    return {
+        "dispatch_record": {
+            "dispatch_state": "prepared",
+            "tool_use_id": None,
+            "dispatch_target": None,
+        },
+        "observation_record": {
+            "source": None,
+            "observed_state": "not_observed",
+            "observed_at": None,
+            "terminal_status": None,
+        },
+        "closure_record": {
+            "reason": None,
+            "closed_at": None,
+            "parent_action": None,
+        },
+    }
 
-    def to_record(self) -> dict[str, Any]:
-        record = {
-            "task_id": self.task_id,
-            "attempt": self.attempt,
-            "business_result": self.business_result,
-            "result": self.result,
-            "evidence": list(self.evidence),
-            "remaining": list(self.remaining),
-            "suggested_parent_next_step": self.suggested_parent_next_step,
-        }
-        for field_name in (
-            "blocker",
-            "attempted",
-            "required_to_resume",
-            "failure_reason",
-            "retry_conditions",
-            "decision_question",
-            "options",
-            "recommendation",
+
+def _legacy_dispatch_state(execution: dict[str, Any]) -> str:
+    observation = execution.get("spawn_observation")
+    if observation == "success":
+        return "acknowledged"
+    if observation == "failed":
+        return "rejected"
+    if observation == "unknown":
+        return "indeterminate"
+    if execution.get("spawn_tool_use_id") is not None:
+        return "claimed"
+    return "prepared"
+
+
+def _legacy_observation_record(
+    execution: dict[str, Any],
+    dispatch: dict[str, Any],
+) -> dict[str, Any]:
+    observed_at = execution.get("platform_checked_at")
+    if (
+        isinstance(observed_at, bool)
+        or not isinstance(observed_at, int)
+        or observed_at < 0
+    ):
+        observed_at = None
+    source = execution.get("platform_observation_source")
+    summary = execution.get("platform_observation_summary")
+    dispatch_target = dispatch.get("dispatch_target")
+    legacy_target = execution.get("platform_observation_target")
+    exact_target = bool(
+        isinstance(dispatch_target, str)
+        and dispatch_target
+        and legacy_target == dispatch_target
+    )
+    terminal_status = None
+    observed_state = "not_observed"
+    normalized_source = None
+    if (
+        source == "list_agents"
+        and exact_target
+        and summary in {"completed", "stopped", "interrupted"}
+    ):
+        observed_state = "terminal"
+        terminal_status = str(summary)
+        normalized_source = "list_agents"
+    elif execution.get("platform_observation") == "error" and exact_target:
+        observed_state = "error"
+        normalized_source = "list_agents" if source == "list_agents" else "session"
+    elif execution.get("platform_observation") == "unknown" and exact_target:
+        observed_state = "unknown"
+        normalized_source = "list_agents" if source == "list_agents" else "session"
+    if observed_state == "not_observed":
+        observed_at = None
+    return {
+        "source": normalized_source,
+        "observed_state": observed_state,
+        "observed_at": observed_at,
+        "terminal_status": terminal_status,
+    }
+
+
+def _legacy_closure_record(
+    execution: dict[str, Any],
+    task_id: str,
+    attempt: int,
+) -> dict[str, Any]:
+    legacy_disposition = execution.get("parent_disposition_record")
+    disposition = (
+        legacy_disposition
+        if isinstance(legacy_disposition, dict)
+        and legacy_disposition.get("task_id") == task_id
+        and legacy_disposition.get("attempt") == attempt
+        else None
+    )
+    reason = execution.get("attempt_close_reason")
+    if reason is None and isinstance(disposition, dict):
+        reason = disposition.get("reason")
+    closure = {
+        "reason": reason if isinstance(reason, str) and reason.strip() else None,
+        "closed_at": (
+            execution.get("attempt_closed_at")
+            if isinstance(execution.get("attempt_closed_at"), int)
+            and not isinstance(execution.get("attempt_closed_at"), bool)
+            else None
+        ),
+        "parent_action": _migrated_parent_action(execution.get("parent_action")),
+    }
+    _normalize_migrated_closure_facts(
+        closure, claimed_closed=execution.get("attempt_closed") is True
+    )
+    return closure
+
+
+def _migrated_parent_action(value: Any) -> str | None:
+    if value in {"accept_result", "correct_result"}:
+        return "decide_disposition"
+    return str(value) if value in PARENT_ACTIONS else None
+
+
+def _valid_close_reason(value: Any) -> bool:
+    return bool(
+        isinstance(value, str)
+        and value.strip()
+        and len(value) <= PARENT_DISPOSITION_REASON_MAX_LENGTH
+    )
+
+
+def _valid_closed_at(value: Any) -> bool:
+    return bool(not isinstance(value, bool) and isinstance(value, int) and value >= 0)
+
+
+def _closure_has_complete_facts(closure: dict[str, Any]) -> bool:
+    return _valid_close_reason(closure.get("reason")) and _valid_closed_at(
+        closure.get("closed_at")
+    )
+
+
+def _normalize_migrated_closure_facts(
+    closure: dict[str, Any], *, claimed_closed: bool
+) -> None:
+    reason = closure.get("reason")
+    closed_at = closure.get("closed_at")
+    if _closure_has_complete_facts(closure):
+        return
+    if claimed_closed or reason is not None or closed_at is not None:
+        closure["reason"] = None
+        closure["closed_at"] = None
+        closure["parent_action"] = "reconcile"
+
+
+def _legacy_contract_text(
+    value: Any, fallback: str, *, maximum: int
+) -> str:
+    if isinstance(value, str) and value.strip() and len(value) <= maximum:
+        return value
+    return fallback
+
+
+def _migrate_contract_summary(
+    execution: dict[str, Any], objective_summary: Any = None, *, task_id: str
+) -> dict[str, Any]:
+    raw = execution.get("contract_summary")
+    summary = copy.deepcopy(raw) if isinstance(raw, dict) else {}
+    fallback_objective = _legacy_contract_text(
+        objective_summary,
+        f"Legacy managed task {task_id}",
+        maximum=int(SEMANTIC_DEFINITIONS["short_text"]["maxLength"]),
+    )
+    objective = _legacy_contract_text(
+        summary.get("objective"),
+        fallback_objective,
+        maximum=int(SEMANTIC_DEFINITIONS["short_text"]["maxLength"]),
+    )
+    model = summary.get("model")
+    model = (
+        model
+        if model is None
+        or (
+            isinstance(model, str)
+            and model.strip()
+            and len(model) <= int(SEMANTIC_DEFINITIONS["model"]["maxLength"])
+        )
+        else None
+    )
+    return {
+        "objective": objective,
+        "model": model,
+    }
+
+
+def _migrate_legacy_execution_record(
+    execution: dict[str, Any], *, task_id: str, attempt: int, objective_summary: Any = None
+) -> dict[str, Any]:
+    migrated = copy.deepcopy(execution)
+    task_ref = migrated.get("task_ref")
+    if not isinstance(task_ref, str) or not task_ref:
+        raise StateValidationError("旧 managed execution 缺少可迁移的 task_ref")
+    dispatch = {
+        "dispatch_state": _legacy_dispatch_state(migrated),
+        "tool_use_id": (
+            migrated.get("spawn_tool_use_id")
+            if isinstance(migrated.get("spawn_tool_use_id"), str)
+            else None
+        ),
+        "dispatch_target": (
+            migrated.get("spawn_observed_canonical_path")
+            if isinstance(migrated.get("spawn_observed_canonical_path"), str)
+            and migrated.get("spawn_observed_canonical_path")
+            else None
+        ),
+    }
+    observation = _legacy_observation_record(migrated, dispatch)
+    closure = _legacy_closure_record(migrated, task_id, attempt)
+    contract_summary = _migrate_contract_summary(
+        migrated, objective_summary, task_id=task_id
+    )
+    migrated["contract_summary"] = contract_summary
+    migrated.pop("task_id", None)
+    migrated.pop("attempt", None)
+    migrated.pop("deliverable_contract", None)
+    for field_name in LEGACY_EXECUTION_PROJECTION_FIELDS:
+        migrated.pop(field_name, None)
+    migrated.update(
+        dispatch_record=dispatch,
+        observation_record=observation,
+        closure_record=closure,
+    )
+    return migrated
+
+
+def _validate_current_execution_planes(execution: dict[str, Any]) -> None:
+    expected = {
+        "dispatch_record": REQUIRED_DISPATCH_RECORD_FIELDS,
+        "observation_record": REQUIRED_OBSERVATION_RECORD_FIELDS,
+        "closure_record": REQUIRED_CLOSURE_RECORD_FIELDS,
+    }
+    for field_name, required in expected.items():
+        record = execution.get(field_name)
+        if not isinstance(record, dict):
+            raise StateValidationError(f"managed execution 缺少 canonical plane {field_name}")
+        missing = required - set(record)
+        if missing:
+            raise StateValidationError(
+                f"canonical plane {field_name} 缺少字段 {', '.join(sorted(missing))}"
+            )
+        unknown = set(record) - required
+        if unknown:
+            raise StateValidationError(
+                f"canonical plane {field_name} 包含未知字段 {', '.join(sorted(unknown))}"
+            )
+
+    task_ref = execution.get("task_ref")
+    if not isinstance(task_ref, str) or not task_ref:
+        raise StateValidationError("managed execution 的 task_ref 无效")
+
+    dispatch = execution["dispatch_record"]
+    observation = execution["observation_record"]
+    closure = execution["closure_record"]
+
+    enum_fields = (
+        (dispatch, "dispatch_state", DISPATCH_STATES),
+        (observation, "observed_state", OBSERVED_STATES),
+    )
+    for record, field_name, allowed in enum_fields:
+        if record.get(field_name) not in allowed:
+            raise StateValidationError(f"canonical plane 字段 {field_name} 使用未知枚举值")
+    nullable_enums = (
+        (observation, "source", OBSERVATION_SOURCES),
+        (closure, "parent_action", PARENT_ACTIONS),
+    )
+    for record, field_name, allowed in nullable_enums:
+        value = record.get(field_name)
+        if value is not None and value not in allowed:
+            raise StateValidationError(f"canonical plane 字段 {field_name} 使用未知枚举值")
+
+    timestamp_fields = (
+        (observation, "observed_at"),
+        (closure, "closed_at"),
+    )
+    for record, field_name in timestamp_fields:
+        value = record.get(field_name)
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
         ):
-            value = getattr(self, field_name)
-            if value is not None:
-                record[field_name] = list(value) if isinstance(value, list) else value
-        return record
+            raise StateValidationError(f"canonical plane 时间字段 {field_name} 无效")
+    terminal_status = observation.get("terminal_status")
+    if terminal_status is not None and terminal_status not in {
+        "completed", "stopped", "interrupted"
+    }:
+        raise StateValidationError("observation_record.terminal_status 无效")
+    if observation.get("observed_state") == "terminal" and terminal_status is None:
+        raise StateValidationError("terminal observation 缺少 terminal_status")
+    reason = closure.get("reason")
+    closed_at = closure.get("closed_at")
+    if reason is not None and not _valid_close_reason(reason):
+        raise StateValidationError("closure_record.reason 无效")
+    if (reason is None) != (closed_at is None):
+        raise StateValidationError("closure_record 的 reason 与 closed_at 必须同时存在或同时为空")
 
 
-@dataclass(frozen=True)
-class AttemptState:
-    execution_status: str = INITIAL_ATTEMPT_STATE["execution_status"]
-    spawn_observation: str | None = INITIAL_ATTEMPT_STATE["spawn_observation"]
-    identity_status: str = INITIAL_ATTEMPT_STATE["identity_status"]
-    platform_observation: str | None = INITIAL_ATTEMPT_STATE["platform_observation"]
-    business_result: str | None = INITIAL_ATTEMPT_STATE["business_result"]
-    acceptance_status: str | None = INITIAL_ATTEMPT_STATE["acceptance_status"]
-    result_protocol_status: str | None = INITIAL_ATTEMPT_STATE["result_protocol_status"]
-    result_storage_status: str | None = INITIAL_ATTEMPT_STATE["result_storage_status"]
-    result_conflict: bool = INITIAL_ATTEMPT_STATE["result_conflict"]
-    recovery_status: str | None = INITIAL_ATTEMPT_STATE["recovery_status"]
-    parent_action: str | None = INITIAL_ATTEMPT_STATE["parent_action"]
-    spawn_retry_count: int = INITIAL_ATTEMPT_STATE["spawn_retry_count"]
-    recovery_count: int = INITIAL_ATTEMPT_STATE["recovery_count"]
-    correction_count: int = INITIAL_ATTEMPT_STATE["correction_count"]
+def _promote_v4_parent_result_to_notification(execution: dict[str, Any]) -> None:
+    result = execution.get("result_record")
+    dispatch = execution.get("dispatch_record")
+    observation = execution.get("observation_record")
+    closure = execution.get("closure_record")
+    if not all(isinstance(item, dict) for item in (result, dispatch, observation, closure)):
+        return
+    sender = result.get("sender_target")
+    observed_at = result.get("submitted_at")
+    if not (
+        result.get("submission_provenance") == "parent_recorded_native_sender"
+        and result.get("result_state") in {"valid", "conflict"}
+        and isinstance(sender, str)
+        and sender == dispatch.get("dispatch_target")
+        and isinstance(observed_at, int)
+        and not isinstance(observed_at, bool)
+        and observed_at >= 0
+    ):
+        return
+    observation.update(
+        source="terminal_notification",
+        observed_state="terminal",
+        observed_at=observed_at,
+        terminal_status="completed",
+    )
+    if not _execution_is_closed(execution):
+        closure["parent_action"] = "decide_disposition"
 
-    def to_record(self) -> dict[str, Any]:
-        return {
-            "execution_status": self.execution_status,
-            "spawn_observation": self.spawn_observation,
-            "identity_status": self.identity_status,
-            "platform_observation": self.platform_observation,
-            "business_result": self.business_result,
-            "acceptance_status": self.acceptance_status,
-            "result_protocol_status": self.result_protocol_status,
-            "result_storage_status": self.result_storage_status,
-            "result_conflict": self.result_conflict,
-            "recovery_status": self.recovery_status,
-            "parent_action": self.parent_action,
-            "spawn_retry_count": self.spawn_retry_count,
-            "recovery_count": self.recovery_count,
-            "correction_count": self.correction_count,
-        }
+
+def _retire_v4_result_state(execution: dict[str, Any]) -> None:
+    _promote_v4_parent_result_to_notification(execution)
+    execution.pop("result_record", None)
+    execution.pop("correction_count", None)
+    execution.pop("result_protocol_error", None)
+    execution.pop("result_storage_error", None)
+    for field_name in (
+        "business_result",
+        "business_decision_resolved",
+        "acceptance_status",
+        "result_protocol_status",
+        "result_storage_status",
+        "result_reference",
+        "result_sha256",
+        "result_stored_at",
+        "result_conflict",
+        "result_conflict_observed_at",
+        "result_conflict_sender_target",
+        "result_conflict_sha256",
+    ):
+        execution.pop(field_name, None)
+    pending = execution.get("pending_action")
+    if isinstance(pending, dict) and pending.get("operation_type") == "result_correction":
+        if pending.get("phase") == "claimed":
+            execution["closure_record"]["parent_action"] = "reconcile"
+        execution.pop("pending_action", None)
+    lifecycle = execution.get("last_lifecycle_operation")
+    if isinstance(lifecycle, dict) and lifecycle.get("operation_type") == "result_correction":
+        execution.pop("last_lifecycle_operation", None)
+        execution["closure_record"]["parent_action"] = "reconcile"
+    closure = execution.get("closure_record")
+    if isinstance(closure, dict):
+        disposition = closure.get("parent_disposition")
+        if disposition in {"accept", "reject"} and not _execution_is_closed(execution):
+            closure["parent_action"] = "decide_disposition"
+        closure.pop("parent_disposition", None)
+        closure.pop("disposition_recorded_at", None)
+        closure["parent_action"] = _migrated_parent_action(closure.get("parent_action"))
+    for field_name in LEGACY_EXECUTION_PROJECTION_FIELDS:
+        execution.pop(field_name, None)
+
+
+def _migrate_execution_records(
+    executions: dict[str, Any],
+    *,
+    version: Any,
+    task_id: str,
+    objective_summary: Any,
+) -> None:
+    for attempt_key, execution in list(executions.items()):
+        if not isinstance(execution, dict):
+            continue
+        attempt = _parse_execution_key(attempt_key)
+        if attempt is None:
+            raise StateValidationError(
+                f"managed task {task_id} 包含非法 execution 键 {attempt_key}"
+            )
+        execution.pop("managed", None)
+        execution.pop("task_id", None)
+        execution.pop("attempt", None)
+        execution.pop("spawn_task_name", None)
+        execution.pop("origin_attempt", None)
+        execution.pop("origin_task_name", None)
+        execution.pop("dispatch_kind", None)
+        execution.pop("transition", None)
+        execution.pop("growth_authorization", None)
+        execution.pop("deliverable_contract", None)
+        execution.pop("semantic_name", None)
+        execution.pop("requested_mode", None)
+        execution.pop("resolution_reason", None)
+        execution.pop("created_at", None)
+        execution.pop("activity_at", None)
+        execution.pop("recovery_status", None)
+        execution.pop("terminal_reconciliation_reason", None)
+        execution.pop("terminal_reconciled_at", None)
+        execution.pop("reconciliation_reason", None)
+        execution.pop("reconciled_thread_id", None)
+        execution.pop("reconciled_thread_status", None)
+        execution.pop("spawn_close_reason", None)
+        pending = execution.get("pending_action")
+        if isinstance(pending, dict):
+            pending.pop("task_id", None)
+            pending.pop("reason", None)
+            pending.pop("transition", None)
+            pending.pop("expires_at", None)
+            pending.pop("resume_contract_summary", None)
+            pending.pop("resume_contract_digest", None)
+            pending.pop("resume_task_ref", None)
+            pending.pop("growth_authorization", None)
+            pending.pop("deliverable_contract", None)
+            pending.pop("deliverable_contract_digest", None)
+            pending.pop("start_observed_at", None)
+            pending.pop("disposition", None)
+            if not (
+                pending.get("operation_type") == "platform_recovery"
+                and execution.get("recovery_count") == 1
+                and pending.get("authorized_recovery") is True
+            ):
+                pending.pop("authorized_recovery", None)
+        lifecycle = execution.get("last_lifecycle_operation")
+        if isinstance(lifecycle, dict):
+            lifecycle.pop("target", None)
+            lifecycle.pop("claimed_at", None)
+            lifecycle.pop("completed_at", None)
+            lifecycle.pop("reason", None)
+            lifecycle.pop("native_status", None)
+        has_canonical_planes = all(
+            field_name in execution
+            for field_name in (
+                "dispatch_record", "observation_record", "closure_record"
+            )
+        )
+        if has_canonical_planes:
+            execution["contract_summary"] = _migrate_contract_summary(
+                execution, objective_summary, task_id=task_id
+            )
+            dispatch_record = execution.get("dispatch_record")
+            if isinstance(dispatch_record, dict):
+                dispatch_record.pop("task_id", None)
+                dispatch_record.pop("attempt", None)
+                dispatch_record.pop("task_ref", None)
+                dispatch_record.pop("claimed_at", None)
+                dispatch_record.pop("response_observed_at", None)
+                dispatch_record.pop("response_digest", None)
+            observation_record = execution.get("observation_record")
+            retired_observation_source = False
+            if isinstance(observation_record, dict):
+                retired_observation_source = (
+                    observation_record.get("source") in RETIRED_OBSERVATION_SOURCES
+                )
+                legacy_subject_present = "subject" in observation_record
+                legacy_subject = observation_record.pop("subject", None)
+                legacy_binding_basis = observation_record.pop(
+                    "binding_basis", None
+                )
+                dispatch_target = (
+                    dispatch_record.get("dispatch_target")
+                    if isinstance(dispatch_record, dict)
+                    else None
+                )
+                legacy_binding_untrusted = bool(
+                    (
+                        legacy_subject_present
+                        and legacy_subject != dispatch_target
+                    )
+                    or (
+                        legacy_binding_basis is not None
+                        and legacy_binding_basis != "exact_dispatch_target"
+                    )
+                )
+                if retired_observation_source or (
+                    legacy_binding_untrusted
+                    and observation_record.get("observed_state")
+                    != "not_observed"
+                ):
+                    observation_record.update(
+                        source=None,
+                        observed_state="not_observed",
+                        observed_at=None,
+                        terminal_status=None,
+                    )
+                observation_record.pop("bound_task_id", None)
+                observation_record.pop("bound_attempt", None)
+                observation_record.pop("runtime_alias", None)
+                observation_record.pop("fresh_until", None)
+                observation_record.pop("observation_id", None)
+                observation_record.pop("subject_kind", None)
+            closure_record = execution.get("closure_record")
+            if isinstance(closure_record, dict):
+                closure_record.pop("task_id", None)
+                closure_record.pop("attempt", None)
+                claimed_closed = closure_record.pop("closure_state", None) == "closed"
+                _normalize_migrated_closure_facts(
+                    closure_record, claimed_closed=claimed_closed
+                )
+                if retired_observation_source and not _execution_is_closed(execution):
+                    closure_record["parent_action"] = "reconcile"
+            _retire_v4_result_state(execution)
+            _validate_current_execution_planes(execution)
+            continue
+        if version not in {None, 1}:
+            raise StateValidationError(
+                f"治理状态 format {version} 的 managed execution 缺少 canonical planes"
+            )
+        executions[attempt_key] = _migrate_legacy_execution_record(
+            execution,
+            task_id=task_id,
+            attempt=attempt,
+            objective_summary=objective_summary,
+        )
+
+
+def _migrate_managed_tasks(migrated: dict[str, Any], version: Any) -> None:
+    tasks = migrated.get("tasks")
+    if isinstance(tasks, dict):
+        for task_key, task in tasks.items():
+            if not isinstance(task, dict) or task.get("managed") is not True:
+                continue
+            task_id_errors = _validate_text(
+                task_key,
+                "task_id",
+                maximum=int(SEMANTIC_DEFINITIONS["task_id"]["maxLength"]),
+            )
+            if task_id_errors:
+                raise StateValidationError("managed task 的 tasks 键不是合法 task_id")
+            task_id = str(task_key)
+            task.pop("task_id", None)
+            task.pop("result_credentials", None)
+            work_item = task.get("work_item")
+            objective_summary = (
+                work_item.get("objective_summary")
+                if isinstance(work_item, dict)
+                else None
+            )
+            if isinstance(work_item, dict):
+                work_item.pop("objective_summary", None)
+                work_item.pop("created_at", None)
+                work_item.pop("updated_at", None)
+                work_item.pop("attempt_count", None)
+                work_item.pop("action_required", None)
+                work_item.pop("last_growth_authorization", None)
+                work_item.pop("repeated_business_attempts", None)
+                work_item.pop("last_parent_disposition", None)
+                work_item.pop("last_disposition", None)
+            executions = task.get("executions")
+            if not isinstance(executions, dict):
+                continue
+            _migrate_execution_records(
+                executions,
+                version=version,
+                task_id=task_id,
+                objective_summary=objective_summary,
+            )
+
+
+def _migrate_groups(migrated: dict[str, Any]) -> None:
+    groups = migrated.get("groups")
+    if isinstance(groups, dict):
+        for group in groups.values():
+            if isinstance(group, dict):
+                group.pop("created_at", None)
+                group.pop("updated_at", None)
+
+
+def _migrate_tombstones(migrated: dict[str, Any]) -> None:
+    tasks = migrated.get("tasks")
+    tombstones = migrated.get("tombstones")
+    if isinstance(tombstones, dict):
+        for tombstone_key, tombstone in list(tombstones.items()):
+            if not isinstance(tombstone, dict):
+                continue
+            identity = _parse_tombstone_key(tombstone_key)
+            task = (
+                tasks.get(identity[0])
+                if identity is not None and isinstance(tasks, dict)
+                else None
+            )
+            work_item = task.get("work_item") if isinstance(task, dict) else None
+            execution = (
+                _canonical_execution_for_attempt(task, identity[1])
+                if isinstance(task, dict) and identity is not None
+                else None
+            )
+            if (
+                tombstone.get("close_reason") == "spawn_retry_exhausted"
+                and isinstance(work_item, dict)
+                and work_item.get("lifecycle") == "open"
+                and isinstance(execution, dict)
+                and not _execution_is_closed(execution)
+                and _spawn_observation(execution) == "failed"
+                and execution.get("spawn_retry_count") == RETRY_LIMITS["spawn"]
+                and _parent_action(execution) == "decide_disposition"
+            ):
+                tombstones.pop(tombstone_key, None)
+                continue
+            dispatch_target = tombstone.get("dispatch_target")
+            if not isinstance(dispatch_target, str) or not dispatch_target.strip():
+                legacy_target = tombstone.get("canonical_task_path")
+                if isinstance(legacy_target, str) and legacy_target.strip():
+                    tombstone["dispatch_target"] = legacy_target
+                else:
+                    tombstone.pop("dispatch_target", None)
+            tombstone.pop("agent_id", None)
+            tombstone.pop("canonical_task_path", None)
+            tombstone.pop("last_execution_status", None)
+            tombstone.pop("task_id", None)
+            tombstone.pop("attempt", None)
+
+
+def _migrate_state_to_current(value: dict[str, Any]) -> dict[str, Any]:
+    migrated = copy.deepcopy(value)
+    version = migrated.get("state_format_version")
+    if isinstance(version, bool) or version not in {None, 1, 2, 3, 4, STATE_FORMAT_VERSION}:
+        raise StateValidationError(f"治理状态使用未知格式版本 {version}")
+    migrated.pop("updated_at", None)
+    _migrate_managed_tasks(migrated, version)
+    _migrate_groups(migrated)
+    _migrate_tombstones(migrated)
+    migrated["state_format_version"] = STATE_FORMAT_VERSION
+    return migrated
+
+
+def _spawn_observation(execution: dict[str, Any]) -> str | None:
+    dispatch = execution["dispatch_record"]
+    return {
+        "acknowledged": "success",
+        "rejected": "failed",
+        "indeterminate": "unknown",
+    }.get(dispatch.get("dispatch_state"))
+
+
+def _execution_status(execution: dict[str, Any]) -> str:
+    observation = execution["observation_record"]
+    observed_state = observation.get("observed_state")
+    terminal_status = observation.get("terminal_status")
+    return (
+        "running"
+        if observed_state == "active"
+        else "interrupted"
+        if terminal_status == "interrupted"
+        else "stopped"
+        if observed_state == "terminal"
+        else "not_started"
+    )
+
+
+def _identity_status(execution: dict[str, Any]) -> str:
+    return (
+        "confirmed"
+        if _observation_is_bound(execution)
+        else "unconfirmed"
+    )
+
+
+def _platform_observation(execution: dict[str, Any]) -> str | None:
+    observed_state = execution["observation_record"].get("observed_state")
+    return (
+        "error"
+        if observed_state == "error"
+        else "unknown"
+        if observed_state in {"unknown", "absent_at_check"}
+        else "normal"
+        if observed_state in {"active", "terminal"}
+        else None
+    )
+
+
+def _execution_is_closed(execution: dict[str, Any]) -> bool:
+    return _closure_has_complete_facts(execution["closure_record"])
+
+
+def _execution_close_reason(execution: dict[str, Any]) -> Any:
+    return execution["closure_record"].get("reason")
+
+
+def _execution_closed_at(execution: dict[str, Any]) -> Any:
+    return execution["closure_record"].get("closed_at")
+
+
+def _parent_action(execution: dict[str, Any]) -> Any:
+    return execution["closure_record"].get("parent_action")
+
+
+def _dispatch_tool_use_id(execution: dict[str, Any]) -> Any:
+    return execution["dispatch_record"].get("tool_use_id")
+
+
+def _dispatch_target(execution: dict[str, Any]) -> Any:
+    return execution["dispatch_record"].get("dispatch_target")
+
+
+def _observation_checked_at(execution: dict[str, Any]) -> Any:
+    return execution["observation_record"].get("observed_at")
+
+
+def _observation_source(execution: dict[str, Any]) -> Any:
+    return execution["observation_record"].get("source")
+
+
+def _state_for_storage(value: dict[str, Any]) -> dict[str, Any]:
+    return _migrate_state_to_current(value)
+
+
+def _observation_is_bound(execution: dict[str, Any]) -> bool:
+    dispatch = execution.get("dispatch_record")
+    observation = execution.get("observation_record")
+    if not isinstance(dispatch, dict) or not isinstance(observation, dict):
+        return False
+    dispatch_target = dispatch.get("dispatch_target")
+    return bool(
+        isinstance(dispatch_target, str)
+        and dispatch_target
+        and observation.get("observed_state")
+        in {"active", "terminal", "absent_at_check", "error", "unknown"}
+    )
+
+
+def _has_canonical_positive_execution_evidence(execution: dict[str, Any]) -> bool:
+    """Recognize already-bound positive execution facts without inferring identity."""
+    if not _observation_is_bound(execution):
+        return False
+    observation = execution.get("observation_record")
+    if not isinstance(observation, dict):
+        return False
+    observed_at = observation.get("observed_at")
+    if isinstance(observed_at, bool) or not isinstance(observed_at, int):
+        return False
+    observed_state = observation.get("observed_state")
+    source = observation.get("source")
+    if observed_state == "active":
+        return source == "list_agents"
+    if observed_state == "terminal":
+        return bool(
+            source in {"list_agents", "terminal_notification"}
+            and observation.get("terminal_status")
+            in {"completed", "stopped", "interrupted"}
+        )
+    return False
+
+
+def _dispatch_reliably_not_created(execution: dict[str, Any]) -> bool:
+    dispatch = execution.get("dispatch_record")
+    return bool(
+        isinstance(dispatch, dict)
+        and dispatch.get("dispatch_state") == "rejected"
+    )
+
+
+def _canonical_update_value_error(operation: str, expected: str) -> ValueError:
+    return ValueError(f"canonical execution update {operation} 要求 {expected}")
+
+
+def _is_nullable_nonempty_text(value: Any, *, maximum: int | None = None) -> bool:
+    if value is None:
+        return True
+    return bool(
+        isinstance(value, str)
+        and value.strip()
+        and (maximum is None or len(value) <= maximum)
+    )
+
+
+def _is_nullable_timestamp(value: Any) -> bool:
+    return bool(
+        value is None
+        or (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and value >= 0
+        )
+    )
+
+
+def _is_enum_value(
+    value: Any, allowed: frozenset[str] | set[str], *, nullable: bool = False
+) -> bool:
+    return bool(
+        (nullable and value is None)
+        or (isinstance(value, str) and value in allowed)
+    )
+
+
+def _apply_canonical_execution_update(
+    execution: dict[str, Any], operation: str, value: Any
+) -> None:
+    """Apply one named transition directly to the canonical execution planes."""
+    dispatch = execution["dispatch_record"]
+    observation = execution["observation_record"]
+    closure = execution["closure_record"]
+    if operation == "dispatch_response":
+        if not _is_enum_value(
+            value, {"success", "failed", "unknown"}, nullable=True
+        ):
+            raise _canonical_update_value_error(
+                operation, "success、failed、unknown 或 null"
+            )
+        dispatch["dispatch_state"] = {
+            "success": "acknowledged",
+            "failed": "rejected",
+            "unknown": "indeterminate",
+            None: "claimed" if dispatch.get("tool_use_id") else "prepared",
+        }[value]
+    elif operation == "dispatch_tool_use_id":
+        if not _is_nullable_nonempty_text(value):
+            raise _canonical_update_value_error(operation, "非空字符串或 null")
+        dispatch["tool_use_id"] = value
+        if value is not None and dispatch.get("dispatch_state") == "prepared":
+            dispatch["dispatch_state"] = "claimed"
+    elif operation == "dispatch_target":
+        if not _is_nullable_nonempty_text(value):
+            raise _canonical_update_value_error(operation, "非空字符串或 null")
+        dispatch["dispatch_target"] = value
+    elif operation == "observed_execution_status":
+        if not _is_enum_value(
+            value, {"running", "stopped", "interrupted", "not_started"}
+        ):
+            raise _canonical_update_value_error(
+                operation, "running、stopped、interrupted 或 not_started"
+            )
+        if value == "running":
+            observation["observed_state"] = "active"
+            observation["terminal_status"] = None
+        elif value in {"stopped", "interrupted"}:
+            observation["observed_state"] = "terminal"
+            observation["terminal_status"] = (
+                "interrupted" if value == "interrupted" else "stopped"
+            )
+        elif value == "not_started":
+            observation["observed_state"] = "not_observed"
+            observation["terminal_status"] = None
+    elif operation == "observed_platform_state":
+        if not _is_enum_value(value, {"error", "unknown"}):
+            raise _canonical_update_value_error(operation, "error 或 unknown")
+        if value == "error":
+            observation["observed_state"] = "error"
+        else:
+            observation["observed_state"] = "unknown"
+    elif operation == "observation_observed_at":
+        if not _is_nullable_timestamp(value):
+            raise _canonical_update_value_error(operation, "非负整数时间戳或 null")
+        observation["observed_at"] = value
+    elif operation == "observation_source":
+        if not _is_enum_value(value, OBSERVATION_SOURCES, nullable=True):
+            raise _canonical_update_value_error(operation, "已知 observation source 或 null")
+        observation["source"] = value
+    elif operation == "observation_summary":
+        if not _is_enum_value(value, {"completed", "stopped", "interrupted"}):
+            raise _canonical_update_value_error(
+                operation, "completed、stopped 或 interrupted"
+            )
+        if not _observation_is_bound(execution):
+            raise _canonical_update_value_error(
+                operation, "已精确绑定 dispatch target 的 observation"
+            )
+        observation["observed_state"] = "terminal"
+        observation["terminal_status"] = value
+    elif operation == "closure_parent_action":
+        if not _is_enum_value(value, PARENT_ACTIONS, nullable=True):
+            raise _canonical_update_value_error(operation, "已知 parent action 或 null")
+        closure["parent_action"] = value
+    elif operation == "closure_reason":
+        if not _is_nullable_nonempty_text(
+            value, maximum=PARENT_DISPOSITION_REASON_MAX_LENGTH
+        ):
+            raise _canonical_update_value_error(
+                operation,
+                f"不超过 {PARENT_DISPOSITION_REASON_MAX_LENGTH} 字符的非空字符串或 null",
+            )
+        closure["reason"] = value
+    elif operation == "closure_closed_at":
+        if not _is_nullable_timestamp(value):
+            raise _canonical_update_value_error(operation, "非负整数时间戳或 null")
+        closure["closed_at"] = value
+    else:
+        raise ValueError(f"unknown canonical execution update: {operation}")
 
 
 def _required_fields(value: Any, fields: list[str]) -> list[str]:
@@ -425,8 +1089,6 @@ def _validate_task_features(value: Any, *, required: bool) -> list[str]:
     for field_name in required_fields[1:]:
         if not isinstance(value.get(field_name), bool):
             errors.append(f"字段 task_features.{field_name} 必须是布尔值")
-    if "allows_child_agents" in value and not isinstance(value.get("allows_child_agents"), bool):
-        errors.append("字段 task_features.allows_child_agents 必须是布尔值")
     if value.get("read_only") is True and value.get("writes_files") is True:
         errors.append("task_features.read_only=true 与 writes_files=true 机械矛盾")
     return errors
@@ -577,81 +1239,6 @@ def validate_task_contract(value: Any) -> list[str]:
     return errors
 
 
-def validate_task_result(value: Any) -> list[str]:
-    required = list(TASK_RESULT_BASE_REQUIRED_FIELDS)
-    errors = _required_fields(value, required)
-    if not isinstance(value, dict):
-        return errors
-    errors.extend(
-        _validate_text(
-            value.get("task_id"),
-            "task_id",
-            maximum=int(SEMANTIC_DEFINITIONS["task_id"]["maxLength"]),
-        )
-    )
-    attempt = value.get("attempt")
-    attempt_minimum = int(SEMANTIC_DEFINITIONS["attempt"]["minimum"])
-    if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < attempt_minimum:
-        errors.append(f"字段 attempt 必须是大于等于 {attempt_minimum} 的整数")
-    business_result = value.get("business_result")
-    if business_result not in BUSINESS_RESULTS:
-        errors.append("字段 business_result 枚举无效")
-    errors.extend(
-        _validate_text(
-            value.get("result"),
-            "result",
-            maximum=int(SEMANTIC_DEFINITIONS["result_text"]["maxLength"]),
-        )
-    )
-    errors.extend(_validate_text_list(value.get("evidence"), "evidence"))
-    errors.extend(_validate_text_list(value.get("remaining"), "remaining"))
-    errors.extend(
-        _validate_text(
-            value.get("suggested_parent_next_step"),
-            "suggested_parent_next_step",
-            maximum=int(SEMANTIC_DEFINITIONS["business_text"]["maxLength"]),
-        )
-    )
-
-    scenario_fields = TASK_RESULT_SCENARIO_FIELDS
-    for field_name in scenario_fields.get(str(business_result), ()):
-        if field_name not in value:
-            errors.append(f"business_result={business_result} 时缺少字段 {field_name}")
-            continue
-        if field_name in {"attempted", "options"}:
-            minimum = 1 if field_name == "options" else 0
-            errors.extend(_validate_text_list(value.get(field_name), field_name, minimum=minimum))
-        else:
-            errors.extend(
-                _validate_text(
-                    value.get(field_name),
-                    field_name,
-                    maximum=int(SEMANTIC_DEFINITIONS["business_text"]["maxLength"]),
-                )
-            )
-    for field_name in (
-        "blocker",
-        "required_to_resume",
-        "failure_reason",
-        "retry_conditions",
-        "decision_question",
-        "recommendation",
-    ):
-        if field_name in value and field_name not in scenario_fields.get(str(business_result), ()):
-            errors.extend(
-                _validate_text(
-                    value.get(field_name),
-                    field_name,
-                    maximum=int(SEMANTIC_DEFINITIONS["business_text"]["maxLength"]),
-                )
-            )
-    for field_name in ("attempted", "options"):
-        if field_name in value and field_name not in scenario_fields.get(str(business_result), ()):
-            minimum = 1 if field_name == "options" else 0
-            errors.extend(_validate_text_list(value.get(field_name), field_name, minimum=minimum))
-    return errors
-
-
 def normalize_semantic_name(value: Any) -> str:
     text = str(value or "").strip().lower()
     normalized = re.sub(r"[^a-z0-9]+", "_", text)
@@ -754,8 +1341,7 @@ def _render_list(values: list[str]) -> str:
 def render_dispatch_prompt(contract: TaskContract) -> str:
     current_state = contract.current_state or "无额外未落盘状态"
     context_reason = contract.context_reason or "默认隔离；任务背景已写入本首句"
-    return "\n".join(
-        (
+    lines = [
             f"【治理等级】{contract.resolved_mode}",
             "【唯一当前目标】",
             contract.objective,
@@ -787,8 +1373,9 @@ def render_dispatch_prompt(contract: TaskContract) -> str:
             "【恢复与终态义务】",
             "完成、阻塞、失败或需要决策时，向父 Agent发送明确终态通知；不要只回复收到、明白或开始执行。",
             "平台或调用结果未知时如实报告，不得自行重派、伪造成功或覆盖其他 attempt。",
-        )
-    )
+            "",
+        ]
+    return "\n".join(lines)
 
 
 def render_dispatch_user_message(contract: TaskContract) -> str:
@@ -816,7 +1403,10 @@ def render_dispatch_user_message(contract: TaskContract) -> str:
     )
 
 
-def _spawn_args(contract: TaskContract, task_name: str) -> dict[str, Any]:
+def _spawn_args(
+    contract: TaskContract,
+    task_name: str,
+) -> dict[str, Any]:
     fork_turns, _context_display = _context_projection(contract)
     result: dict[str, Any] = {
         "task_name": task_name,
@@ -961,28 +1551,41 @@ def _user_storage_key() -> str:
 
 def _activity_timestamp(record: dict[str, Any]) -> int:
     timestamps = []
-    for field in (
-        "updated_at",
-        "platform_checked_at",
-        "spawn_post_observed_at",
-        "spawn_claimed_at",
-        "attempt_closed_at",
-        "created_at",
+    for value in (
+        record.get("updated_at"),
+        record.get("observation_record", {}).get("observed_at"),
+        record.get("closure_record", {}).get("closed_at"),
     ):
         try:
-            timestamps.append(int(record.get(field) or 0))
+            timestamps.append(int(value or 0))
         except (TypeError, ValueError):
             continue
-    for container_name in ("pending_action", "last_lifecycle_operation"):
-        container = record.get(container_name)
-        if not isinstance(container, dict):
-            continue
-        for field in ("completed_at", "claimed_at", "created_at", "start_observed_at"):
+    pending = record.get("pending_action")
+    if isinstance(pending, dict):
+        for field in ("claimed_at", "created_at"):
             try:
-                timestamps.append(int(container.get(field) or 0))
+                timestamps.append(int(pending.get(field) or 0))
             except (TypeError, ValueError):
                 continue
     return max(timestamps, default=0)
+
+
+def _parse_tombstone_key(value: Any) -> tuple[str, int] | None:
+    if not isinstance(value, str):
+        return None
+    task_id, separator, attempt_text = value.rpartition(":")
+    if not separator or not task_id.strip() or re.fullmatch(r"[1-9][0-9]*", attempt_text) is None:
+        return None
+    return task_id, int(attempt_text)
+
+
+def _parse_execution_key(value: Any) -> int | None:
+    if not isinstance(value, str) or re.fullmatch(r"[1-9][0-9]*", value) is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 def _safe_name(value: str) -> str:
@@ -1059,17 +1662,13 @@ class StateStore:
     @staticmethod
     def _empty_state(session_id: str) -> dict[str, Any]:
         return {
+            "state_format_version": STATE_FORMAT_VERSION,
             "session_id": session_id,
             "tasks": {},
             "agents": {},
             "health": {"status": "ok"},
             "tombstones": {},
-            "updated_at": _now(),
         }
-
-    @staticmethod
-    def initial_attempt_state() -> dict[str, Any]:
-        return copy.deepcopy(AttemptState().to_record())
 
     def _paths(self, session_id: str) -> tuple[Path, Path]:
         stem = _safe_name(session_id)
@@ -1078,22 +1677,17 @@ class StateStore:
     @contextmanager
     def _lock(self, session_id: str):
         state_path, lock_path = self._paths(session_id)
-        flags = os.O_RDWR | os.O_CREAT | os.O_APPEND
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
         try:
-            descriptor = os.open(lock_path, flags, 0o600)
-        except OSError as exc:
-            raise StateValidationError(f"治理锁文件无法安全打开：{lock_path}") from exc
-        with os.fdopen(descriptor, "a+", encoding="utf-8") as lock_file:
-            metadata = os.fstat(lock_file.fileno())
-            if not stat.S_ISREG(metadata.st_mode):
-                raise StateValidationError(f"治理锁文件必须是普通文件：{lock_path}")
-            if not _owned_by_current_user(metadata):
-                raise StateValidationError(f"治理锁文件不属于当前用户：{lock_path}")
-            _restrict_descriptor(lock_file.fileno(), 0o600)
-            with _exclusive_file_lock(lock_file):
+            with locked_file(
+                lock_path,
+                label="治理",
+                exclusive_lock=_exclusive_file_lock,
+                restrict_descriptor=_restrict_descriptor,
+                owned_by_current_user=_owned_by_current_user,
+            ):
                 yield state_path
+        except PrivateStorageError as exc:
+            raise StateValidationError(str(exc)) from exc
 
     @staticmethod
     def _validate_required_fields(
@@ -1138,48 +1732,30 @@ class StateStore:
         required_fields: tuple[str, ...] = ("tasks", "agents"),
     ) -> dict[str, Any]:
         try:
-            metadata = path.lstat()
+            raw = read_private_bytes(
+                path,
+                label="治理状态文件",
+                max_bytes=MAX_STATE_BYTES,
+                owned_by_current_user=_owned_by_current_user,
+                private_permissions_safe=_private_permissions_safe,
+            )
         except FileNotFoundError:
             state = self._empty_state(session_id)
-            return self._validate_state(state, session_id, path, required_fields)
-        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-            raise StateValidationError(f"治理状态文件必须是普通文件且不能是符号链接：{path}")
-        if not _owned_by_current_user(metadata):
-            raise StateValidationError(f"治理状态文件不属于当前用户：{path}")
-        if not _private_permissions_safe(metadata):
-            raise StateValidationError(f"治理状态文件权限必须限制为当前用户可访问：{path}")
-        if metadata.st_size > MAX_STATE_BYTES:
-            raise StateCapacityError(f"治理状态文件超过 {MAX_STATE_BYTES} 字节上限：{path}")
-        flags = os.O_RDONLY
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        try:
-            descriptor = os.open(path, flags)
-        except OSError as exc:
-            raise StateValidationError(f"治理状态文件无法安全打开，原文件已保留：{path}") from exc
-        try:
-            with os.fdopen(descriptor, "rb") as state_file:
-                opened_metadata = os.fstat(state_file.fileno())
-                if not stat.S_ISREG(opened_metadata.st_mode):
-                    raise StateValidationError(f"治理状态文件必须是普通文件：{path}")
-                if not _owned_by_current_user(opened_metadata):
-                    raise StateValidationError(f"治理状态文件不属于当前用户：{path}")
-                if not _private_permissions_safe(opened_metadata):
-                    raise StateValidationError(
-                        f"治理状态文件权限必须限制为当前用户可访问：{path}"
-                    )
-                raw = state_file.read(MAX_STATE_BYTES + 1)
-        except OSError as exc:
-            raise StateValidationError(f"治理状态文件无法读取，原文件已保留：{path}") from exc
-        if len(raw) > MAX_STATE_BYTES:
-            raise StateCapacityError(f"治理状态文件超过 {MAX_STATE_BYTES} 字节上限：{path}")
+            validated = self._validate_state(state, session_id, path, required_fields)
+            return validated
+        except PrivateStorageCapacityError as exc:
+            raise StateCapacityError(str(exc)) from exc
+        except PrivateStorageError as exc:
+            raise StateValidationError(str(exc)) from exc
         try:
             value = json.loads(raw.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise StateValidationError(
                 f"治理状态文件不是有效 UTF-8 JSON，原文件已保留供人工恢复：{path}"
             ) from exc
-        return self._validate_state(value, session_id, path, required_fields)
+        validated = self._validate_state(value, session_id, path, required_fields)
+        migrated = _migrate_state_to_current(validated)
+        return migrated
 
     @staticmethod
     def _encoded_state(state: dict[str, Any]) -> bytes:
@@ -1198,9 +1774,9 @@ class StateStore:
         required_fields: tuple[str, ...],
         admission: str,
     ) -> None:
-        state["updated_at"] = _now()
         self._validate_state(state, session_id, path, required_fields)
-        encoded = self._encoded_state(state)
+        stored_state = _state_for_storage(state)
+        encoded = self._encoded_state(stored_state)
         if admission not in {"existing", "new_task"}:
             raise StateValidationError("StateStore admission 必须是 existing 或 new_task")
         if admission == "new_task" and len(encoded) > NEW_TASK_SOFT_LIMIT_BYTES:
@@ -1210,37 +1786,25 @@ class StateStore:
         if len(encoded) > MAX_STATE_BYTES:
             raise StateCapacityError(f"治理状态超过 {MAX_STATE_BYTES} 字节上限")
         try:
-            descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-        except OSError as exc:
-            raise StateWriteError(f"无法在状态目录创建临时文件：{path.parent}") from exc
-        temporary = Path(temporary_name)
-        descriptor_open = True
+            atomic_write_bytes(
+                path,
+                encoded,
+                label="治理状态",
+                restrict_descriptor=_restrict_descriptor,
+                sync_directory=_sync_directory,
+            )
+        except PrivateStorageWriteError as exc:
+            raise StateWriteError(str(exc)) from exc
         try:
-            try:
-                _restrict_descriptor(descriptor, 0o600)
-                temporary_stream = os.fdopen(descriptor, "wb")
-                descriptor_open = False
-                with temporary_stream as temporary_file:
-                    temporary_file.write(encoded)
-                    temporary_file.flush()
-                    os.fsync(temporary_file.fileno())
-                os.replace(temporary, path)
-                _sync_directory(path.parent)
-            except OSError as exc:
-                raise StateWriteError(f"治理状态原子替换失败：{path}") from exc
-            try:
-                verified = self._read_path(path, session_id, required_fields)
-            except StateStoreError as exc:
-                raise StateWriteError(f"治理状态写入后回读失败：{path}") from exc
-            if verified != state:
-                raise StateWriteError(f"治理状态写入后回读内容不一致：{path}")
-        finally:
-            if descriptor_open:
-                os.close(descriptor)
-            try:
-                temporary.unlink()
-            except FileNotFoundError:
-                pass
+            verified = self._read_path(
+                path,
+                session_id,
+                required_fields,
+            )
+        except StateStoreError as exc:
+            raise StateWriteError(f"治理状态写入后回读失败：{path}") from exc
+        if verified != stored_state:
+            raise StateWriteError(f"治理状态写入后回读内容不一致：{path}")
 
     def compare_and_set(
         self,
@@ -1320,7 +1884,6 @@ class StateStore:
         session_id: str,
         *,
         now: int | None = None,
-        result_cleanup: Callable[[str, int], None] | None = None,
     ) -> list[tuple[str, int]]:
         current_time = _now() if now is None else now
         cutoff = current_time - int(RETENTION_SECONDS["tombstone"])
@@ -1333,39 +1896,25 @@ class StateStore:
                     raise StateValidationError(f"tombstone {key} 必须是对象")
                 missing = [
                     field_name
-                    for field_name in ("task_id", "attempt", "close_reason", "closed_at")
+                    for field_name in ("close_reason", "closed_at")
                     if field_name not in record
                 ]
                 if missing:
                     raise StateValidationError(
                         f"tombstone {key} 缺少字段 {', '.join(missing)}"
                     )
-                task_id = record.get("task_id")
-                attempt = record.get("attempt")
                 close_reason = record.get("close_reason")
                 closed_at = record.get("closed_at")
-                if not isinstance(task_id, str) or not task_id.strip():
-                    raise StateValidationError(f"tombstone {key} 的 task_id 无效")
-                if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
-                    raise StateValidationError(f"tombstone {key} 的 attempt 无效")
                 if not isinstance(close_reason, str) or not close_reason.strip():
                     raise StateValidationError(f"tombstone {key} 的 close_reason 无效")
                 if isinstance(closed_at, bool) or not isinstance(closed_at, int):
                     raise StateValidationError(f"tombstone {key} 的 closed_at 无效")
-                if str(key) != f"{task_id}:{attempt}":
-                    raise StateValidationError(
-                        f"tombstone {key} 与 task_id={task_id}, attempt={attempt} 不匹配"
-                    )
+                identity = _parse_tombstone_key(key)
+                if identity is None:
+                    raise StateValidationError(f"tombstone {key} 的身份键无效")
+                task_id, attempt = identity
                 if closed_at <= cutoff:
                     expired.append((str(key), task_id, attempt))
-            if result_cleanup is not None:
-                for _key, task_id, attempt in expired:
-                    try:
-                        result_cleanup(task_id, attempt)
-                    except Exception as exc:
-                        raise StateWriteError(
-                            f"精确结果清理失败：task_id={task_id}, attempt={attempt}"
-                        ) from exc
             for key, _task_id, _attempt in expired:
                 tombstones.pop(key)
             return [(task_id, attempt) for _key, task_id, attempt in expired]
@@ -1386,10 +1935,6 @@ class UnavailableStateStore:
 
     def _raise(self) -> None:
         raise OSError(str(self.error)) from self.error
-
-    @staticmethod
-    def initial_attempt_state() -> dict[str, Any]:
-        return copy.deepcopy(AttemptState().to_record())
 
     def compare_and_set(
         self,
@@ -1437,7 +1982,6 @@ class UnavailableStateStore:
         session_id: str,
         *,
         now: int | None = None,
-        result_cleanup: Callable[[str, int], None] | None = None,
     ) -> list[tuple[str, int]]:
         self._raise()
 
@@ -1459,24 +2003,17 @@ class PreparedContractStore:
     @contextmanager
     def _lock(self, session_id: str):
         _record_path, lock_path = self._paths(session_id, "0" * TASK_REF_LENGTHS[0])
-        flags = os.O_RDWR | os.O_CREAT | os.O_APPEND
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
         try:
-            descriptor = os.open(lock_path, flags, 0o600)
-        except OSError as exc:
-            raise PreparedContractValidationError(
-                f"PreparedContract 锁文件无法安全打开：{lock_path}"
-            ) from exc
-        with os.fdopen(descriptor, "a+", encoding="utf-8") as lock_file:
-            metadata = os.fstat(lock_file.fileno())
-            if not stat.S_ISREG(metadata.st_mode) or not _owned_by_current_user(metadata):
-                raise PreparedContractValidationError(
-                    f"PreparedContract 锁文件必须是当前用户拥有的普通文件：{lock_path}"
-                )
-            _restrict_descriptor(lock_file.fileno(), 0o600)
-            with _exclusive_file_lock(lock_file):
+            with locked_file(
+                lock_path,
+                label="PreparedContract",
+                exclusive_lock=_exclusive_file_lock,
+                restrict_descriptor=_restrict_descriptor,
+                owned_by_current_user=_owned_by_current_user,
+            ):
                 yield
+        except PrivateStorageError as exc:
+            raise PreparedContractValidationError(str(exc)) from exc
 
     @staticmethod
     def _validate_record(value: Any, session_id: str, task_ref: str, path: Path) -> dict[str, Any]:
@@ -1490,6 +2027,7 @@ class PreparedContractStore:
             "task_name",
             "resolved_mode",
             "contract",
+            "contract_digest",
             "native_parameters",
             "created_at",
             "consumed",
@@ -1497,6 +2035,7 @@ class PreparedContractStore:
             "claimed_at",
             "post_observed_at",
             "spawn_retry_count",
+            "dispatch_operation",
         )
         missing = [field_name for field_name in required if field_name not in value]
         if missing:
@@ -1519,6 +2058,8 @@ class PreparedContractStore:
             raise PreparedContractValidationError(
                 f"PreparedContract TaskContract 无效：{'；'.join(errors)}"
             )
+        if value.get("contract_digest") != contract_digest(_contract_from_input(contract)):
+            raise PreparedContractValidationError(f"PreparedContract contract_digest 无效：{path}")
         if not isinstance(value.get("native_parameters"), dict):
             raise PreparedContractValidationError(f"PreparedContract native_parameters 无效：{path}")
         if isinstance(value.get("created_at"), bool) or not isinstance(value.get("created_at"), int):
@@ -1540,29 +2081,46 @@ class PreparedContractStore:
             raise PreparedContractValidationError(f"PreparedContract spawn_retry_count 无效：{path}")
         if value["consumed"] and (value.get("tool_use_id") is None or value.get("claimed_at") is None):
             raise PreparedContractValidationError(f"已消费 PreparedContract 缺少 claim 字段：{path}")
+        operation = value.get("dispatch_operation")
+        if operation not in {"initial_spawn", "spawn_retry"}:
+            raise PreparedContractValidationError(f"PreparedContract dispatch_operation 无效：{path}")
+        if operation == "spawn_retry" and retry_count < 1:
+            raise PreparedContractValidationError(
+                f"spawn retry PreparedContract retry count 无效：{path}"
+            )
+        if operation == "initial_spawn" and attempt != 1:
+            raise PreparedContractValidationError(
+                f"initial PreparedContract attempt 必须为1：{path}"
+            )
+        if operation == "initial_spawn" and retry_count != 0:
+            raise PreparedContractValidationError(
+                f"非 retry PreparedContract retry count 必须为0：{path}"
+            )
         return value
 
     def _read_path(self, path: Path, session_id: str, task_ref: str) -> dict[str, Any]:
         try:
-            metadata = path.lstat()
+            raw = read_private_bytes(
+                path,
+                label="PreparedContract",
+                max_bytes=MAX_PREPARED_BYTES,
+                owned_by_current_user=_owned_by_current_user,
+                private_permissions_safe=_private_permissions_safe,
+            )
         except FileNotFoundError as exc:
             raise PreparedContractValidationError(
                 f"PreparedContract 不存在：session={session_id}, task_ref={task_ref}"
             ) from exc
-        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-            raise PreparedContractValidationError(f"PreparedContract 必须是普通文件：{path}")
-        if not _owned_by_current_user(metadata) or not _private_permissions_safe(metadata):
-            raise PreparedContractValidationError(f"PreparedContract 所有者或权限不安全：{path}")
-        if metadata.st_size > MAX_PREPARED_BYTES:
-            raise PreparedContractValidationError(f"PreparedContract 超过大小上限：{path}")
-        try:
-            raw = path.read_bytes()
-        except OSError as exc:
-            raise PreparedContractValidationError(f"PreparedContract 无法读取：{path}") from exc
+        except PrivateStorageCapacityError as exc:
+            raise PreparedContractValidationError(str(exc)) from exc
+        except PrivateStorageError as exc:
+            raise PreparedContractValidationError(str(exc)) from exc
         try:
             value = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise PreparedContractValidationError(f"PreparedContract 不是有效 UTF-8 JSON：{path}") from exc
+            raise PreparedContractValidationError(
+                f"PreparedContract 不是有效 UTF-8 JSON：{path}"
+            ) from exc
         return self._validate_record(value, session_id, task_ref, path)
 
     @staticmethod
@@ -1579,37 +2137,23 @@ class PreparedContractStore:
         self._validate_record(record, session_id, task_ref, path)
         encoded = self._encoded(record)
         try:
-            descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-        except OSError as exc:
-            raise PreparedContractWriteError("无法创建 PreparedContract 临时文件") from exc
-        temporary = Path(temporary_name)
-        descriptor_open = True
+            atomic_write_bytes(
+                path,
+                encoded,
+                label="PreparedContract",
+                restrict_descriptor=_restrict_descriptor,
+                sync_directory=_sync_directory,
+            )
+        except PrivateStorageWriteError as exc:
+            raise PreparedContractWriteError(str(exc)) from exc
         try:
-            try:
-                _restrict_descriptor(descriptor, 0o600)
-                stream = os.fdopen(descriptor, "wb")
-                descriptor_open = False
-                with stream as temporary_file:
-                    temporary_file.write(encoded)
-                    temporary_file.flush()
-                    os.fsync(temporary_file.fileno())
-                os.replace(temporary, path)
-                _sync_directory(path.parent)
-            except OSError as exc:
-                raise PreparedContractWriteError(f"PreparedContract 原子替换失败：{path}") from exc
-            try:
-                verified = self._read_path(path, session_id, task_ref)
-            except PreparedContractError as exc:
-                raise PreparedContractWriteError(f"PreparedContract 写入后回读失败：{path}") from exc
-            if verified != record:
-                raise PreparedContractWriteError(f"PreparedContract 写入后内容不一致：{path}")
-        finally:
-            if descriptor_open:
-                os.close(descriptor)
-            try:
-                temporary.unlink()
-            except FileNotFoundError:
-                pass
+            verified = self._read_path(path, session_id, task_ref)
+        except PreparedContractError as exc:
+            raise PreparedContractWriteError(
+                f"PreparedContract 写入后回读失败：{path}"
+            ) from exc
+        if verified != record:
+            raise PreparedContractWriteError(f"PreparedContract 写入后内容不一致：{path}")
 
     def create(self, record: dict[str, Any], *, replace: bool = False) -> None:
         session_id = str(record.get("session_id") or "")
@@ -1654,6 +2198,40 @@ class PreparedContractStore:
                 raise PreparedContractWriteError(f"PreparedContract 删除失败：{path}") from exc
             return True
 
+    def delete_if(
+        self,
+        session_id: str,
+        task_ref: str,
+        predicate: Callable[[dict[str, Any]], bool],
+        *,
+        missing_ok: bool = True,
+    ) -> bool:
+        path, _lock_path = self._paths(session_id, task_ref)
+        with self._lock(session_id):
+            try:
+                record = self._read_path(path, session_id, task_ref)
+            except PreparedContractValidationError as exc:
+                if missing_ok and isinstance(exc.__cause__, FileNotFoundError):
+                    return False
+                raise
+            if not predicate(record):
+                raise PreparedContractConflictError(
+                    f"PreparedContract exact delete 冲突：{task_ref}"
+                )
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                if missing_ok:
+                    return False
+                raise PreparedContractValidationError(
+                    f"PreparedContract 不存在：{task_ref}"
+                )
+            except OSError as exc:
+                raise PreparedContractWriteError(
+                    f"PreparedContract 删除失败：{path}"
+                ) from exc
+            return True
+
     def list_records(self, session_id: str) -> list[dict[str, Any]]:
         session_stem = _safe_name(session_id)
         with self._lock(session_id):
@@ -1686,13 +2264,6 @@ def _prepared_root_for_store(store: Any) -> Path:
     return _data_root() / "prepared"
 
 
-def _results_root_for_store(store: Any) -> Path:
-    root = getattr(store, "root", None)
-    if isinstance(root, Path):
-        return (root.parent if root.name == "sessions" else root) / FORMAL_RESULT_STORAGE["directory"]
-    return _data_root() / FORMAL_RESULT_STORAGE["directory"]
-
-
 def _task_record_for_attempt(
     state: dict[str, Any], task_id: str, attempt: int
 ) -> dict[str, Any] | None:
@@ -1700,16 +2271,9 @@ def _task_record_for_attempt(
     if not isinstance(tasks, dict):
         raise StateValidationError("治理状态缺少 tasks 对象")
     record = tasks.get(task_id)
-    if not isinstance(record, dict):
+    if not isinstance(record, dict) or record.get("managed") is not True:
         return None
-    if record.get("attempt") == attempt:
-        return record
-    prior_attempts = record.get("prior_attempts")
-    if isinstance(prior_attempts, dict):
-        prior = prior_attempts.get(str(attempt))
-        if isinstance(prior, dict) and prior.get("attempt") == attempt:
-            return prior
-    return None
+    return _canonical_execution_for_attempt(record, attempt)
 
 
 def _iter_task_attempts(
@@ -1719,24 +2283,16 @@ def _iter_task_attempts(
     if not isinstance(tasks, dict):
         raise StateValidationError("治理状态缺少 tasks 对象")
     attempts: list[tuple[str, int, dict[str, Any]]] = []
-    for task_id, current in tasks.items():
-        if not isinstance(current, dict):
+    for task_id, task in tasks.items():
+        if not isinstance(task, dict) or task.get("managed") is not True:
             continue
-        attempt = current.get("attempt")
-        if isinstance(attempt, int) and not isinstance(attempt, bool) and attempt >= 1:
-            attempts.append((str(task_id), attempt, current))
-        prior_attempts = current.get("prior_attempts")
-        if not isinstance(prior_attempts, dict):
+        executions = task.get("executions")
+        if not isinstance(executions, dict):
             continue
-        for prior in prior_attempts.values():
-            prior_attempt = prior.get("attempt") if isinstance(prior, dict) else None
-            if (
-                isinstance(prior, dict)
-                and isinstance(prior_attempt, int)
-                and not isinstance(prior_attempt, bool)
-                and prior_attempt >= 1
-            ):
-                attempts.append((str(task_id), prior_attempt, prior))
+        for attempt_key, execution in executions.items():
+            attempt = _parse_execution_key(attempt_key)
+            if isinstance(execution, dict) and attempt is not None:
+                attempts.append((str(task_id), attempt, execution))
     return attempts
 
 
@@ -1759,9 +2315,108 @@ def _managed_target_attempt(
     ):
         return None
     record = _task_record_for_attempt(state, task_id, attempt)
-    if not isinstance(record, dict) or record.get("managed") is not True:
+    if not isinstance(record, dict):
         return None
     return task_id, attempt, record
+
+
+def _record_has_target_provenance(record: dict[str, Any], target: str) -> bool:
+    """Resolve only an exact canonical dispatch target."""
+    normalized = target.strip()
+    dispatch = record.get("dispatch_record")
+    dispatch_target = dispatch.get("dispatch_target") if isinstance(dispatch, dict) else None
+    return bool(
+        normalized
+        and isinstance(dispatch_target, str)
+        and normalized == dispatch_target.strip()
+    )
+
+
+def _retained_target_attempts(
+    state: dict[str, Any], target: str
+) -> list[tuple[str, int, dict[str, Any]]]:
+    """Find executions by their retained identity, never by the active index."""
+    return [
+        (task_id, attempt, record)
+        for task_id, attempt, record in _iter_task_attempts(state)
+        if _record_has_target_provenance(record, target)
+    ]
+
+
+@dataclass(frozen=True)
+class ManagedTargetAdmission:
+    disposition: str
+    candidate: tuple[str, int, dict[str, Any]] | None
+    reason: str
+
+
+def _managed_target_admission(
+    state: dict[str, Any], target: str
+) -> ManagedTargetAdmission:
+    """Classify one native target without treating the active index as identity."""
+    agents = state.get("agents")
+    if not isinstance(agents, dict):
+        raise StateValidationError("治理状态缺少 agents 对象")
+    mapped = _managed_target_attempt(state, target)
+    retained = _retained_target_attempts(state, target)
+    open_retained = [
+        candidate
+        for candidate in retained
+        if not _execution_is_closed(candidate[2])
+    ]
+
+    if mapped is not None:
+        mapped_exact = _record_has_target_provenance(mapped[2], target)
+        mapped_open = not _execution_is_closed(mapped[2])
+        if mapped_exact and mapped_open:
+            return ManagedTargetAdmission(
+                "managed",
+                mapped,
+                "active index 与精确 retained provenance 一致",
+            )
+        if mapped_open:
+            return ManagedTargetAdmission(
+                "reconcile",
+                None,
+                "active index 指向未关闭 execution，但该 execution 不含精确 target provenance",
+            )
+
+    if len(open_retained) == 1:
+        candidate = open_retained[0]
+        return ManagedTargetAdmission(
+            "managed",
+            candidate,
+            "唯一精确且未关闭的 retained provenance 可恢复 active index",
+        )
+    if len(open_retained) > 1:
+        return ManagedTargetAdmission(
+            "reconcile",
+            None,
+            "同一 target 存在多个精确且未关闭的 retained candidates",
+        )
+    if retained:
+        return ManagedTargetAdmission(
+            "historical",
+            None,
+            "target 仅匹配已可靠关闭的 historical provenance",
+        )
+    return ManagedTargetAdmission(
+        "unmanaged",
+        None,
+        "target 没有 canonical provenance",
+    )
+
+
+def _repair_managed_target_index(
+    state: dict[str, Any], target: str, admission: ManagedTargetAdmission
+) -> None:
+    if admission.disposition != "managed" or admission.candidate is None:
+        raise StateConflictError("target 尚未取得唯一 managed lifecycle admission")
+    agents = state.get("agents")
+    if not isinstance(agents, dict):
+        raise StateValidationError("治理状态缺少 agents 对象")
+    task_id, attempt, _record = admission.candidate
+    agents[target] = _identity_mapping(task_id, attempt)
 
 
 def _validate_task_identity(task_id: Any, attempt: Any) -> tuple[str, int]:
@@ -1772,174 +2427,10 @@ def _validate_task_identity(task_id: Any, attempt: Any) -> tuple[str, int]:
     )
     minimum = int(SEMANTIC_DEFINITIONS["attempt"]["minimum"])
     if task_errors:
-        raise ResultSubmissionError("；".join(task_errors))
+        raise NotificationObservationError("；".join(task_errors))
     if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < minimum:
-        raise ResultSubmissionError(f"attempt 必须是大于等于 {minimum} 的整数")
+        raise NotificationObservationError(f"attempt 必须是大于等于 {minimum} 的整数")
     return str(task_id), attempt
-
-
-def result_file_path(results_root: Path, task_id: str, attempt: int) -> Path:
-    normalized_task_id, normalized_attempt = _validate_task_identity(task_id, attempt)
-    digest = hashlib.sha256(normalized_task_id.encode("utf-8")).hexdigest()
-    return Path(results_root) / f"result-{digest}-attempt-{normalized_attempt}.json"
-
-
-def _prepare_results_directory(results_root: Path) -> Path:
-    try:
-        return _prepare_private_directory(Path(results_root))
-    except (OSError, RuntimeError) as exc:
-        raise ResultStorageError(f"正式结果目录不可用：{results_root}") from exc
-
-
-def _canonical_result_bytes(value: dict[str, Any]) -> bytes:
-    try:
-        content = json.dumps(
-            value,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ) + "\n"
-    except (TypeError, ValueError) as exc:
-        raise ResultSubmissionError("TaskResult 包含无法序列化的值") from exc
-    encoded = content.encode("utf-8")
-    if len(encoded) > MAX_RESULT_BYTES:
-        raise ResultSubmissionError(f"TaskResult 超过 {MAX_RESULT_BYTES} 字节上限")
-    return encoded
-
-
-@contextmanager
-def _result_lock(path: Path):
-    lock_path = path.with_suffix(path.suffix + ".lock")
-    flags = os.O_RDWR | os.O_CREAT | os.O_APPEND
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    try:
-        descriptor = os.open(lock_path, flags, 0o600)
-    except OSError as exc:
-        raise ResultStorageError(f"正式结果锁文件无法安全打开：{lock_path}") from exc
-    with os.fdopen(descriptor, "a+", encoding="utf-8") as lock_file:
-        metadata = os.fstat(lock_file.fileno())
-        if not stat.S_ISREG(metadata.st_mode) or not _owned_by_current_user(metadata):
-            raise ResultStorageError(f"正式结果锁文件不安全：{lock_path}")
-        _restrict_descriptor(lock_file.fileno(), 0o600)
-        with _exclusive_file_lock(lock_file):
-            yield
-
-
-def _read_result_path(
-    path: Path,
-    task_id: str,
-    attempt: int,
-) -> tuple[dict[str, Any], bytes, str]:
-    try:
-        metadata = path.lstat()
-    except FileNotFoundError as exc:
-        raise ResultStorageError(f"正式结果文件不存在：{path}") from exc
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-        raise ResultStorageError(f"正式结果文件必须是普通文件且不能是符号链接：{path}")
-    if not _owned_by_current_user(metadata):
-        raise ResultStorageError(f"正式结果文件不属于当前用户：{path}")
-    if not _private_permissions_safe(metadata):
-        raise ResultStorageError(f"正式结果文件权限必须限制为当前用户可访问：{path}")
-    if metadata.st_size > MAX_RESULT_BYTES:
-        raise ResultStorageError(f"正式结果文件超过 {MAX_RESULT_BYTES} 字节上限：{path}")
-    flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    try:
-        descriptor = os.open(path, flags)
-        with os.fdopen(descriptor, "rb") as result_file:
-            opened = os.fstat(result_file.fileno())
-            if not stat.S_ISREG(opened.st_mode) or not _owned_by_current_user(opened):
-                raise ResultStorageError(f"正式结果文件打开后安全校验失败：{path}")
-            raw = result_file.read(MAX_RESULT_BYTES + 1)
-    except ResultStorageError:
-        raise
-    except OSError as exc:
-        raise ResultStorageError(f"正式结果文件无法安全读取：{path}") from exc
-    if len(raw) > MAX_RESULT_BYTES:
-        raise ResultStorageError(f"正式结果文件超过 {MAX_RESULT_BYTES} 字节上限：{path}")
-    try:
-        value = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ResultStorageError(f"正式结果文件不是有效 UTF-8 JSON：{path}") from exc
-    errors = validate_task_result(value)
-    if errors:
-        raise ResultStorageError(f"正式结果文件协议校验失败：{'；'.join(errors)}")
-    if value.get("task_id") != task_id or value.get("attempt") != attempt:
-        raise ResultStorageError("正式结果文件的 task_id/attempt 与确定性地址不匹配")
-    canonical = _canonical_result_bytes(value)
-    if raw != canonical:
-        raise ResultStorageError("正式结果文件不是规范 canonical JSON")
-    return value, raw, hashlib.sha256(raw).hexdigest()
-
-
-def _cleanup_task_result_file(results_root: Path, task_id: str, attempt: int) -> None:
-    path = result_file_path(Path(results_root), task_id, attempt)
-    try:
-        path.lstat()
-    except FileNotFoundError:
-        return
-    with _result_lock(path):
-        try:
-            path.lstat()
-        except FileNotFoundError:
-            return
-        _read_result_path(path, task_id, attempt)
-        try:
-            path.unlink()
-            _sync_directory(path.parent)
-        except OSError as exc:
-            raise ResultStorageError(
-                f"正式结果精确删除失败：task_id={task_id}, attempt={attempt}"
-            ) from exc
-
-
-def _write_or_read_authoritative_result(
-    results_root: Path,
-    value: dict[str, Any],
-) -> tuple[str, dict[str, Any], str, str]:
-    task_id = str(value["task_id"])
-    attempt = int(value["attempt"])
-    root = _prepare_results_directory(results_root)
-    path = result_file_path(root, task_id, attempt)
-    desired = _canonical_result_bytes(value)
-    desired_sha256 = hashlib.sha256(desired).hexdigest()
-    with _result_lock(path):
-        if path.exists() or path.is_symlink():
-            existing, _raw, existing_sha256 = _read_result_path(path, task_id, attempt)
-            status = "same" if existing_sha256 == desired_sha256 else "different"
-            return status, existing, existing_sha256, desired_sha256
-        try:
-            descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=root)
-        except OSError as exc:
-            raise ResultStorageError(f"无法在正式结果目录创建临时文件：{root}") from exc
-        temporary = Path(temporary_name)
-        descriptor_open = True
-        try:
-            try:
-                _restrict_descriptor(descriptor, 0o600)
-                stream = os.fdopen(descriptor, "wb")
-                descriptor_open = False
-                with stream as result_file:
-                    result_file.write(desired)
-                    result_file.flush()
-                    os.fsync(result_file.fileno())
-                os.replace(temporary, path)
-                _sync_directory(root)
-            except OSError as exc:
-                raise ResultStorageError(f"正式结果原子写入失败：{path}") from exc
-            written, _raw, written_sha256 = _read_result_path(path, task_id, attempt)
-            if written_sha256 != desired_sha256 or written != value:
-                raise ResultStorageError(f"正式结果写入后回读内容不一致：{path}")
-        finally:
-            if descriptor_open:
-                os.close(descriptor)
-            try:
-                temporary.unlink()
-            except FileNotFoundError:
-                pass
-        return "new", value, desired_sha256, desired_sha256
 
 
 def _task_attempt_records(
@@ -1948,356 +2439,186 @@ def _task_attempt_records(
     current = state.get("tasks", {}).get(task_id)
     if not isinstance(current, dict):
         return []
-    records: dict[int, dict[str, Any]] = {}
-    current_attempt = current.get("attempt")
-    if isinstance(current_attempt, int) and not isinstance(current_attempt, bool):
-        records[current_attempt] = current
-    prior_attempts = current.get("prior_attempts")
-    if isinstance(prior_attempts, dict):
-        for value in prior_attempts.values():
-            attempt = value.get("attempt") if isinstance(value, dict) else None
-            if isinstance(attempt, int) and not isinstance(attempt, bool):
-                records[attempt] = value
+    executions = current.get("executions")
+    if not isinstance(executions, dict):
+        return []
+    records = {
+        attempt: record
+        for key, record in executions.items()
+        if isinstance(record, dict)
+        and (attempt := _parse_execution_key(key)) is not None
+    }
     return sorted(records.items())
 
 
-def _clear_result_conflict(record: dict[str, Any]) -> None:
-    record["result_conflict"] = False
-    record.pop("result_conflict_sha256", None)
-    record.pop("result_conflict_first_seen_at", None)
+def _canonical_execution_for_attempt(
+    task: dict[str, Any], attempt: int
+) -> dict[str, Any] | None:
+    executions = task.get("executions")
+    if not isinstance(executions, dict):
+        return None
+    execution = executions.get(str(attempt))
+    return execution if isinstance(execution, dict) else None
 
 
-def _consume_result_correction(record: dict[str, Any]) -> None:
-    pending = record.get("pending_action")
-    if isinstance(pending, dict) and pending.get("operation_type") == "result_correction":
-        record.pop("pending_action", None)
-    lifecycle = record.get("last_lifecycle_operation")
-    if isinstance(lifecycle, dict) and lifecycle.get("operation_type") == "result_correction":
-        record.pop("last_lifecycle_operation", None)
+def _ensure_canonical_task_record(
+    state: dict[str, Any], task_id: str
+) -> dict[str, Any]:
+    """Return a writable canonical task without migrating historical records."""
+    tasks = state.get("tasks")
+    if not isinstance(tasks, dict):
+        raise StateValidationError("治理状态缺少 tasks 对象")
+    task = tasks.get(task_id)
+    if not isinstance(task, dict) or task.get("managed") is not True:
+        raise StateConflictError("找不到目标 managed task")
+    work_item = task.get("work_item")
+    executions = task.get("executions")
+    if not isinstance(work_item, dict) or not isinstance(executions, dict):
+        raise StateConflictError("managed task 缺少 canonical work_item/executions")
+    _canonicalize_record_names(task)
+    return task
 
 
-def _parent_action_for_result(business_result: str) -> str:
-    action = BUSINESS_RESULT_PARENT_ACTION.get(business_result)
-    if action not in PARENT_ACTIONS:
-        raise ResultSubmissionError(f"business_result={business_result} 缺少机器父动作映射")
-    return str(action)
-
-
-def _associate_result_record(
-    record: dict[str, Any],
-    value: dict[str, Any],
-    result_sha256: str,
-    result_reference: str,
-    stored_at: int,
-) -> None:
-    business_result = str(value["business_result"])
-    record["execution_status"] = "stopped"
-    record["business_result"] = business_result
-    record["result_protocol_status"] = "valid"
-    record["result_storage_status"] = "available"
-    record["acceptance_status"] = "pending" if business_result == "complete" else None
-    record["parent_action"] = _parent_action_for_result(business_result)
-    record["result_reference"] = result_reference
-    record["result_sha256"] = result_sha256
-    record["result_stored_at"] = stored_at
-    _consume_result_correction(record)
-    record["updated_at"] = stored_at
-
-
-def _mark_duplicate_for_late_result(
-    state: dict[str, Any], task_id: str, result_attempt: int
-) -> None:
-    current = state.get("tasks", {}).get(task_id)
-    if not isinstance(current, dict) or current.get("attempt") == result_attempt:
+def _canonicalize_record_names(task: dict[str, Any]) -> None:
+    """Collapse pre-F6 names while a canonical task is already being written."""
+    work_item = task.get("work_item")
+    executions = task.get("executions")
+    if not isinstance(work_item, dict) or not isinstance(executions, dict):
         return
-    other_open = any(
-        attempt != result_attempt and record.get("attempt_closed") is not True
-        for attempt, record in _task_attempt_records(state, task_id)
-    )
-    if other_open:
-        current["duplicate_execution"] = True
-        current["parent_action"] = "resolve_duplicate"
+    work_item.pop("created_at", None)
+    work_item.pop("attempt_count", None)
+    work_item.pop("last_disposition", None)
+    work_item.pop("last_parent_disposition", None)
+    for execution in executions.values():
+        if not isinstance(execution, dict):
+            continue
+        pending = execution.get("pending_action")
+        if isinstance(pending, dict):
+            pending.pop("disposition", None)
 
 
-def _mark_result_storage_unavailable(
-    session_id: str,
-    task_id: str,
-    attempt: int,
-    *,
-    state_store: StateStore,
-    now: int,
-    error: Exception,
-) -> None:
-    def mark(state: dict[str, Any]) -> None:
-        record = _task_record_for_attempt(state, task_id, attempt)
-        if not isinstance(record, dict) or record.get("managed") is not True:
-            raise StateConflictError("无法为不存在的 managed task/attempt 标记结果存储故障")
-        if record.get("result_storage_status") == "available":
-            return
-        if record.get("attempt_closed") is True or record.get("execution_status") == "interrupted":
-            raise StateConflictError("已关闭或已中断 attempt 不能改写为结果存储故障")
-        record["execution_status"] = "stopped"
-        record["result_protocol_status"] = "valid"
-        record["result_storage_status"] = "unavailable"
-        record["business_result"] = None
-        record["acceptance_status"] = None
-        record["parent_action"] = "manual_review"
-        record["result_storage_error"] = _bounded(str(error))
-        _consume_result_correction(record)
-        record["updated_at"] = now
-        health = state.setdefault("health", {})
-        health["status"] = "degraded"
-        health["result_storage_error"] = _bounded(str(error))
-        health["result_storage_error_at"] = now
-
-    state_store.update(session_id, mark)
-
-
-def submit_task_result(
-    value: Any,
+def record_terminal_notification(
+    envelope: Any,
     session_id: str,
     *,
-    agent_target: str,
     state_store: StateStore | None = None,
-    results_root: Path | None = None,
     now: int | None = None,
 ) -> dict[str, Any]:
-    errors = validate_task_result(value)
-    if errors:
-        raise ResultSubmissionError(f"TaskResult 协议校验失败：{'；'.join(errors)}")
-    assert isinstance(value, dict)
-    task_id, attempt = _validate_task_identity(value.get("task_id"), value.get("attempt"))
-    if not isinstance(agent_target, str) or not agent_target.strip():
-        raise ResultSubmissionError("agent_target 必须是精确 Agent ID 或 canonical task path")
-    target = agent_target.strip()
-    current_time = _now() if now is None else now
-    store = state_store or StateStore()
-    root = Path(results_root) if results_root is not None else _results_root_for_store(store)
-    result_path = result_file_path(root, task_id, attempt)
-    desired_sha256 = hashlib.sha256(_canonical_result_bytes(value)).hexdigest()
-    file_observed = False
-
-    def submit(state: dict[str, Any]) -> dict[str, Any]:
-        nonlocal file_observed
-        mapped = _managed_target_attempt(state, target)
-        if mapped is None or mapped[:2] != (task_id, attempt):
-            raise ResultSubmissionError("Agent target 未精确映射到 TaskResult 的 task_id + attempt")
-        record = mapped[2]
-        terminal_reason = None
-        if record.get("attempt_closed") is True:
-            terminal_reason = "已关闭 attempt 拒绝新的正式结果"
-        elif record.get("execution_status") == "interrupted":
-            terminal_reason = "成功中断后的 attempt 拒绝新的正式结果"
-        if terminal_reason is not None:
-            if (
-                record.get("result_storage_status") == "available"
-                and record.get("result_reference") == result_path.name
-                and record.get("result_sha256") == desired_sha256
-            ):
-                try:
-                    _existing, _raw, existing_sha256 = _read_result_path(
-                        result_path, task_id, attempt
-                    )
-                except ResultStorageError as exc:
-                    raise ResultSubmissionError(
-                        f"{terminal_reason}，且既有权威结果无法重新校验：{exc}"
-                    ) from exc
-                if existing_sha256 == desired_sha256:
-                    return {
-                        "status": "idempotent",
-                        "task_id": task_id,
-                        "attempt": attempt,
-                        "result_reference": result_path.name,
-                    }
-            raise ResultSubmissionError(terminal_reason)
-        file_status, authoritative, authoritative_sha256, conflict_sha256 = (
-            _write_or_read_authoritative_result(root, value)
+    if not isinstance(envelope, dict):
+        raise NotificationObservationError("terminal notification envelope 必须是对象")
+    required = {"sender_target", "task_id", "attempt", "terminal_status"}
+    unknown = sorted(set(envelope) - required)
+    missing = sorted(required - set(envelope))
+    if unknown or missing:
+        details = []
+        if missing:
+            details.append("missing=" + ",".join(missing))
+        if unknown:
+            details.append("unknown=" + ",".join(unknown))
+        raise NotificationObservationError(
+            "terminal notification envelope 字段无效：" + "；".join(details)
         )
-        file_observed = True
-        reference = result_path.name
-        if file_status == "different":
-            if record.get("result_storage_status") != "available":
-                _associate_result_record(
-                    record,
-                    authoritative,
-                    authoritative_sha256,
-                    reference,
-                    current_time,
-                )
-            elif (
-                record.get("result_reference") != reference
-                or record.get("result_sha256") != authoritative_sha256
-            ):
-                raise ResultSubmissionError("StateStore 的权威结果引用与确定性结果文件不一致")
-            if record.get("result_conflict") is not True:
-                record["result_conflict"] = True
-                record["result_conflict_sha256"] = conflict_sha256
-                record["result_conflict_first_seen_at"] = current_time
-            record["parent_action"] = "manual_review"
-            record["updated_at"] = current_time
-            _mark_duplicate_for_late_result(state, task_id, attempt)
+    sender_target = envelope.get("sender_target")
+    if (
+        not isinstance(sender_target, str)
+        or not sender_target
+        or sender_target != sender_target.strip()
+    ):
+        raise NotificationObservationError(
+            "sender_target 必须是原样非空 native Agent target"
+        )
+    task_id, attempt = _validate_task_identity(
+        envelope.get("task_id"), envelope.get("attempt")
+    )
+    terminal_status = envelope.get("terminal_status")
+    if terminal_status not in LIST_AGENTS_TERMINAL_STATUSES:
+        raise NotificationObservationError(
+            "terminal_status 必须是 completed、stopped 或 interrupted"
+        )
+    observed_at = _now() if now is None else now
+    if isinstance(observed_at, bool) or not isinstance(observed_at, int) or observed_at < 0:
+        raise NotificationObservationError("observed_at 必须是非负整数时间戳")
+    store = state_store or StateStore()
+
+    def record_notification(state: dict[str, Any]) -> dict[str, Any]:
+        tasks = state.get("tasks")
+        task = tasks.get(task_id) if isinstance(tasks, dict) else None
+        if not isinstance(task, dict) or task.get("managed") is not True:
+            raise NotificationObservationError("找不到精确 managed task")
+        execution = _canonical_execution_for_attempt(task, attempt)
+        if not isinstance(execution, dict):
+            raise NotificationObservationError("找不到精确 managed task/attempt")
+        dispatch = execution.get("dispatch_record")
+        observation = execution.get("observation_record")
+        closure = execution.get("closure_record")
+        if not all(isinstance(item, dict) for item in (dispatch, observation, closure)):
+            raise NotificationObservationError("managed execution 缺少 canonical planes")
+        if dispatch.get("dispatch_target") != sender_target:
+            raise NotificationObservationError("sender_target 与 dispatch target 不匹配")
+        if _execution_is_closed(execution):
+            return {
+                "status": "historical_ignored",
+                "task_id": task_id,
+                "attempt": attempt,
+                "terminal_status": terminal_status,
+            }
+        existing_status = observation.get("terminal_status")
+        if (
+            observation.get("observed_state") == "terminal"
+            and existing_status is not None
+            and existing_status != terminal_status
+        ):
+            closure["parent_action"] = "reconcile"
+            execution["updated_at"] = observed_at
             return {
                 "status": "conflict",
                 "task_id": task_id,
                 "attempt": attempt,
-                "result_reference": reference,
-                "conflict_sha256": conflict_sha256,
+                "terminal_status": existing_status,
+                "conflicting_terminal_status": terminal_status,
             }
-        if record.get("result_storage_status") == "available":
-            if (
-                record.get("result_reference") != reference
-                or record.get("result_sha256") != authoritative_sha256
-            ):
-                raise ResultSubmissionError("StateStore 已关联另一个权威结果摘要")
-            _mark_duplicate_for_late_result(state, task_id, attempt)
+        if (
+            observation.get("source") == "terminal_notification"
+            and observation.get("observed_state") == "terminal"
+            and existing_status == terminal_status
+            and _observation_is_bound(execution)
+        ):
             return {
                 "status": "idempotent",
                 "task_id": task_id,
                 "attempt": attempt,
-                "result_reference": reference,
+                "terminal_status": terminal_status,
             }
-        _associate_result_record(
-            record,
-            authoritative,
-            authoritative_sha256,
-            reference,
-            current_time,
+        observation.update(
+            source="terminal_notification",
+            observed_state="terminal",
+            observed_at=observed_at,
+            terminal_status=terminal_status,
         )
-        record.pop("result_storage_error", None)
-        _mark_duplicate_for_late_result(state, task_id, attempt)
+        closure["parent_action"] = "decide_disposition"
+        execution["updated_at"] = observed_at
         return {
-            "status": "stored" if file_status == "new" else "reassociated",
+            "status": "recorded",
             "task_id": task_id,
             "attempt": attempt,
-            "result_reference": reference,
+            "terminal_status": terminal_status,
         }
 
-    try:
-        return store.update(session_id, submit)
-    except ResultStorageError as exc:
-        try:
-            _mark_result_storage_unavailable(
-                session_id,
-                task_id,
-                attempt,
-                state_store=store,
-                now=current_time,
-                error=exc,
-            )
-        except Exception as mark_exc:
-            raise ResultStorageError(
-                f"正式结果未可靠保存，且存储故障状态无法写入：{mark_exc}"
-            ) from exc
-        return {
-            "status": "storage_unavailable",
-            "task_id": task_id,
-            "attempt": attempt,
-            "result_reference": result_path.name if result_path.exists() else None,
-            "error": str(exc),
-        }
-    except ResultSubmissionError:
-        raise
-    except (StateStoreError, OSError) as exc:
-        if not file_observed and not isinstance(exc, ResultStorageError):
-            raise ResultSubmissionError(f"正式结果提交前状态操作失败：{exc}") from exc
-        try:
-            _mark_result_storage_unavailable(
-                session_id,
-                task_id,
-                attempt,
-                state_store=store,
-                now=current_time,
-                error=exc,
-            )
-        except Exception as mark_exc:
-            raise ResultStorageError(
-                f"正式结果未可靠关联，且存储故障状态无法写入：{mark_exc}"
-            ) from exc
-        return {
-            "status": "storage_unavailable",
-            "task_id": task_id,
-            "attempt": attempt,
-            "result_reference": result_path.name if result_path.exists() else None,
-            "error": str(exc),
-        }
-
-
-def read_task_result(
-    session_id: str,
-    task_id: str,
-    attempt: int,
-    *,
-    state_store: StateStore | None = None,
-    results_root: Path | None = None,
-) -> dict[str, Any]:
-    normalized_task_id, normalized_attempt = _validate_task_identity(task_id, attempt)
-    store = state_store or StateStore()
-    root = Path(results_root) if results_root is not None else _results_root_for_store(store)
-    state = store.read(session_id)
-    record = _task_record_for_attempt(state, normalized_task_id, normalized_attempt)
-    if not isinstance(record, dict) or record.get("managed") is not True:
-        raise ResultSubmissionError("找不到精确 managed task/attempt")
-    if record.get("result_protocol_status") != "valid" or record.get("result_storage_status") != "available":
-        raise ResultStorageError("正式结果尚未处于 valid + available 状态")
-    path = result_file_path(root, normalized_task_id, normalized_attempt)
-    if record.get("result_reference") != path.name:
-        raise ResultStorageError("StateStore 的 result_reference 与确定性地址不匹配")
-    value, _raw, digest = _read_result_path(path, normalized_task_id, normalized_attempt)
-    if record.get("result_sha256") != digest:
-        raise ResultStorageError("StateStore 的 result_sha256 与正式结果文件不匹配")
-    return value
-
-
-def reassociate_task_result(
-    session_id: str,
-    task_id: str,
-    attempt: int,
-    *,
-    state_store: StateStore | None = None,
-    results_root: Path | None = None,
-    now: int | None = None,
-) -> dict[str, Any]:
-    normalized_task_id, normalized_attempt = _validate_task_identity(task_id, attempt)
-    store = state_store or StateStore()
-    root = Path(results_root) if results_root is not None else _results_root_for_store(store)
-    current_time = _now() if now is None else now
-    path = result_file_path(root, normalized_task_id, normalized_attempt)
-
-    def reassociate(state: dict[str, Any]) -> dict[str, Any]:
-        record = _task_record_for_attempt(state, normalized_task_id, normalized_attempt)
-        if not isinstance(record, dict) or record.get("managed") is not True:
-            raise ResultSubmissionError("找不到精确 managed task/attempt")
-        if record.get("attempt_closed") is True or record.get("execution_status") == "interrupted":
-            raise ResultSubmissionError("已关闭或已中断 attempt 不能重新关联结果")
-        value, _raw, digest = _read_result_path(path, normalized_task_id, normalized_attempt)
-        if record.get("result_storage_status") == "available":
-            if record.get("result_reference") != path.name or record.get("result_sha256") != digest:
-                raise ResultSubmissionError("已有权威结果关联与孤立文件不一致")
-            return {
-                "status": "idempotent",
-                "task_id": normalized_task_id,
-                "attempt": normalized_attempt,
-            }
-        _associate_result_record(record, value, digest, path.name, current_time)
-        record.pop("result_storage_error", None)
-        _mark_duplicate_for_late_result(state, normalized_task_id, normalized_attempt)
-        return {
-            "status": "reassociated",
-            "task_id": normalized_task_id,
-            "attempt": normalized_attempt,
-            "result_reference": path.name,
-        }
-
-    return store.update(session_id, reassociate)
+    return store.update(session_id, record_notification)
 
 
 def _attempt_interrupt_target(record: dict[str, Any]) -> str | None:
-    if record.get("identity_status") != "confirmed" or record.get("execution_status") != "running":
+    observation = record.get("observation_record")
+    dispatch = record.get("dispatch_record")
+    if (
+        not isinstance(observation, dict)
+        or observation.get("observed_state") != "active"
+        or not isinstance(dispatch, dict)
+    ):
         return None
-    for field_name in ("agent_id", "canonical_task_path"):
-        value = record.get(field_name)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+    value = dispatch.get("dispatch_target")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
     return None
 
 
@@ -2306,7 +2627,7 @@ def _running_interrupt_targets(
 ) -> list[str]:
     targets: list[str] = []
     for _attempt, record in records:
-        if record.get("attempt_closed") is True:
+        if _execution_is_closed(record) is True:
             continue
         target = _attempt_interrupt_target(record)
         if target and target not in targets:
@@ -2316,12 +2637,8 @@ def _running_interrupt_targets(
 
 def _tombstone_record(record: dict[str, Any], reason: str, closed_at: int) -> dict[str, Any]:
     value = {
-        "task_id": str(record["task_id"]),
-        "attempt": int(record["attempt"]),
         "task_ref": record.get("task_ref"),
-        "agent_id": record.get("agent_id"),
-        "canonical_task_path": record.get("canonical_task_path"),
-        "last_execution_status": record.get("execution_status"),
+        "dispatch_target": _dispatch_target(record),
         "close_reason": reason,
         "closed_at": closed_at,
     }
@@ -2330,85 +2647,20 @@ def _tombstone_record(record: dict[str, Any], reason: str, closed_at: int) -> di
 
 def _close_attempt_record(
     state: dict[str, Any],
+    task_id: str,
+    attempt: int,
     record: dict[str, Any],
     reason: str,
     closed_at: int,
 ) -> None:
-    record["attempt_closed"] = True
-    record["attempt_close_reason"] = reason
-    record["attempt_closed_at"] = closed_at
-    record["parent_action"] = None
+    _apply_canonical_execution_update(record, "closure_reason", reason)
+    _apply_canonical_execution_update(record, "closure_closed_at", closed_at)
+    _apply_canonical_execution_update(record, "closure_parent_action", None)
     record.pop("pending_action", None)
     record.pop("last_lifecycle_operation", None)
     record["updated_at"] = closed_at
-    key = f"{record['task_id']}:{record['attempt']}"
+    key = f"{task_id}:{attempt}"
     state.setdefault("tombstones", {})[key] = _tombstone_record(record, reason, closed_at)
-
-
-def _remove_attempt_agent_mappings(
-    state: dict[str, Any], task_id: str, attempt: int
-) -> None:
-    agents = state.get("agents")
-    if not isinstance(agents, dict):
-        raise StateValidationError("治理状态缺少 Agent 映射清理所需的 agents 对象")
-    for target, mapping in list(agents.items()):
-        if (
-            isinstance(mapping, dict)
-            and mapping.get("task_id") == task_id
-            and mapping.get("attempt") == attempt
-        ):
-            agents.pop(target, None)
-
-
-def _finalize_selected_duplicate_if_resolved(
-    state: dict[str, Any], task_id: str, observed_at: int
-) -> None:
-    tasks = state.get("tasks")
-    if not isinstance(tasks, dict):
-        raise StateValidationError("治理状态缺少 duplicate 收口所需的 tasks 对象")
-    selected = tasks.get(task_id)
-    if not isinstance(selected, dict) or selected.get("managed") is not True:
-        return
-    selected_attempt = selected.get("attempt")
-    unresolved_unselected = [
-        record
-        for attempt, record in _task_attempt_records(state, task_id)
-        if attempt != selected_attempt
-        and record.get("attempt_closed") is not True
-    ]
-    if unresolved_unselected:
-        selected["duplicate_execution"] = True
-        selected["parent_action"] = "resolve_duplicate"
-        selected["updated_at"] = observed_at
-        return
-    selected.pop("duplicate_execution", None)
-    _restore_selected_parent_action(selected)
-    selected["updated_at"] = observed_at
-
-
-def _close_unselected_duplicate_attempt(
-    state: dict[str, Any],
-    record: dict[str, Any],
-    *,
-    reason: str,
-    observed_at: int,
-    execution_status: str,
-) -> bool:
-    if record.get("duplicate_not_selected") is not True:
-        return False
-    if record.get("attempt_closed") is True:
-        _finalize_selected_duplicate_if_resolved(
-            state, str(record["task_id"]), observed_at
-        )
-        return True
-    task_id = str(record["task_id"])
-    attempt = int(record["attempt"])
-    record["execution_status"] = execution_status
-    record["platform_observation"] = "normal"
-    _close_attempt_record(state, record, reason, observed_at)
-    _remove_attempt_agent_mappings(state, task_id, attempt)
-    _finalize_selected_duplicate_if_resolved(state, task_id, observed_at)
-    return True
 
 
 def _validate_parent_disposition(value: Any) -> tuple[str, int, str, str]:
@@ -2418,59 +2670,16 @@ def _validate_parent_disposition(value: Any) -> tuple[str, int, str, str]:
     attempt_value = value.get("attempt")
     try:
         task_id, attempt = _validate_task_identity(task_id_value, attempt_value)
-    except ResultSubmissionError as exc:
+    except NotificationObservationError as exc:
         raise ParentDispositionError(str(exc)) from exc
     action = value.get("action")
     if action not in PARENT_DISPOSITIONS:
-        raise ParentDispositionError("action 必须是 accept_result、reject_result、close_task 或 select_attempt")
+        raise ParentDispositionError("action 必须是 close_task")
     reason = value.get("reason")
     errors = _validate_text(reason, "reason", maximum=PARENT_DISPOSITION_REASON_MAX_LENGTH)
     if errors:
         raise ParentDispositionError("；".join(errors))
     return task_id, attempt, str(action), str(reason).strip()
-
-
-def _restore_selected_parent_action(record: dict[str, Any]) -> None:
-    if record.get("attempt_closed") is True:
-        record["parent_action"] = None
-    elif record.get("result_conflict") is True:
-        record["parent_action"] = "manual_review"
-    elif record.get("result_storage_status") == "available" and record.get("business_result") in BUSINESS_RESULTS:
-        business_result = str(record["business_result"])
-        if business_result == "complete" and record.get("acceptance_status") == "rejected":
-            record["parent_action"] = "decide_disposition"
-        elif business_result == "complete" and record.get("acceptance_status") == "accepted":
-            record["parent_action"] = None
-        else:
-            record["parent_action"] = _parent_action_for_result(business_result)
-    elif record.get("result_protocol_status") == "needs_correction":
-        record["parent_action"] = "correct_result"
-    elif record.get("result_protocol_status") == "exhausted" or record.get("result_storage_status") == "unavailable":
-        record["parent_action"] = "manual_review"
-    elif record.get("execution_status") == "running":
-        record["parent_action"] = "wait"
-    elif record.get("execution_status") == "interrupted":
-        record["parent_action"] = "decide_disposition"
-    else:
-        record["parent_action"] = "reconcile"
-
-
-def _replace_current_attempt(
-    state: dict[str, Any], task_id: str, selected_attempt: int
-) -> dict[str, Any]:
-    records = _task_attempt_records(state, task_id)
-    selected = next((record for attempt, record in records if attempt == selected_attempt), None)
-    if selected is None:
-        raise ParentDispositionConflict("select_attempt 指向的 attempt 不属于该 task")
-    snapshots: dict[int, dict[str, Any]] = {}
-    for attempt, record in records:
-        snapshot = copy.deepcopy(record)
-        snapshot.pop("prior_attempts", None)
-        snapshots[attempt] = snapshot
-    new_current = snapshots.pop(selected_attempt)
-    new_current["prior_attempts"] = {str(attempt): record for attempt, record in snapshots.items()}
-    state["tasks"][task_id] = new_current
-    return new_current
 
 
 def apply_parent_disposition(
@@ -2485,82 +2694,18 @@ def apply_parent_disposition(
     current_time = _now() if now is None else now
 
     def apply(state: dict[str, Any]) -> dict[str, Any]:
-        current = state.get("tasks", {}).get(task_id)
-        if not isinstance(current, dict) or current.get("managed") is not True:
-            raise ParentDispositionConflict("找不到目标 managed task")
-        current_attempt = current.get("attempt")
-        if action != "select_attempt" and current_attempt != attempt:
+        task = _ensure_canonical_task_record(state, task_id)
+        work_item = task["work_item"]
+        current_attempt = work_item.get("current_attempt")
+        current = _canonical_execution_for_attempt(task, current_attempt)
+        if not isinstance(current, dict):
+            raise ParentDispositionConflict("work item 缺少 current execution")
+        if current_attempt != attempt:
             raise ParentDispositionConflict(
                 "父处置 attempt 与当前 attempt 不一致",
                 current_attempt=current_attempt if isinstance(current_attempt, int) else None,
             )
         records = _task_attempt_records(state, task_id)
-        if action == "select_attempt":
-            if current.get("duplicate_execution") is not True:
-                raise ParentDispositionConflict("select_attempt 只适用于尚未解决的重复执行")
-            if not any(candidate_attempt == attempt for candidate_attempt, _record in records):
-                raise ParentDispositionConflict("select_attempt 指向的 attempt 不属于该 task")
-            selected = _replace_current_attempt(state, task_id, attempt)
-            selected["parent_disposition"] = "select_attempt"
-            selected["parent_disposition_reason"] = reason
-            selected["parent_disposition_at"] = current_time
-            interrupt_targets: list[str] = []
-            for candidate_attempt, candidate in _task_attempt_records(state, task_id):
-                if candidate_attempt == attempt or candidate.get("attempt_closed") is True:
-                    continue
-                candidate["duplicate_not_selected"] = True
-                target = _attempt_interrupt_target(candidate)
-                if target:
-                    if target not in interrupt_targets:
-                        interrupt_targets.append(target)
-                    continue
-                _close_attempt_record(
-                    state,
-                    candidate,
-                    f"select_attempt:{reason}",
-                    current_time,
-                )
-            selected["duplicate_execution"] = bool(interrupt_targets)
-            if interrupt_targets:
-                selected["parent_action"] = "resolve_duplicate"
-            else:
-                _restore_selected_parent_action(selected)
-            selected["updated_at"] = current_time
-            return {
-                "status": "selected",
-                "task_id": task_id,
-                "attempt": attempt,
-                "interrupt_targets": interrupt_targets,
-            }
-
-        if action in {"accept_result", "reject_result"}:
-            if current.get("duplicate_execution") is True:
-                raise ParentDispositionConflict("重复执行未解决，不能验收 complete 结果")
-            if (
-                current.get("business_result") != "complete"
-                or current.get("result_protocol_status") != "valid"
-                or current.get("result_storage_status") != "available"
-                or current.get("acceptance_status") != "pending"
-            ):
-                prior_action = current.get("parent_disposition")
-                prior_reason = current.get("parent_disposition_reason")
-                if action == "accept_result" and current.get("acceptance_status") == "accepted" and prior_action == action and prior_reason == reason:
-                    return {"status": "accepted", "task_id": task_id, "attempt": attempt, "interrupt_targets": []}
-                if action == "reject_result" and current.get("acceptance_status") == "rejected" and prior_action == action and prior_reason == reason:
-                    return {"status": "rejected", "task_id": task_id, "attempt": attempt}
-                raise ParentDispositionConflict(
-                    f"{action} 只允许 current complete + valid + available + pending"
-                )
-        if action == "reject_result":
-            current["acceptance_status"] = "rejected"
-            current["parent_action"] = "decide_disposition"
-            current["parent_disposition"] = action
-            current["parent_disposition_reason"] = reason
-            current["parent_disposition_at"] = current_time
-            _clear_result_conflict(current)
-            current["updated_at"] = current_time
-            return {"status": "rejected", "task_id": task_id, "attempt": attempt}
-
         running_targets = _running_interrupt_targets(records)
         if running_targets:
             raise ParentDispositionConflict(
@@ -2568,23 +2713,20 @@ def apply_parent_disposition(
                 interrupt_targets=running_targets,
                 current_attempt=int(current_attempt) if isinstance(current_attempt, int) else None,
             )
-        if action == "accept_result":
-            current["acceptance_status"] = "accepted"
         for candidate_attempt, candidate in records:
-            close_reason = (
-                f"accept_result:{reason}"
-                if action == "accept_result" and candidate_attempt == attempt
-                else f"{action}:{reason}"
+            _close_attempt_record(
+                state,
+                task_id,
+                candidate_attempt,
+                candidate,
+                f"close_task:{reason}",
+                current_time,
             )
-            _clear_result_conflict(candidate)
-            _close_attempt_record(state, candidate, close_reason, current_time)
-        current["parent_disposition"] = action
-        current["parent_disposition_reason"] = reason
-        current["parent_disposition_at"] = current_time
-        current["parent_action"] = None
+        _apply_canonical_execution_update(current, "closure_parent_action", None)
         current["updated_at"] = current_time
+        work_item["lifecycle"] = "tombstoned"
         return {
-            "status": "accepted" if action == "accept_result" else "closed",
+            "status": "closed",
             "task_id": task_id,
             "attempt": attempt,
             "interrupt_targets": [],
@@ -2596,9 +2738,10 @@ def apply_parent_disposition(
 def _task_ref_occupied(state: dict[str, Any], task_ref: str) -> bool:
     tasks = state.get("tasks")
     if isinstance(tasks, dict):
-        for record in tasks.values():
-            if isinstance(record, dict) and record.get("task_ref") == task_ref:
-                return True
+        for task_id in tasks:
+            for _attempt, record in _task_attempt_records(state, str(task_id)):
+                if record.get("task_ref") == task_ref:
+                    return True
     tombstones = state.get("tombstones")
     if isinstance(tombstones, dict):
         for record in tombstones.values():
@@ -2622,13 +2765,13 @@ def _prepared_record(
     *,
     created_at: int,
     spawn_retry_count: int,
+    dispatch_operation: str,
 ) -> dict[str, Any]:
     native_parameters = {
         "task_name": task_name,
         "fork_turns": spawn_args["fork_turns"],
         "model": spawn_args.get("model"),
         "reasoning_effort": spawn_args.get("reasoning_effort"),
-        "message_sha256": hashlib.sha256(spawn_args["message"].encode("utf-8")).hexdigest(),
     }
     return {
         "session_id": session_id,
@@ -2638,6 +2781,7 @@ def _prepared_record(
         "task_name": task_name,
         "resolved_mode": contract.resolved_mode,
         "contract": contract.to_record(),
+        "contract_digest": contract_digest(contract),
         "native_parameters": native_parameters,
         "created_at": created_at,
         "consumed": False,
@@ -2645,83 +2789,432 @@ def _prepared_record(
         "claimed_at": None,
         "post_observed_at": None,
         "spawn_retry_count": spawn_retry_count,
+        "dispatch_operation": dispatch_operation,
     }
 
 
 def _contract_summary(contract: TaskContract) -> dict[str, Any]:
     return {
         "objective": contract.objective,
-        "background": _bounded(contract.background),
-        "work_scope": list(contract.work_scope),
-        "forbidden_scope": list(contract.forbidden_scope),
-        "completion_conditions": list(contract.completion_conditions),
-        "evidence_requirements": list(contract.evidence_requirements),
-        "relevant_files": list(contract.relevant_files),
-        "current_state": contract.current_state,
-        "context_strategy": contract.context_strategy,
-        "context_turns": contract.context_turns,
-        "context_reason": contract.context_reason,
         "model": contract.model,
-        "reasoning_effort": contract.reasoning_effort,
     }
 
 
+def contract_digest(contract: TaskContract) -> str:
+    encoded = json.dumps(
+        contract.to_record(),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 def _initial_task_record(
-    task_id: str,
     attempt: int,
     task_ref: str,
     task_name: str,
     contract: TaskContract,
     created_at: int,
 ) -> dict[str, Any]:
-    return {
-        "managed": True,
-        "task_id": task_id,
-        "attempt": attempt,
+    execution = {
         "task_ref": task_ref,
         "task_name": task_name,
-        "semantic_name": contract.semantic_name,
-        "requested_mode": contract.requested_mode,
         "resolved_mode": contract.resolved_mode,
-        "resolution_reason": contract.resolution_reason,
         "contract_summary": _contract_summary(contract),
-        **AttemptState().to_record(),
-        "spawn_tool_use_id": None,
-        "spawn_claimed_at": None,
-        "spawn_post_observed_at": None,
-        "agent_id": None,
-        "canonical_task_path": None,
-        "created_at": created_at,
+        "contract_digest": contract_digest(contract),
+        **_initial_plane_records(),
+        "spawn_retry_count": 0,
+        "recovery_count": 0,
         "updated_at": created_at,
     }
+    record = {
+        "managed": True,
+        "work_item": {
+            "lifecycle": "open",
+            "current_attempt": attempt,
+        },
+        "executions": {str(attempt): execution},
+    }
+    return record
+
+
+def _initial_task_post_state(prepared: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild the sole canonical initial post-state from the validated contract."""
+    if prepared.get("dispatch_operation") != "initial_spawn":
+        raise PreparedContractValidationError(
+            "只有 initial PreparedContract 可以重建 initial task post-state"
+        )
+    contract = _contract_from_input(prepared.get("contract"))
+    expected = _initial_task_record(
+        int(prepared["attempt"]),
+        str(prepared["task_ref"]),
+        str(prepared["task_name"]),
+        contract,
+        int(prepared["created_at"]),
+    )
+    execution = expected["executions"][str(prepared["attempt"])]
+    if (
+        prepared.get("attempt") != 1
+        or prepared.get("resolved_mode") != execution.get("resolved_mode")
+        or prepared.get("contract_digest") != execution.get("contract_digest")
+    ):
+        raise PreparedContractValidationError(
+            "initial PreparedContract 无法确定性绑定 canonical task post-state"
+        )
+    return expected
+
+
+def _exception_chain_text(error: BaseException) -> str:
+    messages: list[str] = []
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        message = str(current)
+        if message and message not in messages:
+            messages.append(message)
+        current = current.__cause__ or current.__context__
+    return "；caused by：".join(messages)
+
+
+def _merge_initial_rollback_health(
+    health: dict[str, Any], marker: dict[str, Any]
+) -> None:
+    status = health.get("status")
+    status_rank = {"ok": 0, "degraded": 1, "unavailable": 2}
+    if status in status_rank and status_rank[str(status)] < status_rank["degraded"]:
+        health["status"] = "degraded"
+
+    marker_field = "initial_preparation_rollback"
+    if marker_field not in health:
+        health[marker_field] = copy.deepcopy(marker)
+        return
+    current_marker = health.get(marker_field)
+    current_observed_at = (
+        current_marker.get("observed_at")
+        if isinstance(current_marker, dict)
+        else None
+    )
+    next_observed_at = marker.get("observed_at")
+    if (
+        isinstance(current_observed_at, int)
+        and not isinstance(current_observed_at, bool)
+        and isinstance(next_observed_at, int)
+        and not isinstance(next_observed_at, bool)
+        and current_observed_at <= next_observed_at
+    ):
+        health[marker_field] = copy.deepcopy(marker)
+
+
+def _mark_initial_rollback_incomplete(
+    session_id: str,
+    prepared: dict[str, Any],
+    state_store: StateStore,
+    observed_task: dict[str, Any],
+    *,
+    error: str,
+    now: int,
+) -> bool:
+    task_id = str(prepared["task_id"])
+    attempt = int(prepared["attempt"])
+
+    def same_observed_task(state: dict[str, Any]) -> bool:
+        return state.get("tasks", {}).get(task_id) == observed_task
+
+    def mark(state: dict[str, Any]) -> bool:
+        task = state["tasks"].get(task_id)
+        record = (
+            _canonical_execution_for_attempt(task, attempt)
+            if isinstance(task, dict)
+            else None
+        )
+        if not isinstance(task, dict) or not isinstance(record, dict):
+            raise StateConflictError(
+                "rollback-incomplete task/attempt 已不存在，无法持久化 reconcile 标记"
+            )
+        marker = {
+            "status": "rollback_incomplete",
+            "task_ref": str(prepared["task_ref"]),
+            "observed_at": now,
+            "error": _bounded(error),
+        }
+        _apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
+        record["initial_preparation_rollback"] = copy.deepcopy(marker)
+        record_updated_at = record.get("updated_at")
+        record["updated_at"] = (
+            max(record_updated_at, now)
+            if isinstance(record_updated_at, int)
+            and not isinstance(record_updated_at, bool)
+            else now
+        )
+        health = state.get("health")
+        if not isinstance(health, dict):
+            raise StateValidationError("治理状态字段 health 必须是对象")
+        _merge_initial_rollback_health(health, marker)
+        return True
+
+    return state_store.compare_and_set(
+        session_id,
+        same_observed_task,
+        mark,
+        required_fields=("tasks", "tombstones"),
+    )
 
 
 def _cleanup_initial_attempt(
     session_id: str,
-    task_id: str,
-    attempt: int,
-    task_ref: str,
+    prepared: dict[str, Any],
     state_store: StateStore,
-) -> bool:
-    def predicate(state: dict[str, Any]) -> bool:
-        record = _task_record_for_attempt(state, task_id, attempt)
-        if record is None:
-            return True
-        initial = AttemptState().to_record()
-        return (
-            record.get("task_ref") == task_ref
-            and record.get("spawn_tool_use_id") is None
-            and all(record.get(field_name) == expected for field_name, expected in initial.items())
+    *,
+    error_context: str,
+    now: int,
+) -> dict[str, Any]:
+    """Delete only the complete initial post-state and report every uncertain edge."""
+    task_id = str(prepared["task_id"])
+    expected_task = _initial_task_post_state(prepared)
+    errors: list[str] = []
+    try:
+        state = state_store.read(
+            session_id, required_fields=("tasks", "tombstones")
+        )
+    except Exception as exc:
+        return {
+            "safe_for_prepared_delete": False,
+            "task_status": "unknown",
+            "marked": False,
+            "errors": [f"StateStore readback failure：{exc}"],
+        }
+    current_task = state.get("tasks", {}).get(task_id)
+    if current_task is None:
+        return {
+            "safe_for_prepared_delete": True,
+            "task_status": "absent",
+            "marked": False,
+            "errors": errors,
+        }
+    if current_task != expected_task:
+        errors.append("完整 initial task post-state 不匹配，检测到并发变化")
+    else:
+        try:
+            state_store.compare_and_set(
+                session_id,
+                lambda value: value.get("tasks", {}).get(task_id) == expected_task,
+                lambda value: value["tasks"].pop(task_id),
+                required_fields=("tasks", "tombstones"),
+            )
+            return {
+                "safe_for_prepared_delete": True,
+                "task_status": "deleted",
+                "marked": False,
+                "errors": errors,
+            }
+        except Exception as exc:
+            errors.append(f"StateStore task cleanup failure：{exc}")
+            try:
+                state = state_store.read(
+                    session_id, required_fields=("tasks", "tombstones")
+                )
+            except Exception as readback_exc:
+                errors.append(f"StateStore cleanup readback failure：{readback_exc}")
+                return {
+                    "safe_for_prepared_delete": False,
+                    "task_status": "unknown",
+                    "marked": False,
+                    "errors": errors,
+                }
+            current_task = state.get("tasks", {}).get(task_id)
+            if current_task is None:
+                return {
+                    "safe_for_prepared_delete": True,
+                    "task_status": "deleted_after_error",
+                    "marked": False,
+                    "errors": errors,
+                }
+            if current_task != expected_task:
+                errors.append("task cleanup 异常后完整 task 已发生并发变化")
+
+    marked = False
+    if isinstance(current_task, dict):
+        try:
+            marked = _mark_initial_rollback_incomplete(
+                session_id,
+                prepared,
+                state_store,
+                copy.deepcopy(current_task),
+                error=f"{error_context}；{'；'.join(errors)}",
+                now=now,
+            )
+        except Exception as mark_exc:
+            errors.append(f"rollback-incomplete reconcile 标记失败：{mark_exc}")
+    return {
+        "safe_for_prepared_delete": False,
+        "task_status": "diverged" if current_task != expected_task else "retained",
+        "marked": marked,
+        "errors": errors,
+    }
+
+
+def _dispatch_admission_error(
+    task: dict[str, Any], source_attempt: int
+) -> str | None:
+    work_item = task.get("work_item")
+    if not isinstance(work_item, dict):
+        return "managed task 缺少 canonical work_item"
+    if work_item.get("lifecycle") != "open":
+        return "work item 已关闭或 tombstoned，禁止新增或重派 execution"
+    source = _canonical_execution_for_attempt(task, source_attempt)
+    if not isinstance(source, dict):
+        return "来源 execution 不存在"
+    if _execution_is_closed(source) is True:
+        return "来源 execution 已关闭，禁止新增或重派 execution"
+    return None
+
+
+def _restore_prepared_spawn_claim(
+    session_id: str,
+    task_ref: str,
+    prepared_store: PreparedContractStore,
+    before_claim: dict[str, Any],
+    claimed: dict[str, Any],
+) -> str:
+    current = prepared_store.read(session_id, task_ref)
+    if current == before_claim:
+        return "not_persisted"
+    if current != claimed:
+        raise PreparedContractConflictError(
+            "PreparedContract claim 后发生并发变化，无法安全恢复未消费状态"
         )
 
-    def remove(state: dict[str, Any]) -> bool:
-        record = _task_record_for_attempt(state, task_id, attempt)
-        if record is None:
-            return False
-        state["tasks"].pop(task_id, None)
-        return True
+    def restore(value: dict[str, Any]) -> None:
+        value.clear()
+        value.update(copy.deepcopy(before_claim))
 
-    return state_store.compare_and_set(session_id, predicate, remove)
+    try:
+        prepared_store.compare_and_set(
+            session_id,
+            task_ref,
+            lambda value: value == claimed,
+            restore,
+        )
+    except Exception as restore_exc:
+        try:
+            recovered = prepared_store.read(session_id, task_ref)
+        except Exception as readback_exc:
+            raise PreparedContractConflictError(
+                "PreparedContract claim 补偿失败且无法回读实际状态："
+                f"{restore_exc}；{readback_exc}"
+            ) from restore_exc
+        if recovered == before_claim:
+            return "restored"
+        raise PreparedContractConflictError(
+            "PreparedContract claim 补偿失败且实际状态未恢复："
+            f"{restore_exc}"
+        ) from restore_exc
+    return "restored"
+
+
+def _claim_prepared_spawn_contract(
+    session_id: str,
+    task_ref: str,
+    tool_use_id: str,
+    claimed_at: int,
+    prepared: dict[str, Any],
+    prepared_store: PreparedContractStore,
+) -> dict[str, Any]:
+    before_claim = copy.deepcopy(prepared)
+    claimed = copy.deepcopy(prepared)
+    claimed.update(
+        {
+            "consumed": True,
+            "tool_use_id": tool_use_id,
+            "claimed_at": claimed_at,
+        }
+    )
+
+    def apply_claim(value: dict[str, Any]) -> None:
+        value.clear()
+        value.update(copy.deepcopy(claimed))
+
+    try:
+        prepared_store.compare_and_set(
+            session_id,
+            task_ref,
+            lambda value: value == before_claim,
+            apply_claim,
+        )
+    except Exception as claim_exc:
+        try:
+            _restore_prepared_spawn_claim(
+                session_id,
+                task_ref,
+                prepared_store,
+                before_claim,
+                claimed,
+            )
+        except Exception as recovery_exc:
+            raise PreparedContractConflictError(
+                "PreparedContract claim 失败且补偿未完成，治理状态 degraded："
+                f"{recovery_exc}"
+            ) from claim_exc
+        raise
+    return claimed
+
+
+def _rollback_persisted_spawn_claim(
+    session_id: str,
+    task_id: str,
+    state_store: StateStore,
+    claim_snapshot: dict[str, Any],
+) -> str:
+    """Restore one claim only when the persisted task is exactly this claim's post-state."""
+    before_task = claim_snapshot.get("before_task")
+    claimed_task = claim_snapshot.get("claimed_task")
+    if not isinstance(before_task, dict) or not isinstance(claimed_task, dict):
+        return "not_observed"
+    state = state_store.read(session_id, required_fields=("tasks", "tombstones"))
+    current_task = state.get("tasks", {}).get(task_id)
+    if current_task == before_task:
+        return "not_persisted"
+    if current_task != claimed_task:
+        raise StateConflictError(
+            "spawn claim 已持久化后发生并发变化，无法安全恢复 pre-claim 状态"
+        )
+
+    def matches_claimed_task(current: dict[str, Any]) -> bool:
+        return current.get("tasks", {}).get(task_id) == claimed_task
+
+    def restore(current: dict[str, Any]) -> None:
+        current["tasks"][task_id] = copy.deepcopy(before_task)
+
+    state_store.compare_and_set(
+        session_id,
+        matches_claimed_task,
+        restore,
+        required_fields=("tasks", "tombstones"),
+    )
+    return "restored"
+
+
+def _cleanup_unclaimed_prepared_dispatch(
+    session_id: str,
+    prepared: dict[str, Any],
+    state_store: StateStore,
+) -> bool:
+    operation = prepared.get("dispatch_operation")
+    if operation == "initial_spawn":
+        return _cleanup_initial_attempt(
+            session_id,
+            prepared,
+            state_store,
+            error_context="unclaimed initial PreparedContract expiry",
+            now=_now(),
+        )
+    if operation == "spawn_retry":
+        return False
+    raise PreparedContractConflictError(
+        f"未知 PreparedContract dispatch operation：{operation}"
+    )
 
 
 def _occupied_task_refs(
@@ -2735,9 +3228,15 @@ def _occupied_task_refs(
     tombstones = state.get("tombstones", {})
     for collection in (tasks, tombstones):
         if isinstance(collection, dict):
-            for record in collection.values():
-                if isinstance(record, dict) and isinstance(record.get("task_ref"), str):
-                    occupied.add(record["task_ref"])
+            if collection is tasks:
+                for task_id in tasks:
+                    for _attempt, record in _task_attempt_records(state, str(task_id)):
+                        if isinstance(record.get("task_ref"), str):
+                            occupied.add(record["task_ref"])
+            else:
+                for record in collection.values():
+                    if isinstance(record, dict) and isinstance(record.get("task_ref"), str):
+                        occupied.add(record["task_ref"])
     return occupied
 
 
@@ -2784,50 +3283,96 @@ def prepare_dispatch(
         spawn_args,
         created_at=created_at,
         spawn_retry_count=0,
+        dispatch_operation="initial_spawn",
     )
-    initial = _initial_task_record(task_id, 1, task_ref, task_name, contract, created_at)
+    initial = _initial_task_record(
+        1,
+        task_ref,
+        task_name,
+        contract,
+        created_at,
+    )
     try:
         active_prepared_store.create(prepared)
-        try:
-            active_state_store.compare_and_set(
-                session_id,
-                lambda state: task_id not in state["tasks"] and not _task_ref_occupied(state, task_ref),
-                lambda state: state["tasks"].update({task_id: copy.deepcopy(initial)}),
-                required_fields=("tasks", "tombstones"),
-                admission="new_task",
-            )
-        except Exception:
-            active_prepared_store.delete(session_id, task_ref)
-            raise
+        active_state_store.compare_and_set(
+            session_id,
+            lambda state: task_id not in state["tasks"] and not _task_ref_occupied(state, task_ref),
+            lambda state: state["tasks"].update({task_id: copy.deepcopy(initial)}),
+            required_fields=("tasks", "tombstones"),
+            admission="new_task",
+        )
         verified_prepared = active_prepared_store.read(session_id, task_ref)
         verified_state = active_state_store.read(session_id, required_fields=("tasks", "tombstones"))
         verified_task = _task_record_for_attempt(verified_state, task_id, 1)
         if (
             verified_prepared.get("task_name") != task_name
             or verified_prepared.get("resolved_mode") != contract.resolved_mode
+            or verified_prepared.get("contract_digest") != contract_digest(contract)
             or verified_task is None
             or verified_task.get("task_ref") != task_ref
             or verified_task.get("resolved_mode") != contract.resolved_mode
+            or verified_task.get("contract_digest") != contract_digest(contract)
         ):
             raise DispatchPreparationError("PreparedContract 与 StateStore 双门禁回读不一致")
     except Exception as exc:
-        try:
-            _cleanup_initial_attempt(session_id, task_id, 1, task_ref, active_state_store)
-        except Exception:
-            pass
-        try:
-            active_prepared_store.delete(session_id, task_ref)
-        except Exception:
-            pass
+        original_error = _exception_chain_text(exc)
+        cleanup = _cleanup_initial_attempt(
+            session_id,
+            prepared,
+            active_state_store,
+            error_context=original_error,
+            now=created_at,
+        )
+        cleanup_errors = list(cleanup["errors"])
+        prepared_cleanup_failed = False
+        if cleanup["safe_for_prepared_delete"]:
+            try:
+                active_prepared_store.delete_if(
+                    session_id,
+                    task_ref,
+                    lambda value: value == prepared,
+                )
+            except Exception as cleanup_exc:
+                prepared_cleanup_failed = True
+                cleanup_errors.append(
+                    f"PreparedContract cleanup failure：{cleanup_exc}；"
+                    "task 已安全 absent，orphan PreparedContract retained"
+                )
+        if not cleanup["safe_for_prepared_delete"]:
+            marker_status = (
+                "rollback-incomplete 已持久化为 action-required"
+                if cleanup["marked"]
+                else "rollback-incomplete 无法持久化 reconcile 标记"
+            )
+            details = "；".join(cleanup_errors) or "无法确认 canonical task post-state"
+            raise DispatchPreparationError(
+                "受治理派发准备失败，治理状态 degraded / rollback-incomplete；"
+                f"原始错误：{original_error}；{details}；{marker_status}；"
+                "PreparedContract retained，可由显式 reconcile/expiry 重试"
+            ) from exc
+        if cleanup_errors:
+            status = (
+                "治理状态 degraded / rollback-incomplete"
+                if prepared_cleanup_failed
+                else "治理状态 degraded，exact rollback 已完成但 cleanup error 可见"
+            )
+            raise DispatchPreparationError(
+                f"受治理派发准备失败，{status}；原始错误：{original_error}；"
+                f"{'；'.join(cleanup_errors)}"
+            ) from exc
         if isinstance(exc, DispatchPreparationError):
             raise
-        raise DispatchPreparationError(f"受治理派发准备失败，未允许原生 spawn：{exc}") from exc
+        raise DispatchPreparationError(
+            "受治理派发准备失败，exact rollback 已完成，未允许原生 spawn："
+            f"{original_error}"
+        ) from exc
     return {
         "task_id": task_id,
         "attempt": 1,
         "task_ref": task_ref,
         "task_name": task_name,
         "contract": contract.to_record(),
+        "contract_digest": contract_digest(contract),
         "user_message": render_dispatch_user_message(contract),
         "dispatch_prompt": spawn_args["message"],
         "spawn_args": spawn_args,
@@ -2849,10 +3394,26 @@ def prepare_spawn_retry(
         _prepared_root_for_store(active_state_store)
     )
     state = active_state_store.read(session_id)
-    record = state.get("tasks", {}).get(task_id)
-    if not isinstance(record, dict) or record.get("managed") is not True:
+    task = state.get("tasks", {}).get(task_id)
+    if not isinstance(task, dict) or task.get("managed") is not True:
         raise DispatchPreparationError(f"找不到受治理任务：{task_id}")
-    if record.get("spawn_observation") != "failed" or record.get("identity_status") != "unconfirmed":
+    # Retry preparation only accepts the persisted canonical work-item shape.
+    try:
+        canonical_task = _ensure_canonical_task_record(state, task_id)
+        current_attempt = canonical_task["work_item"].get("current_attempt")
+        record = _canonical_execution_for_attempt(canonical_task, int(current_attempt))
+    except (KeyError, TypeError, ValueError, StateStoreError) as exc:
+        raise DispatchPreparationError(f"canonical retry execution 不可读：{exc}") from exc
+    if not isinstance(record, dict):
+        raise DispatchPreparationError("canonical work_item 缺少当前 retry execution")
+    admission_error = _dispatch_admission_error(canonical_task, int(current_attempt))
+    if admission_error:
+        raise DispatchPreparationError(admission_error)
+    if (
+        _spawn_observation(record) != "failed"
+        or _identity_status(record) != "unconfirmed"
+        or not _dispatch_reliably_not_created(record)
+    ):
         raise DispatchPreparationError("只有明确 failed 且身份未确认的 spawn 才能同 attempt 重派")
     current_count = record.get("spawn_retry_count")
     if current_count == 0:
@@ -2864,38 +3425,52 @@ def prepare_spawn_retry(
     else:
         raise DispatchPreparationError("同 attempt spawn 重派次数已经耗尽")
     contract = _contract_from_input(contract_value)
-    if (
-        contract.resolved_mode != record.get("resolved_mode")
-        or contract.semantic_name != record.get("semantic_name")
-        or contract.requested_mode != record.get("requested_mode")
-        or contract.resolution_reason != record.get("resolution_reason")
-        or _contract_summary(contract) != record.get("contract_summary")
-    ):
-        raise DispatchPreparationError("重派 TaskContract 与原 attempt 的持久化契约摘要不一致")
+    if contract_digest(contract) != record.get("contract_digest"):
+        raise DispatchPreparationError("重派 TaskContract 与原 attempt 的完整契约不一致")
     task_ref = str(record.get("task_ref") or "")
     task_name = str(record.get("task_name") or "")
     if parse_task_name(task_name) is None:
         raise DispatchPreparationError("原 attempt 缺少合法 task_name/task_ref")
+    prepared_at = _now() if now is None else now
+    retry_attempt = int(current_attempt)
     spawn_args = _spawn_args(contract, task_name)
     prepared = _prepared_record(
         session_id,
         task_id,
-        int(record["attempt"]),
+        retry_attempt,
         task_ref,
         task_name,
         contract,
         spawn_args,
-        created_at=_now() if now is None else now,
+        created_at=prepared_at,
         spawn_retry_count=desired_count,
+        dispatch_operation="spawn_retry",
     )
     try:
         active_prepared_store.create(prepared, replace=True)
+        def validate_retry_state(current: dict[str, Any]) -> None:
+            retry_task = _ensure_canonical_task_record(current, task_id)
+            retry_execution = _canonical_execution_for_attempt(
+                retry_task, retry_attempt
+            )
+            if (
+                retry_execution is None
+                or retry_execution.get("updated_at") != record.get("updated_at")
+                or retry_execution.get("spawn_retry_count") != current_count
+            ):
+                raise StateConflictError("spawn retry 前置状态已变化")
+
+        active_state_store.update(
+            session_id,
+            validate_retry_state,
+            required_fields=("tasks", "tombstones"),
+        )
         verified_prepared = active_prepared_store.read(session_id, task_ref)
         verified_state = active_state_store.read(session_id)
         verified_task = _task_record_for_attempt(
             verified_state,
             task_id,
-            int(record["attempt"]),
+            retry_attempt,
         )
         if (
             verified_prepared != prepared
@@ -2903,24 +3478,31 @@ def prepare_spawn_retry(
             or verified_task.get("task_ref") != task_ref
             or verified_task.get("task_name") != task_name
             or verified_task.get("resolved_mode") != contract.resolved_mode
+            or verified_task.get("contract_digest") != contract_digest(contract)
         ):
             raise DispatchPreparationError(
                 "spawn retry PreparedContract 与 StateStore 双门禁回读不一致"
             )
     except Exception as exc:
+        rollback_errors: list[str] = []
         try:
-            active_prepared_store.delete(session_id, task_ref)
-        except Exception:
-            pass
+            active_prepared_store.delete(session_id, task_ref, missing_ok=False)
+        except Exception as cleanup_exc:
+            rollback_errors.append(f"PreparedContract 回滚失败：{cleanup_exc}")
+        if rollback_errors:
+            raise DispatchPreparationError(
+                "spawn retry 准备失败且回滚不完整：" + "；".join(rollback_errors)
+            ) from exc
         if isinstance(exc, DispatchPreparationError):
             raise
         raise DispatchPreparationError(f"spawn retry PreparedContract 写入失败：{exc}") from exc
     return {
         "task_id": task_id,
-        "attempt": record["attempt"],
+        "attempt": retry_attempt,
         "task_ref": task_ref,
         "task_name": task_name,
         "contract": contract.to_record(),
+        "contract_digest": contract_digest(contract),
         "user_message": render_dispatch_user_message(contract),
         "dispatch_prompt": spawn_args["message"],
         "spawn_args": spawn_args,
@@ -2943,10 +3525,58 @@ def reconcile_prepared_dispatches(
         task_ref = str(prepared["task_ref"])
         if prepared["consumed"] is False:
             if prepared["created_at"] <= current_time - int(RETENTION_SECONDS["prepared_unclaimed"]):
-                try:
-                    _cleanup_initial_attempt(session_id, task_id, attempt, task_ref, state_store)
-                except StateConflictError:
+                if prepared.get("dispatch_operation") == "initial_spawn":
+                    cleanup = _cleanup_initial_attempt(
+                        session_id,
+                        prepared,
+                        state_store,
+                        error_context="unclaimed initial PreparedContract expiry",
+                        now=current_time,
+                    )
+                    if not cleanup["safe_for_prepared_delete"]:
+                        marker_status = (
+                            "rollback-incomplete 已持久化为 action-required"
+                            if cleanup["marked"]
+                            else "rollback-incomplete 无法持久化 reconcile 标记"
+                        )
+                        details = "；".join(cleanup["errors"])
+                        raise PreparedContractConflictError(
+                            "过期 initial PreparedContract 清理进入 degraded / "
+                            f"rollback-incomplete：{details}；{marker_status}；"
+                            "PreparedContract retained，可由显式 reconcile/expiry 重试；"
+                            f"task_id={task_id}, attempt={attempt}"
+                        )
+                    try:
+                        prepared_store.delete_if(
+                            session_id,
+                            task_ref,
+                            lambda value: value == prepared,
+                        )
+                    except Exception as cleanup_exc:
+                        raise PreparedContractConflictError(
+                            "过期 initial PreparedContract 清理进入 degraded / "
+                            "rollback-incomplete：PreparedContract cleanup failure："
+                            f"{cleanup_exc}；task 已安全 absent，orphan PreparedContract retained；"
+                            f"task_id={task_id}, attempt={attempt}"
+                        ) from cleanup_exc
+                    if cleanup["errors"]:
+                        raise PreparedContractConflictError(
+                            "过期 initial PreparedContract exact rollback 已完成，"
+                            "但 cleanup error 可见："
+                            f"{'；'.join(cleanup['errors'])}；"
+                            f"task_id={task_id}, attempt={attempt}"
+                        )
+                    expired += 1
                     continue
+                try:
+                    _cleanup_unclaimed_prepared_dispatch(
+                        session_id, prepared, state_store
+                    )
+                except (StateConflictError, PreparedContractConflictError) as exc:
+                    raise PreparedContractConflictError(
+                        "过期 PreparedContract 对应 execution 已发生并发变化，"
+                        f"无法安全回滚：task_id={task_id}, attempt={attempt}"
+                    ) from exc
                 prepared_store.delete(session_id, task_ref)
                 expired += 1
             continue
@@ -2963,18 +3593,17 @@ def reconcile_prepared_dispatches(
                 return bool(
                     record
                     and record.get("task_ref") == task_ref
-                    and record.get("spawn_tool_use_id") == tool_use_id
-                    and record.get("spawn_observation") is None
+                    and _dispatch_tool_use_id(record) == tool_use_id
+                    and _spawn_observation(record) is None
                 )
 
             def mark_unknown(state: dict[str, Any]) -> None:
+                _ensure_canonical_task_record(state, task_id)
                 record = _task_record_for_attempt(state, task_id, attempt)
                 assert record is not None
-                record["spawn_observation"] = "unknown"
-                record["identity_status"] = "unconfirmed"
-                record["execution_status"] = "not_started"
-                record["parent_action"] = "reconcile"
-                record["spawn_post_observed_at"] = current_time
+                _apply_canonical_execution_update(record, "dispatch_response", "unknown")
+                _apply_canonical_execution_update(record, "observed_execution_status", "not_started")
+                _apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
                 record["updated_at"] = current_time
 
             try:
@@ -3013,6 +3642,8 @@ def _communication_fields(value: Any, *, interrupt: bool = False) -> tuple[str, 
     if not isinstance(target_value, str) or not target_value.strip():
         raise CommunicationPreparationError("字段 target 必须是非空字符串")
     target = target_value.strip()
+    if interrupt:
+        return target, {}
     fields: dict[str, str] = {}
     for field_name, label in COMMUNICATION_FIELD_LABELS:
         field_value = value.get(field_name)
@@ -3026,12 +3657,16 @@ def _communication_fields(value: Any, *, interrupt: bool = False) -> tuple[str, 
         fields[field_name] = normalized
     if not interrupt and value.get("operation_type") not in OPERATION_TYPES:
         raise CommunicationPreparationError(
-            "operation_type 必须是 normal_message、platform_recovery、result_correction 或 business_resume"
+            "operation_type 必须是 normal_message、platform_recovery 或 business_resume"
         )
     return target, fields
 
 
-def render_communication_user_message(target: str, fields: dict[str, str]) -> str:
+def render_communication_user_message(
+    target: str, fields: dict[str, str], *, interrupt: bool = False
+) -> str:
+    if interrupt:
+        return "\n".join(("【子 Agent 中断】", f"对象：{target}"))
     return "\n".join(
         (
             "【子 Agent 通信】",
@@ -3054,8 +3689,6 @@ def render_communication_message(
         f"【通信原因】{fields['reason']}",
         f"【具体内容】{fields['content']}",
     ]
-    if operation_type == "result_correction":
-        lines.append("【执行边界】只补交机械合法的结构化结果，不重做业务任务，不修改既有业务成果。")
     if operation_type == "business_resume":
         if resume_contract is None:
             raise CommunicationPreparationError("business_resume 缺少重新验证的 TaskContract")
@@ -3088,6 +3721,24 @@ def _pending_action_matches_target(
     return matches
 
 
+def _pending_action_matches_exact(
+    state: dict[str, Any],
+    target: str,
+    task_id: str,
+    attempt: int,
+    expected_pending: dict[str, Any],
+) -> bool:
+    matches = _pending_action_matches_target(state, target)
+    if len(matches) != 1:
+        return False
+    matched_task_id, matched_attempt, _record, pending = matches[0]
+    return bool(
+        matched_task_id == task_id
+        and matched_attempt == attempt
+        and pending == expected_pending
+    )
+
+
 def _claimed_action_for_tool_use(
     state: dict[str, Any], tool_use_id: str
 ) -> tuple[str, int, dict[str, Any], dict[str, Any]] | None:
@@ -3113,36 +3764,28 @@ def _has_unresolved_lifecycle(record: dict[str, Any]) -> bool:
 def _pending_action_record(
     *,
     target: str,
-    task_id: str,
     attempt: int,
     task_ref: str,
     operation_type: str,
-    fields: dict[str, str],
     created_at: int,
     authorized_recovery: bool = False,
     resume_contract: TaskContract | None = None,
-    resume_task_ref: str | None = None,
     prepared_on_attempt: int | None = None,
 ) -> dict[str, Any]:
     pending: dict[str, Any] = {
         "target": target,
-        "task_id": task_id,
         "attempt": attempt,
         "task_ref": task_ref,
         "operation_type": operation_type,
         "phase": "prepared",
         "created_at": created_at,
-        "expires_at": created_at + int(RETENTION_SECONDS["prepared_unclaimed"]),
         "tool_use_id": None,
         "claimed_at": None,
-        "reason": fields["reason"],
-        "authorized_recovery": authorized_recovery,
-        "start_observed_at": None,
     }
+    if authorized_recovery:
+        pending["authorized_recovery"] = True
     if resume_contract is not None:
         pending["resume_contract"] = resume_contract.to_record()
-        pending["resume_contract_summary"] = _contract_summary(resume_contract)
-        pending["resume_task_ref"] = resume_task_ref
         pending["prepared_on_attempt"] = prepared_on_attempt
     return pending
 
@@ -3164,16 +3807,19 @@ def _occupied_attempt_refs(state: dict[str, Any]) -> set[str]:
 
 
 def _business_resume_allowed(record: dict[str, Any]) -> bool:
-    business_result = record.get("business_result")
-    if business_result in {"blocked", "failed"}:
+    if (
+        _execution_close_reason(record) == "resume_delivery_failed"
+        and _parent_action(record) == "decide_disposition"
+    ):
         return True
-    if business_result == "needs_decision" and record.get("business_decision_resolved") is True:
-        return True
-    if business_result == "complete" and record.get("acceptance_status") == "rejected":
-        return True
-    return (
-        record.get("attempt_close_reason") == "resume_delivery_failed"
-        and record.get("parent_action") == "decide_disposition"
+    observation = record.get("observation_record")
+    return bool(
+        _execution_is_closed(record) is not True
+        and _parent_action(record) == "decide_disposition"
+        and isinstance(observation, dict)
+        and observation.get("source") == "terminal_notification"
+        and observation.get("observed_state") == "terminal"
+        and _observation_is_bound(record)
     )
 
 
@@ -3186,73 +3832,73 @@ def _native_tool_for_operation(operation_type: str) -> str:
     return native_tool
 
 
-def _prepare_managed_action(
-    value: dict[str, Any],
-    session_id: str,
+def _degraded_managed_action_result(
     *,
-    state_store: StateStore,
+    target: str,
+    fields: dict[str, Any],
+    operation_type: str,
+    native_tool: str,
+    interrupt: bool,
+    exc: Exception,
+    detail: str,
+) -> dict[str, Any]:
+    message = "" if interrupt else render_communication_message(
+        fields, "normal_message"
+    )
+    native_args = (
+        {"target": target}
+        if interrupt
+        else {"target": target, "message": message}
+    )
+    return {
+        "managed": False,
+        "target": target,
+        "operation_type": operation_type,
+        "user_message": render_communication_user_message(
+            target, fields, interrupt=interrupt
+        ),
+        "message": message,
+        "native_args": native_args,
+        "native_tool": native_tool,
+        "degraded_warning": f"{detail}（unavailable）：{exc}",
+    }
+
+
+def _resolve_managed_action_attempt(
+    value: dict[str, Any],
+    state: dict[str, Any],
+    *,
+    target: str,
+    task_id: str,
+    attempt: int,
+    record: dict[str, Any],
+    operation_type: str,
     interrupt: bool,
     authorized_recovery: bool,
-    now: int,
-) -> dict[str, Any]:
-    target, fields = _communication_fields(value, interrupt=interrupt)
-    operation_type = "interrupt" if interrupt else str(value["operation_type"])
-    native_tool = _native_tool_for_operation(operation_type)
-    try:
-        reconcile_pending_actions(session_id, state_store=state_store, now=now)
-        state = state_store.read(session_id)
-    except Exception as exc:
-        if interrupt or operation_type == "normal_message":
-            message = render_communication_message(fields, "normal_message")
-            native_args = {"target": target} if interrupt else {"target": target, "message": message}
-            return {
-                "managed": False,
-                "target": target,
-                "operation_type": operation_type,
-                "user_message": render_communication_user_message(target, fields),
-                "message": "" if interrupt else message,
-                "native_args": native_args,
-                "native_tool": native_tool,
-                "degraded_warning": f"治理状态不可用，本次操作未可靠记录：{exc}",
-            }
-        raise CommunicationPreparationError(
-            f"{operation_type} 需要可靠 StateStore 前置写入：{exc}"
-        ) from exc
-    mapped = _managed_target_attempt(state, target)
-    if mapped is None:
-        resume_contract = None
-        if operation_type == "business_resume":
-            try:
-                resume_contract = _contract_from_input(value.get("task_contract"))
-            except (TypeError, ValueError) as exc:
-                raise CommunicationPreparationError(
-                    f"business_resume TaskContract 无效：{exc}"
-                ) from exc
-        message = "" if interrupt else render_communication_message(
-            fields,
-            operation_type,
-            resume_contract=resume_contract,
-        )
-        native_args = {"target": target} if interrupt else {"target": target, "message": message}
-        return {
-            "managed": False,
-            "target": target,
-            "operation_type": operation_type,
-            "user_message": render_communication_user_message(target, fields),
-            "message": "" if interrupt else message,
-            "native_args": native_args,
-            "native_tool": native_tool,
-            "degraded_warning": "通信目标未映射到 managed task；按原生 unmanaged 路径处理。",
-        }
-    task_id, attempt, record = mapped
+) -> tuple[int, dict[str, Any], int, str, TaskContract | None, bool]:
     task_current = state.get("tasks", {}).get(task_id)
+    current_work_item = (
+        task_current.get("work_item") if isinstance(task_current, dict) else None
+    )
+    current_attempt = (
+        current_work_item.get("current_attempt")
+        if isinstance(current_work_item, dict)
+        else None
+    )
+    current_execution = (
+        _canonical_execution_for_attempt(task_current, current_attempt)
+        if isinstance(task_current, dict)
+        and isinstance(current_attempt, int)
+        and not isinstance(current_attempt, bool)
+        else None
+    )
     if (
         operation_type == "business_resume"
         and isinstance(task_current, dict)
-        and task_current.get("managed") is True
-        and isinstance(task_current.get("attempt"), int)
-        and task_current.get("attempt") > attempt
-        and task_current.get("attempt_close_reason") != "resume_delivery_failed"
+        and isinstance(current_attempt, int)
+        and current_attempt > attempt
+        and isinstance(current_execution, dict)
+        and _execution_close_reason(current_execution) != "resume_delivery_failed"
     ):
         raise CommunicationPreparationError(
             "前一 same-Agent business_resume attempt 仍未解决；unknown 替代执行必须使用新 spawn/new Agent"
@@ -3260,16 +3906,16 @@ def _prepare_managed_action(
     if (
         operation_type == "business_resume"
         and isinstance(task_current, dict)
-        and task_current.get("managed") is True
-        and isinstance(task_current.get("attempt"), int)
-        and task_current.get("attempt") > attempt
-        and task_current.get("attempt_close_reason") == "resume_delivery_failed"
+        and isinstance(current_attempt, int)
+        and current_attempt > attempt
+        and isinstance(current_execution, dict)
+        and _execution_close_reason(current_execution) == "resume_delivery_failed"
     ):
-        attempt = int(task_current["attempt"])
-        record = task_current
+        attempt = current_attempt
+        record = current_execution
     if _pending_action_matches_target(state, target):
         raise CommunicationPreparationError(f"目标 {target} 已存在 pending_action")
-    if not interrupt and operation_type == "normal_message" and record.get("platform_observation") == "error":
+    if not interrupt and operation_type == "normal_message" and _platform_observation(record) == "error":
         raise CommunicationPreparationError(
             "normal_message 不能绕过 platform_observation=error 的平台恢复流程"
         )
@@ -3280,40 +3926,31 @@ def _prepare_managed_action(
     resume_contract = None
     desired_attempt = attempt
     desired_task_ref = str(record.get("task_ref") or "")
+    authorized_second_recovery = False
     if operation_type == "platform_recovery":
-        if (
-            record.get("execution_status") != "stopped"
-            or record.get("platform_observation") != "error"
-            or record.get("business_result") is not None
-        ):
+        observation_state = record.get("observation_record", {}).get("observed_state")
+        if observation_state != "error":
             raise CommunicationPreparationError(
-                "platform_recovery 只适用于 stopped/error 且没有正式业务结果的同一 attempt"
+                "platform_recovery 只适用于 observation=error 的同一 attempt"
             )
         recovery_count = record.get("recovery_count")
-        recovery_status = record.get("recovery_status")
-        if recovery_count == 0 and recovery_status is None and not authorized_recovery:
+        parent_action = _parent_action(record)
+        if recovery_count == 0 and parent_action == "recover" and not authorized_recovery:
             pass
-        elif recovery_count == 1 and recovery_status == "awaiting_authorization" and authorized_recovery:
-            pass
-        elif recovery_count == 1 and recovery_status == "awaiting_authorization":
+        elif recovery_count == 1 and parent_action == "ask_user" and authorized_recovery:
+            authorized_second_recovery = True
+        elif recovery_count == 1 and parent_action == "ask_user":
             raise CommunicationPreparationError("最后一次平台恢复需要用户明确授权")
         else:
             raise CommunicationPreparationError("当前 Agent/attempt 的平台恢复次数已经耗尽或状态不兼容")
-    elif operation_type == "result_correction":
-        if (
-            record.get("execution_status") != "stopped"
-            or record.get("business_result") is not None
-            or record.get("result_protocol_status") != "needs_correction"
-        ):
-            raise CommunicationPreparationError(
-                "result_correction 只适用于 stopped、无业务结果且 needs_correction 的同一 attempt"
-            )
-        correction_count = record.get("correction_count")
-        if isinstance(correction_count, bool) or not isinstance(correction_count, int) or not 0 <= correction_count < RETRY_LIMITS["correction"]:
-            raise CommunicationPreparationError("结果补交次数已经耗尽或 correction_count 无效")
     elif operation_type == "business_resume":
-        if record.get("execution_status") not in {"stopped", "interrupted"} or not _business_resume_allowed(record):
+        if (
+            record.get("observation_record", {}).get("observed_state") == "active"
+            or not _business_resume_allowed(record)
+        ):
             raise CommunicationPreparationError("当前 attempt 不满足 business_resume 的机械前置条件")
+        if _parent_action(record) != "decide_disposition":
+            raise CommunicationPreparationError("business_resume 必须以 decide_disposition 为前置处置闸门")
         raw_contract = value.get("task_contract")
         try:
             resume_contract = _contract_from_input(raw_contract)
@@ -3330,65 +3967,109 @@ def _prepare_managed_action(
         if not desired_task_ref:
             raise CommunicationPreparationError("新 attempt 无法取得唯一 task_ref")
     elif interrupt:
-        if record.get("execution_status") == "interrupted" or record.get("attempt_closed") is True:
+        if _execution_status(record) == "interrupted" or _execution_is_closed(record) is True:
             raise CommunicationPreparationError("当前 attempt 已中断或关闭，不能重复创建中断意图")
+    return (
+        attempt,
+        record,
+        desired_attempt,
+        desired_task_ref,
+        resume_contract,
+        authorized_second_recovery,
+    )
 
+
+def _persist_managed_action(
+    session_id: str,
+    *,
+    state_store: StateStore,
+    target: str,
+    fields: dict[str, Any],
+    operation_type: str,
+    native_tool: str,
+    interrupt: bool,
+    task_id: str,
+    attempt: int,
+    record: dict[str, Any],
+    pending_owner_attempt: int,
+    pending_owner_record: dict[str, Any],
+    desired_attempt: int,
+    desired_task_ref: str,
+    resume_contract: TaskContract | None,
+    authorized_second_recovery: bool,
+    now: int,
+) -> dict[str, Any]:
     pending = _pending_action_record(
         target=target,
-        task_id=task_id,
         attempt=desired_attempt,
         task_ref=desired_task_ref,
         operation_type=operation_type,
-        fields=fields,
         created_at=now,
-        authorized_recovery=authorized_recovery,
+        authorized_recovery=authorized_second_recovery,
         resume_contract=resume_contract,
-        resume_task_ref=desired_task_ref if resume_contract else None,
         prepared_on_attempt=attempt if resume_contract else None,
     )
-
     def predicate(current: dict[str, Any]) -> bool:
-        current_mapped = _managed_target_attempt(current, target)
-        if current_mapped is None:
+        current_admission = _managed_target_admission(current, target)
+        current_mapped = current_admission.candidate
+        if current_admission.disposition != "managed" or current_mapped is None:
             return False
-        if current_mapped[:2] != (task_id, attempt):
-            current_task = current.get("tasks", {}).get(task_id)
-            if not (
-                operation_type == "business_resume"
-                and isinstance(current_task, dict)
-                and current_task.get("attempt") == attempt
-                and current_task.get("attempt_close_reason") == "resume_delivery_failed"
-            ):
-                return False
+        if current_mapped[:2] != (task_id, pending_owner_attempt):
+            return False
         if _pending_action_matches_target(current, target):
             return False
         current_record = _task_record_for_attempt(current, task_id, attempt)
-        return isinstance(current_record, dict) and current_record.get("updated_at") == record.get("updated_at")
+        current_owner = _task_record_for_attempt(
+            current, task_id, pending_owner_attempt
+        )
+        return bool(
+            isinstance(current_record, dict)
+            and current_record.get("updated_at") == record.get("updated_at")
+            and isinstance(current_owner, dict)
+            and current_owner.get("updated_at")
+            == pending_owner_record.get("updated_at")
+        )
 
     def create(current: dict[str, Any]) -> None:
-        current_record = _task_record_for_attempt(current, task_id, attempt)
+        current_admission = _managed_target_admission(current, target)
+        if (
+            current_admission.disposition != "managed"
+            or current_admission.candidate is None
+            or current_admission.candidate[:2]
+            != (task_id, pending_owner_attempt)
+        ):
+            raise StateConflictError("target lifecycle admission 在锁内发生变化")
+        _repair_managed_target_index(current, target, current_admission)
+        current_record = _task_record_for_attempt(
+            current, task_id, pending_owner_attempt
+        )
         assert current_record is not None
         current_record["pending_action"] = copy.deepcopy(pending)
         current_record["updated_at"] = now
 
     try:
         state_store.compare_and_set(session_id, predicate, create)
-    except Exception as exc:
-        if interrupt or operation_type == "normal_message":
-            message = render_communication_message(fields, "normal_message")
-            native_args = {"target": target} if interrupt else {"target": target, "message": message}
-            return {
-                "managed": False,
-                "target": target,
-                "operation_type": operation_type,
-                "user_message": render_communication_user_message(target, fields),
-                "message": "" if interrupt else message,
-                "native_args": native_args,
-                "native_tool": native_tool,
-                "degraded_warning": f"pending_action 无法可靠创建，本次操作未纳入治理：{exc}",
-            }
+    except StateConflictError as exc:
         raise CommunicationPreparationError(
-            f"{operation_type} pending_action 无法原子创建：{exc}"
+            f"{operation_type} target admission 已变化，必须重新生成或对账：{exc}"
+        ) from exc
+    except Exception as exc:
+        failure_category = _state_store_exception_category(exc, during_read=False)
+        if failure_category == "unavailable" and (
+            interrupt or operation_type == "normal_message"
+        ):
+            return _degraded_managed_action_result(
+                target=target,
+                fields=fields,
+                operation_type=operation_type,
+                native_tool=native_tool,
+                interrupt=interrupt,
+                detail="pending_action 无法可靠创建，本次操作未纳入治理",
+                exc=exc,
+            )
+        raise CommunicationPreparationError(
+            f"{operation_type} pending_action 无法原子创建"
+            f"（{failure_category}）：{exc}"
         ) from exc
     message = "" if interrupt else render_communication_message(
         fields,
@@ -3402,11 +4083,135 @@ def _prepare_managed_action(
         "task_ref": desired_task_ref,
         "target": target,
         "operation_type": operation_type,
-        "user_message": render_communication_user_message(target, fields),
+        "user_message": render_communication_user_message(
+            target, fields, interrupt=interrupt
+        ),
         "message": message,
-        "native_args": {"target": target} if interrupt else {"target": target, "message": message},
+        "native_args": (
+            {"target": target}
+            if interrupt
+            else {"target": target, "message": message}
+        ),
         "native_tool": native_tool,
     }
+
+
+def _prepare_managed_action(
+    value: dict[str, Any],
+    session_id: str,
+    *,
+    state_store: StateStore,
+    interrupt: bool,
+    authorized_recovery: bool,
+    now: int,
+) -> dict[str, Any]:
+    target, fields = _communication_fields(value, interrupt=interrupt)
+    operation_type = "interrupt" if interrupt else str(value["operation_type"])
+    native_tool = _native_tool_for_operation(operation_type)
+
+    try:
+        reconcile_pending_actions(session_id, state_store=state_store, now=now)
+        state = state_store.read(session_id)
+    except Exception as exc:
+        failure_category = _state_store_exception_category(exc, during_read=True)
+        if failure_category == "unavailable" and (
+            interrupt or operation_type == "normal_message"
+        ):
+            return _degraded_managed_action_result(
+                target=target,
+                fields=fields,
+                operation_type=operation_type,
+                native_tool=native_tool,
+                interrupt=interrupt,
+                exc=exc,
+                detail="治理状态不可用，本次操作未可靠记录",
+            )
+        raise CommunicationPreparationError(
+            f"{operation_type} StateStore 前置读取或对账失败"
+            f"（{failure_category}）：{exc}"
+        ) from exc
+    admission = _managed_target_admission(state, target)
+    if admission.disposition == "reconcile":
+        raise CommunicationPreparationError(
+            f"目标 {target} 的 managed lifecycle identity 需要对账：{admission.reason}"
+        )
+    if admission.disposition == "historical":
+        raise CommunicationPreparationError(
+            f"目标 {target} 仅匹配已可靠关闭的 historical provenance；"
+            "不能复活 active index 或按 unmanaged 放行"
+        )
+    if admission.disposition != "managed" or admission.candidate is None:
+        resume_contract = None
+        if operation_type == "business_resume":
+            try:
+                resume_contract = _contract_from_input(value.get("task_contract"))
+            except (TypeError, ValueError) as exc:
+                raise CommunicationPreparationError(
+                    f"business_resume TaskContract 无效：{exc}"
+                ) from exc
+        message = "" if interrupt else render_communication_message(
+            fields,
+            operation_type,
+            resume_contract=resume_contract,
+        )
+        native_args = (
+            {"target": target}
+            if interrupt
+            else {"target": target, "message": message}
+        )
+        return {
+            "managed": False,
+            "target": target,
+            "operation_type": operation_type,
+            "user_message": render_communication_user_message(
+                target, fields, interrupt=interrupt
+            ),
+            "message": "" if interrupt else message,
+            "native_args": native_args,
+            "native_tool": native_tool,
+            "degraded_warning": "通信目标没有 canonical provenance；按原生 unmanaged 路径处理。",
+        }
+
+    task_id, attempt, record = admission.candidate
+    pending_owner_attempt = attempt
+    pending_owner_record = record
+    (
+        attempt,
+        record,
+        desired_attempt,
+        desired_task_ref,
+        resume_contract,
+        authorized_second_recovery,
+    ) = _resolve_managed_action_attempt(
+        value,
+        state,
+        target=target,
+        task_id=task_id,
+        attempt=attempt,
+        record=record,
+        operation_type=operation_type,
+        interrupt=interrupt,
+        authorized_recovery=authorized_recovery,
+    )
+    return _persist_managed_action(
+        session_id,
+        state_store=state_store,
+        target=target,
+        fields=fields,
+        operation_type=operation_type,
+        native_tool=native_tool,
+        interrupt=interrupt,
+        task_id=task_id,
+        attempt=attempt,
+        record=record,
+        pending_owner_attempt=pending_owner_attempt,
+        pending_owner_record=pending_owner_record,
+        desired_attempt=desired_attempt,
+        desired_task_ref=desired_task_ref,
+        resume_contract=resume_contract,
+        authorized_second_recovery=authorized_second_recovery,
+        now=now,
+    )
 
 
 def prepare_communication(
@@ -3444,145 +4249,270 @@ def prepare_interrupt(
     )
 
 
-def adapt_call_response(response: Any, operation_type: str) -> str:
+def _native_status_tag(value: Any) -> str | None:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        return normalized or None
+    if not isinstance(value, dict) or len(value) != 1:
+        return None
+    status, detail = next(iter(value.items()))
+    if not isinstance(status, str) or detail is None or detail is False:
+        return None
+    normalized = status.strip().lower()
+    return normalized or None
+
+
+def adapt_call_response(response: Any, operation_type: str) -> dict[str, str | None]:
+    def adapted(
+        call_observation: str,
+        *,
+        target_observation: str | None = None,
+    ) -> dict[str, str | None]:
+        return {
+            "call_observation": call_observation,
+            "target_observation": target_observation,
+        }
+
     value = _json_value(response)
     if value is None or value == "" or value == {}:
-        return "success"
+        return adapted("success")
     if not isinstance(value, dict):
-        return "unknown"
+        return adapted("unknown")
     if value.get("isError") is True or value.get("is_error") is True:
-        return "failed"
+        return adapted("failed")
     status_value = value.get("status") if "status" in value else value.get("state")
-    status = status_value.lower() if isinstance(status_value, str) else None
+    status = _native_status_tag(status_value)
     if status in {"error", "failed", "failure"}:
-        return "failed"
+        return adapted("failed")
     if value.get("success") is True or status in {"ok", "success", "succeeded", "sent", "accepted"}:
-        return "success"
-    if operation_type == "interrupt" and status in {"interrupted", "cancelled", "canceled"}:
-        return "success"
-    return "unknown"
+        return adapted("success")
+    if operation_type == "interrupt":
+        previous_value = value.get("previous_status")
+        previous_status = _native_status_tag(previous_value)
+        if previous_status == "running":
+            return adapted(
+                "success",
+                target_observation="previously_running",
+            )
+        if previous_status == "not_found":
+            return adapted(
+                "success",
+                target_observation="not_found",
+            )
+        if previous_status in {"stopped", "completed", "interrupted", "cancelled", "canceled"}:
+            return adapted(
+                "success",
+                target_observation=previous_status,
+            )
+        if status in {"interrupted", "cancelled", "canceled", "stopped", "completed"}:
+            return adapted(
+                "success",
+                target_observation=status,
+            )
+    return adapted("unknown")
 
 
 def _last_lifecycle_from_pending(
-    pending: dict[str, Any], observation: str, completed_at: int
+    pending: dict[str, Any], observation: dict[str, str | None]
 ) -> dict[str, Any]:
-    return {
+    value = {
         "operation_type": pending["operation_type"],
-        "target": pending["target"],
         "tool_use_id": pending.get("tool_use_id"),
+        "call_observation": observation["call_observation"],
+    }
+    target_observation = observation.get("target_observation")
+    if isinstance(target_observation, str) and target_observation:
+        value["target_observation"] = target_observation
+    return value
+
+
+def _interrupt_not_found_confirms_inactive(
+    record: dict[str, Any], pending: dict[str, Any]
+) -> bool:
+    target = pending.get("target")
+    canonical_observation = record.get("observation_record")
+    return bool(
+        _identity_status(record) == "confirmed"
+        and _spawn_observation(record) == "success"
+        and isinstance(target, str)
+        and target
+        and _record_has_target_provenance(record, target)
+        and isinstance(canonical_observation, dict)
+        and canonical_observation.get("observed_state") == "absent_at_check"
+        and canonical_observation.get("source") == "list_agents"
+    )
+
+
+def _legacy_call_observation(value: Any) -> dict[str, str | None]:
+    observation = value if isinstance(value, str) else "unknown"
+    if observation not in CALL_OBSERVATIONS:
+        observation = "unknown"
+    return {
         "call_observation": observation,
-        "claimed_at": pending.get("claimed_at"),
-        "completed_at": completed_at,
-        "reason": _bounded(pending.get("reason")),
+        "target_observation": None,
     }
 
 
 def _apply_action_observation(
     record: dict[str, Any],
     pending: dict[str, Any],
-    observation: str,
+    observation: dict[str, str | None],
     observed_at: int,
-    *,
-    state: dict[str, Any] | None = None,
 ) -> None:
     operation_type = str(pending["operation_type"])
-    start_observed = isinstance(pending.get("start_observed_at"), int)
+    call_observation = str(observation["call_observation"])
+    target_observation = observation.get("target_observation")
     record.pop("pending_action", None)
     if operation_type == "normal_message":
         record["updated_at"] = observed_at
         return
-    lifecycle = _last_lifecycle_from_pending(pending, observation, observed_at)
+    lifecycle = _last_lifecycle_from_pending(pending, observation)
     if operation_type == "platform_recovery":
-        if start_observed and observation in {"success", "unknown"}:
-            record["last_lifecycle_operation"] = lifecycle
-            record.pop("last_lifecycle_operation", None)
-            record["execution_status"] = "running"
-            record["platform_observation"] = "normal"
-            record["recovery_status"] = None
-            record["parent_action"] = "wait"
-        elif start_observed and observation == "failed":
-            record["last_lifecycle_operation"] = lifecycle
-            record["parent_action"] = "reconcile"
-        else:
-            record["execution_status"] = "stopped"
-            record["platform_observation"] = "error"
-            record["last_lifecycle_operation"] = lifecycle
-            if observation == "success":
-                record["recovery_status"] = None
-                record["parent_action"] = "wait"
-            elif observation == "unknown":
-                record["recovery_status"] = None
-                record["parent_action"] = "reconcile"
-            elif record.get("recovery_count") == 1:
-                record["recovery_status"] = "awaiting_authorization"
-                record["parent_action"] = "ask_user"
-            else:
-                record["recovery_status"] = "exhausted"
-                record["parent_action"] = "ask_user"
-    elif operation_type == "result_correction":
+        _apply_canonical_execution_update(record, "observed_execution_status", "stopped")
+        _apply_canonical_execution_update(record, "observed_platform_state", "error")
         record["last_lifecycle_operation"] = lifecycle
-        if start_observed and observation in {"success", "unknown"}:
-            record.pop("last_lifecycle_operation", None)
-            record["execution_status"] = "running"
-            record["parent_action"] = "wait"
-        elif start_observed and observation == "failed":
-            record["parent_action"] = "reconcile"
+        if call_observation == "success":
+            _apply_canonical_execution_update(record, "closure_parent_action", "wait")
+        elif call_observation == "unknown":
+            _apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
         else:
-            record["execution_status"] = "stopped"
-            if observation == "success":
-                record["parent_action"] = "wait"
-            elif observation == "unknown":
-                record["parent_action"] = "reconcile"
-            elif record.get("correction_count") == 1:
-                record["parent_action"] = "correct_result"
-            else:
-                record["result_protocol_status"] = "exhausted"
-                record["parent_action"] = "manual_review"
+            _apply_canonical_execution_update(record, "closure_parent_action", "ask_user")
     elif operation_type == "business_resume":
-        if start_observed and observation in {"success", "unknown"}:
-            record["execution_status"] = "running"
-            record["platform_observation"] = "normal"
-            record["parent_action"] = "wait"
-            record.pop("last_lifecycle_operation", None)
-        elif start_observed and observation == "failed":
+        if call_observation == "success":
+            _apply_canonical_execution_update(record, "observed_execution_status", "not_started")
+            _apply_canonical_execution_update(record, "closure_parent_action", "wait")
             record["last_lifecycle_operation"] = lifecycle
-            record["parent_action"] = "reconcile"
-        elif observation == "success":
-            record["execution_status"] = "not_started"
-            record["parent_action"] = "wait"
-            record["last_lifecycle_operation"] = lifecycle
-        elif observation == "unknown":
-            record["execution_status"] = "not_started"
-            record["parent_action"] = "reconcile"
+        elif call_observation == "unknown":
+            _apply_canonical_execution_update(record, "observed_execution_status", "not_started")
+            _apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
             record["last_lifecycle_operation"] = lifecycle
         else:
-            record["execution_status"] = "stopped"
-            record["attempt_closed"] = True
-            record["attempt_close_reason"] = "resume_delivery_failed"
-            record["attempt_closed_at"] = observed_at
-            record["parent_action"] = "decide_disposition"
+            _apply_canonical_execution_update(record, "observed_execution_status", "stopped")
+            _apply_canonical_execution_update(record, "closure_reason", "resume_delivery_failed")
+            _apply_canonical_execution_update(record, "closure_closed_at", observed_at)
+            _apply_canonical_execution_update(record, "closure_parent_action", "decide_disposition")
             record.pop("last_lifecycle_operation", None)
     elif operation_type == "interrupt":
-        if observation == "success":
-            if state is not None and _close_unselected_duplicate_attempt(
-                state,
-                record,
-                reason="select_attempt_interrupt_success",
-                observed_at=observed_at,
-                execution_status="interrupted",
-            ):
-                return
-            record["execution_status"] = "interrupted"
-            record["parent_action"] = "decide_disposition"
+        terminal_status = (
+            "interrupted"
+            if target_observation in {"interrupted", "cancelled", "canceled"}
+            else "stopped"
+        )
+        confirmed_inactive = target_observation in {
+            "interrupted",
+            "cancelled",
+            "canceled",
+            "stopped",
+            "completed",
+        } or (
+            target_observation == "not_found"
+            and _interrupt_not_found_confirms_inactive(record, pending)
+        )
+        if call_observation == "success" and confirmed_inactive:
+            _apply_canonical_execution_update(record, "observed_execution_status", terminal_status)
+            _apply_canonical_execution_update(record, "observation_observed_at", observed_at)
+            _apply_canonical_execution_update(record, "observation_source", "session")
+            _apply_canonical_execution_update(record, "closure_parent_action", "decide_disposition")
             record.pop("last_lifecycle_operation", None)
-        elif observation == "unknown":
+        elif call_observation in {"success", "unknown"}:
             record["last_lifecycle_operation"] = lifecycle
-            record["parent_action"] = "reconcile"
+            _apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
         else:
             record["last_lifecycle_operation"] = lifecycle
-            if record.get("duplicate_not_selected") is True:
-                record["parent_action"] = "ask_user"
     record["updated_at"] = observed_at
+
+
+def reconcile_interrupted_attempt(
+    value: Any,
+    session_id: str,
+    *,
+    state_store: StateStore | None = None,
+    now: int | None = None,
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ReconciliationError("reconciliation observation 必须是对象")
+    required = {
+        "task_id",
+        "attempt",
+    }
+    unknown = sorted(set(value) - required)
+    missing = sorted(required - set(value))
+    if unknown or missing:
+        details = []
+        if missing:
+            details.append("missing=" + ",".join(missing))
+        if unknown:
+            details.append("unknown=" + ",".join(unknown))
+        raise ReconciliationError(
+            "reconciliation observation 字段无效：" + "；".join(details)
+        )
+    try:
+        task_id, attempt = _validate_task_identity(
+            value.get("task_id"), value.get("attempt")
+        )
+    except NotificationObservationError as exc:
+        raise ReconciliationError(str(exc)) from exc
+    store = state_store or StateStore()
+    observed_at = _now() if now is None else now
+
+    def apply(state: dict[str, Any]) -> dict[str, Any]:
+        _ensure_canonical_task_record(state, task_id)
+        record = _task_record_for_attempt(state, task_id, attempt)
+        if not isinstance(record, dict):
+            raise ReconciliationError("找不到精确 managed task/attempt")
+        if _identity_status(record) != "confirmed":
+            raise ReconciliationError("attempt 身份尚未确认")
+        if _spawn_observation(record) != "success":
+            raise ReconciliationError("attempt 缺少成功派发先验")
+        observed_state = record.get("observation_record", {}).get("observed_state")
+        if observed_state not in {"active", "absent_at_check", "unknown"}:
+            raise ReconciliationError("受控重启收口缺少可对账的 execution observation")
+        target = record.get("dispatch_record", {}).get("dispatch_target")
+        if not isinstance(target, str) or not target.startswith("/"):
+            raise ReconciliationError("attempt 缺少已保存的精确 canonical target")
+        if not (
+            _platform_observation(record) == "unknown"
+            and _observation_source(record) == "list_agents"
+            and isinstance(_observation_checked_at(record), int)
+        ):
+            raise ReconciliationError("attempt 缺少既有 list_agents unknown 对账先验")
+        mapped = _managed_target_attempt(state, target)
+        if mapped is None or mapped[:2] != (task_id, attempt):
+            raise ReconciliationError("target 没有精确映射到当前 task/attempt")
+        lifecycle = record.get("last_lifecycle_operation")
+        if not (
+            isinstance(lifecycle, dict)
+            and lifecycle.get("operation_type") == "interrupt"
+            and isinstance(lifecycle.get("tool_use_id"), str)
+            and bool(lifecycle.get("tool_use_id", "").strip())
+            and (
+                (
+                    lifecycle.get("call_observation") == "success"
+                    and lifecycle.get("target_observation") == "not_found"
+                )
+                or (
+                    lifecycle.get("call_observation") == "unknown"
+                    and lifecycle.get("target_observation") is None
+                )
+            )
+        ):
+            raise ReconciliationError("缺少与本次事实精确匹配的已认领 interrupt 记录")
+        _apply_canonical_execution_update(record, "observed_execution_status", "interrupted")
+        _apply_canonical_execution_update(record, "observation_observed_at", observed_at)
+        _apply_canonical_execution_update(record, "observation_source", "session")
+        _apply_canonical_execution_update(record, "closure_parent_action", "decide_disposition")
+        record.pop("last_lifecycle_operation", None)
+        record["updated_at"] = observed_at
+        return {
+            "status": "confirmed_inactive",
+            "task_id": task_id,
+            "attempt": attempt,
+            "target": target,
+            "execution_status": "interrupted",
+            "parent_action": "decide_disposition",
+        }
+
+    return store.update(session_id, apply)
 
 
 def reconcile_pending_actions(
@@ -3595,13 +4525,25 @@ def reconcile_pending_actions(
     counts = {"expired": 0, "reconciled": 0}
 
     def reconcile(state: dict[str, Any]) -> None:
+        pending_task_ids = {
+            task_id
+            for task_id, _attempt, record in _iter_task_attempts(state)
+            if isinstance(record.get("pending_action"), dict)
+        }
+        for task_id in pending_task_ids:
+            _ensure_canonical_task_record(state, task_id)
         for _task_id, _attempt, record in _iter_task_attempts(state):
             pending = record.get("pending_action")
             if not isinstance(pending, dict):
                 continue
             if pending.get("phase") == "prepared":
-                expires_at = pending.get("expires_at")
-                if isinstance(expires_at, int) and expires_at <= current_time:
+                created_at = pending.get("created_at")
+                if (
+                    isinstance(created_at, int)
+                    and not isinstance(created_at, bool)
+                    and created_at
+                    <= current_time - int(RETENTION_SECONDS["prepared_unclaimed"])
+                ):
                     record.pop("pending_action", None)
                     record["updated_at"] = current_time
                     counts["expired"] += 1
@@ -3615,9 +4557,8 @@ def reconcile_pending_actions(
                 _apply_action_observation(
                     record,
                     copy.deepcopy(pending),
-                    "unknown",
+                    _legacy_call_observation("unknown"),
                     current_time,
-                    state=state,
                 )
                 counts["reconciled"] += 1
 
@@ -3694,13 +4635,7 @@ def _handle_spawn(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
     current_time = _now()
     if prepared.get("created_at", 0) <= current_time - int(RETENTION_SECONDS["prepared_unclaimed"]):
         try:
-            _cleanup_initial_attempt(
-                session_id,
-                str(prepared["task_id"]),
-                int(prepared["attempt"]),
-                task_ref,
-                store,
-            )
+            _cleanup_unclaimed_prepared_dispatch(session_id, prepared, store)
             prepared_store.delete(session_id, task_ref)
         except Exception as exc:
             return _deny(f"子 Agent 派发被阻止：过期 PreparedContract 清理失败：{exc}")
@@ -3722,71 +4657,138 @@ def _handle_spawn(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
     task_id = str(prepared["task_id"])
     attempt = int(prepared["attempt"])
     desired_retry_count = int(prepared["spawn_retry_count"])
+    dispatch_operation = str(prepared["dispatch_operation"])
     tool_use_id = str(payload.get("tool_use_id") or "")
     if not tool_use_id:
         return _deny("子 Agent 派发被阻止：缺少 tool_use_id，无法单次消费 PreparedContract。")
+    claim_snapshot: dict[str, Any] = {}
     try:
-        state = store.read(session_id)
-        record = _task_record_for_attempt(state, task_id, attempt)
-        if (
-            record is None
-            or record.get("task_ref") != task_ref
-            or record.get("task_name") != task_name
-            or record.get("resolved_mode") != mode
-        ):
-            raise StateValidationError("StateStore 中不存在匹配的 task/attempt/task_ref")
-        if desired_retry_count == 0:
-            if record.get("spawn_observation") is not None or record.get("spawn_retry_count") != 0:
-                raise StateConflictError("初始 spawn 状态已变化")
-        elif not (
-            record.get("spawn_observation") == "failed"
-            and record.get("identity_status") == "unconfirmed"
-            and record.get("spawn_retry_count") == desired_retry_count - 1
-        ):
-            raise StateConflictError("spawn retry 状态或计数不匹配")
-
-        prepared_store.compare_and_set(
+        claimed_prepared = _claim_prepared_spawn_contract(
             session_id,
             task_ref,
-            lambda value: value.get("consumed") is False,
-            lambda value: value.update(
-                {"consumed": True, "tool_use_id": tool_use_id, "claimed_at": current_time}
-            ),
+            tool_use_id,
+            current_time,
+            prepared,
+            prepared_store,
         )
 
-        def state_predicate(current: dict[str, Any]) -> bool:
-            target = _task_record_for_attempt(current, task_id, attempt)
-            if target is None or target.get("task_ref") != task_ref:
-                return False
-            if desired_retry_count == 0:
-                return target.get("spawn_observation") is None and target.get("spawn_retry_count") == 0
-            return (
-                target.get("spawn_observation") == "failed"
-                and target.get("identity_status") == "unconfirmed"
-                and target.get("spawn_retry_count") == desired_retry_count - 1
-            )
-
         def claim(current: dict[str, Any]) -> None:
+            claim_snapshot["callback_entered"] = True
+            task = _ensure_canonical_task_record(current, task_id)
             target = _task_record_for_attempt(current, task_id, attempt)
-            assert target is not None
-            target["spawn_tool_use_id"] = tool_use_id
-            target["spawn_claimed_at"] = current_time
+            if (
+                target is None
+                or target.get("task_ref") != task_ref
+                or target.get("task_name") != task_name
+                or target.get("resolved_mode") != mode
+            ):
+                raise StateConflictError(
+                    "StateStore 中不存在匹配的 task/attempt/task_ref"
+                )
+            admission_error = _dispatch_admission_error(task, attempt)
+            if admission_error:
+                raise StateConflictError(admission_error)
+            claim_snapshot["before_task"] = copy.deepcopy(task)
+
+            if dispatch_operation == "spawn_retry":
+                if not (
+                    _spawn_observation(target) == "failed"
+                    and _identity_status(target) == "unconfirmed"
+                    and _dispatch_reliably_not_created(target)
+                    and target.get("spawn_retry_count") == desired_retry_count - 1
+                ):
+                    raise StateConflictError("spawn retry 状态或计数不匹配")
+            elif dispatch_operation == "initial_spawn":
+                if (
+                    _spawn_observation(target) is not None
+                    or target.get("spawn_retry_count") != 0
+                ):
+                    raise StateConflictError("初始 spawn 状态已变化")
+            else:
+                raise StateConflictError(
+                    f"未知 dispatch operation：{dispatch_operation}"
+                )
+            _apply_canonical_execution_update(target, "dispatch_tool_use_id", tool_use_id)
             target["spawn_retry_count"] = desired_retry_count
-            target["spawn_observation"] = None
-            target["parent_action"] = "retry_spawn" if desired_retry_count else None
+            _apply_canonical_execution_update(target, "dispatch_response", None)
+            _apply_canonical_execution_update(
+                target,
+                "closure_parent_action",
+                "retry_spawn" if dispatch_operation == "spawn_retry" else None,
+            )
             target["updated_at"] = current_time
+            claim_snapshot["claimed_task"] = copy.deepcopy(task)
 
         try:
-            store.compare_and_set(session_id, state_predicate, claim)
-        except Exception:
-            prepared_store.compare_and_set(
-                session_id,
-                task_ref,
-                lambda value: value.get("tool_use_id") == tool_use_id,
-                lambda value: value.update(
-                    {"consumed": False, "tool_use_id": None, "claimed_at": None}
-                ),
+            pre_update_state = store.read(
+                session_id, required_fields=("tasks", "tombstones")
             )
+            pre_update_task = pre_update_state.get("tasks", {}).get(task_id)
+            if not isinstance(pre_update_task, dict):
+                raise StateConflictError("StateStore 中不存在匹配的 claim task")
+            claim_snapshot["pre_update_task"] = copy.deepcopy(pre_update_task)
+            store.update(
+                session_id,
+                claim,
+                required_fields=("tasks", "tombstones"),
+            )
+        except Exception as claim_exc:
+            rollback_errors: list[str] = []
+            claim_recovery = "not_observed"
+            try:
+                claim_recovery = _rollback_persisted_spawn_claim(
+                    session_id, task_id, store, claim_snapshot
+                )
+                if claim_recovery == "not_observed":
+                    expected_pre_update = claim_snapshot.get("pre_update_task")
+                    current_state = store.read(
+                        session_id, required_fields=("tasks", "tombstones")
+                    )
+                    if (
+                        not isinstance(expected_pre_update, dict)
+                        or current_state.get("tasks", {}).get(task_id)
+                        != expected_pre_update
+                    ):
+                        raise StateConflictError(
+                            "spawn claim 失败后 StateStore 已发生并发变化，无法安全恢复凭证"
+                        )
+            except Exception as rollback_exc:
+                rollback_errors.append(f"StateStore claim 回滚失败：{rollback_exc}")
+            if not rollback_errors:
+                try:
+                    _restore_prepared_spawn_claim(
+                        session_id,
+                        task_ref,
+                        prepared_store,
+                        prepared,
+                        claimed_prepared,
+                    )
+                except Exception as rollback_exc:
+                    rollback_errors.append(f"PreparedContract unclaim 失败：{rollback_exc}")
+            reusable_prepared = claim_recovery in {"restored", "not_persisted"} or (
+                claim_recovery == "not_observed"
+                and claim_snapshot.get("callback_entered") is not True
+            )
+            if not rollback_errors and reusable_prepared:
+                raise claim_exc
+            if not rollback_errors and dispatch_operation == "spawn_retry":
+                try:
+                    prepared_store.delete(session_id, task_ref, missing_ok=False)
+                except Exception as rollback_exc:
+                    rollback_errors.append(
+                        f"spawn retry PreparedContract 回滚失败：{rollback_exc}"
+                    )
+            elif not rollback_errors and dispatch_operation == "initial_spawn":
+                try:
+                    prepared_store.delete(session_id, task_ref, missing_ok=False)
+                except Exception as rollback_exc:
+                    rollback_errors.append(
+                        f"initial PreparedContract 回滚失败：{rollback_exc}"
+                    )
+            if rollback_errors:
+                raise StateConflictError(
+                    f"{claim_exc}；治理状态 degraded：{'；'.join(rollback_errors)}"
+                ) from claim_exc
             raise
     except Exception as exc:
         return _deny(f"子 Agent 派发被阻止：StateStore/PreparedContract 认领失败：{exc}")
@@ -3799,37 +4801,42 @@ def _handle_spawn(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
 def _create_resume_attempt(
     state: dict[str, Any],
     task_id: str,
-    old_attempt: int,
+    pending_owner_attempt: int,
     pending: dict[str, Any],
     claimed_at: int,
     tool_use_id: str,
 ) -> dict[str, Any]:
-    old = _task_record_for_attempt(state, task_id, old_attempt)
-    if old is None or old.get("pending_action") != pending:
-        raise StateConflictError("business_resume prepared action 与旧 attempt 不匹配")
+    task = _ensure_canonical_task_record(state, task_id)
+    pending_owner = _canonical_execution_for_attempt(task, pending_owner_attempt)
+    if pending_owner is None or pending_owner.get("pending_action") != pending:
+        raise StateConflictError("business_resume prepared action 与 pending owner 不匹配")
+    old_attempt = pending.get("prepared_on_attempt")
+    if (
+        isinstance(old_attempt, bool)
+        or not isinstance(old_attempt, int)
+        or old_attempt < 1
+    ):
+        raise StateConflictError("business_resume 缺少精确 prepared_on_attempt")
+    old = _canonical_execution_for_attempt(task, old_attempt)
+    if old is None:
+        raise StateConflictError("business_resume source attempt 不存在")
+    # This runs inside the PreToolUse StateStore CAS callback.  Check the
+    # current locked state before moving the pending action or writing A(N+1).
     contract = _contract_from_input(pending.get("resume_contract"))
     new_attempt = int(pending["attempt"])
-    task_ref = str(pending["resume_task_ref"])
-    prior_attempts = copy.deepcopy(old.get("prior_attempts")) if isinstance(old.get("prior_attempts"), dict) else {}
-    _clear_result_conflict(old)
-    old_snapshot = copy.deepcopy(old)
-    old_snapshot.pop("prior_attempts", None)
-    old_snapshot.pop("pending_action", None)
-    prior_attempts[str(old_attempt)] = old_snapshot
+    task_ref = str(pending["task_ref"])
+    pending_owner.pop("pending_action", None)
     task_name = str(old.get("task_name") or "")
     created = _initial_task_record(
-        task_id,
         new_attempt,
         task_ref,
         task_name,
         contract,
         claimed_at,
     )
-    created["identity_status"] = "confirmed"
-    created["execution_status"] = "not_started"
-    created["agent_id"] = old.get("agent_id")
-    created["canonical_task_path"] = old.get("canonical_task_path")
-    created["prior_attempts"] = prior_attempts
+    created_execution = created["executions"][str(new_attempt)]
+    _apply_canonical_execution_update(created_execution, "observed_execution_status", "not_started")
+    created_execution["task_name"] = None
     claimed = copy.deepcopy(pending)
     claimed.update(
         {
@@ -3838,9 +4845,24 @@ def _create_resume_attempt(
             "claimed_at": claimed_at,
         }
     )
-    created["pending_action"] = claimed
-    state["tasks"][task_id] = created
-    return created
+    created_execution["pending_action"] = claimed
+    task["executions"][str(new_attempt)] = created_execution
+    task["work_item"]["current_attempt"] = new_attempt
+    return created_execution
+
+
+def _state_claim_commit_status(
+    session_id: str,
+    store: StateStore,
+    before: dict[str, Any],
+    committed: dict[str, Any],
+) -> str:
+    observed = store.read(session_id)
+    if observed == committed:
+        return "committed"
+    if observed == before:
+        return "not_persisted"
+    return "ambiguous"
 
 
 def _claim_pending_action(
@@ -3860,20 +4882,37 @@ def _claim_pending_action(
     try:
         state = store.read(session_id)
     except Exception as exc:
-        if interrupt or kind == "communication":
+        failure_category = _state_store_exception_category(exc, during_read=True)
+        if failure_category == "unavailable" and (
+            interrupt or kind == "communication"
+        ):
             projected = {"target": target} if interrupt else copy.deepcopy(tool_input)
             return _allow_updated(
                 projected,
                 f"Subagent Governance 状态不可读，本次原生操作已 fail-open；治理状态未可靠记录：{exc}",
             )
-        return _deny(f"受治理 lifecycle 操作被阻止：StateStore 不可读：{exc}")
+        return _deny(
+            "受治理 lifecycle 操作被阻止：StateStore 读取未取得可降级的存储故障"
+            f"（{failure_category}）：{exc}"
+        )
+    state_before_claim = copy.deepcopy(state)
     matches = _pending_action_matches_target(state, target)
     if not matches:
-        mapped = _managed_target_attempt(state, target)
-        if mapped is None:
+        admission = _managed_target_admission(state, target)
+        if admission.disposition == "reconcile":
+            return _deny(
+                f"managed target identity 需要人工对账，不能按 unmanaged 放行：{admission.reason}。"
+            )
+        if admission.disposition == "historical":
+            return _deny(
+                "target 仅匹配已可靠关闭的 historical provenance；"
+                "不能复活 active index 或按 unmanaged 放行。"
+            )
+        if admission.disposition != "managed":
             return _allow_updated(
                 copy.deepcopy(tool_input),
-                "Subagent Governance：目标未映射到 managed task，本次原生操作按 unmanaged 兼容放行。",
+                "Subagent Governance：目标没有 canonical provenance，"
+                "本次原生操作按 unmanaged 兼容放行。",
             )
         if interrupt:
             return _deny("managed interrupt 缺少由生成器创建的明确 pending_action。")
@@ -3899,12 +4938,47 @@ def _claim_pending_action(
             return _deny("通信 pending_action 与原生工具类型不匹配。")
     if pending.get("phase") != "prepared":
         return _deny("pending_action 已被认领，不能重复调用。")
-    expires_at = pending.get("expires_at")
-    if not isinstance(expires_at, int) or expires_at <= current_time:
+    created_at = pending.get("created_at")
+    if (
+        isinstance(created_at, bool)
+        or not isinstance(created_at, int)
+        or created_at
+        <= current_time - int(RETENTION_SECONDS["prepared_unclaimed"])
+    ):
         try:
-            store.update(
+            def expired_predicate(current: dict[str, Any]) -> bool:
+                current_record = _task_record_for_attempt(
+                    current, task_id, stored_attempt
+                )
+                current_pending = (
+                    current_record.get("pending_action")
+                    if isinstance(current_record, dict)
+                    else None
+                )
+                return bool(
+                    isinstance(current_pending, dict)
+                    and current_pending.get("phase") == "prepared"
+                    and _pending_action_matches_exact(
+                        current,
+                        target,
+                        task_id,
+                        stored_attempt,
+                        pending,
+                    )
+                )
+
+            def expire(current: dict[str, Any]) -> None:
+                current_record = _task_record_for_attempt(
+                    current, task_id, stored_attempt
+                )
+                if not isinstance(current_record, dict):
+                    raise StateConflictError("过期 pending_action owner 已不存在")
+                current_record.pop("pending_action", None)
+
+            store.compare_and_set(
                 session_id,
-                lambda current: _task_record_for_attempt(current, task_id, stored_attempt).pop("pending_action", None),
+                expired_predicate,
+                expire,
             )
         except Exception as exc:
             return _deny(f"过期 pending_action 清理失败：{exc}")
@@ -3912,15 +4986,32 @@ def _claim_pending_action(
 
     def predicate(current: dict[str, Any]) -> bool:
         current_matches = _pending_action_matches_target(current, target)
+        current_admission = _managed_target_admission(current, target)
         return bool(
             len(current_matches) == 1
             and current_matches[0][0] == task_id
             and current_matches[0][1] == stored_attempt
             and current_matches[0][3].get("phase") == "prepared"
             and current_matches[0][3].get("created_at") == pending.get("created_at")
+            and current_admission.disposition == "managed"
+            and current_admission.candidate is not None
+            and current_admission.candidate[:2] == (task_id, stored_attempt)
         )
 
+    claim_snapshot: dict[str, Any] = {}
+
     def claim(current: dict[str, Any]) -> None:
+        current_admission = _managed_target_admission(current, target)
+        if (
+            current_admission.disposition != "managed"
+            or current_admission.candidate is None
+            or current_admission.candidate[:2] != (task_id, stored_attempt)
+        ):
+            raise StateConflictError(
+                "target lifecycle admission 与 pending owner 不一致"
+            )
+        _repair_managed_target_index(current, target, current_admission)
+        _ensure_canonical_task_record(current, task_id)
         current_record = _task_record_for_attempt(current, task_id, stored_attempt)
         assert current_record is not None
         current_pending = current_record["pending_action"]
@@ -3945,23 +5036,70 @@ def _claim_pending_action(
             if current_record["recovery_count"] == 2:
                 if pending.get("authorized_recovery") is not True:
                     raise StateConflictError("第二次平台恢复缺少用户授权")
-                current_record["recovery_status"] = None
-        elif operation_type == "result_correction":
-            count = current_record.get("correction_count")
-            if isinstance(count, bool) or not isinstance(count, int) or count >= RETRY_LIMITS["correction"]:
-                raise StateConflictError("correction_count 无效或已经耗尽")
-            current_record["correction_count"] = count + 1
         current_record["updated_at"] = current_time
+        claim_snapshot["committed"] = copy.deepcopy(current)
 
     try:
         store.compare_and_set(session_id, predicate, claim)
     except Exception as exc:
-        if interrupt:
-            return _allow_updated(
-                {"target": target},
-                f"中断 target 明确，但治理认领失败；已 fail-open 调用原生中断，状态需人工对账：{exc}",
+        committed_state = claim_snapshot.get("committed")
+        if isinstance(committed_state, dict):
+            try:
+                commit_status = _state_claim_commit_status(
+                    session_id,
+                    store,
+                    state_before_claim,
+                    committed_state,
+                )
+            except Exception as verification_exc:
+                commit_status = "unavailable"
+                verification_error = verification_exc
+            else:
+                verification_error = None
+        else:
+            commit_status = "not_persisted"
+            verification_error = None
+        if commit_status == "committed":
+            pass
+        elif commit_status == "ambiguous":
+            return _deny(
+                "受治理 lifecycle 操作认领结果无法确认，状态已发生并发变化，"
+                f"已进入 degraded：{exc}"
             )
-        return _deny(f"受治理 lifecycle 操作认领失败：{exc}")
+        else:
+            failure_category = _state_store_exception_category(exc, during_read=False)
+            if commit_status == "unavailable" and verification_error is not None:
+                failure_category = _state_store_exception_category(
+                    verification_error, during_read=True
+                )
+            if failure_category == "unavailable" and (
+                interrupt or operation_type == "normal_message"
+            ):
+                operation_label = "中断" if interrupt else "normal_message"
+                verification_suffix = (
+                    f"；提交结果核验失败：{verification_error}"
+                    if verification_error is not None
+                    else ""
+                )
+                return _allow_updated(
+                    {"target": target}
+                    if interrupt
+                    else {
+                        "target": target,
+                        "message": str(tool_input.get("message") or ""),
+                    },
+                    f"{operation_label} target 明确，但 StateStore 写入不可用；"
+                    f"已 fail-open 调用原生操作，治理状态未可靠记录：{exc}{verification_suffix}",
+                )
+            verification_suffix = (
+                f"；提交结果核验失败：{verification_error}"
+                if verification_error is not None
+                else ""
+            )
+            return _deny(
+                "受治理 lifecycle 操作认领失败，pending 保留供对账或过期清理"
+                f"（{failure_category}）：{exc}{verification_suffix}"
+            )
     projected = {"target": target} if interrupt else {
         "target": target,
         "message": str(tool_input.get("message") or ""),
@@ -3989,194 +5127,297 @@ def _json_value(value: Any) -> Any:
         return value
 
 
-def _agent_status_entries(response: Any) -> list[dict[str, Any]]:
+def _agent_status_entries(response: Any) -> list[dict[str, Any]] | None:
+    """Adapt only the evidenced top-level list_agents response container."""
     value = _json_value(response)
-    if not isinstance(value, dict) or not isinstance(value.get("agents"), list):
-        return []
-    return [entry for entry in value["agents"] if isinstance(entry, dict)]
-
-
-def _resolve_task_id(state: dict[str, Any], target: str) -> str | None:
-    """Resolve only exact native Agent ID/canonical path mappings."""
-    if not target:
+    if not isinstance(value, dict):
         return None
-    agents = state.get("agents")
-    tasks = state.get("tasks")
-    if not isinstance(agents, dict) or not isinstance(tasks, dict):
-        raise StateValidationError("治理状态缺少任务解析所需的 tasks 或 agents 对象")
-    mapped = agents.get(target)
-    if isinstance(mapped, dict):
-        task_id = mapped.get("task_id")
-        mapped_attempt = mapped.get("attempt")
-        if (
-            isinstance(task_id, str)
-            and isinstance(mapped_attempt, int)
-            and not isinstance(mapped_attempt, bool)
+    for error_flag in LIST_AGENTS_BOOLEAN_ERROR_FLAGS:
+        if error_flag not in value:
+            continue
+        flag_value = value[error_flag]
+        if not isinstance(flag_value, bool) or flag_value:
+            return None
+    if (
+        LIST_AGENTS_EXPLICIT_ERROR_FIELD in value
+        and value[LIST_AGENTS_EXPLICIT_ERROR_FIELD] is not None
+        and value[LIST_AGENTS_EXPLICIT_ERROR_FIELD] is not False
+    ):
+        return None
+    for status_field in LIST_AGENTS_WRAPPER_STATUS_FIELDS:
+        if status_field not in value:
+            continue
+        wrapper_status = _native_status_tag(value[status_field])
+        if wrapper_status is None:
+            return None
+        if wrapper_status in LIST_AGENTS_WRAPPER_ERROR_STATUSES:
+            return None
+    agents = value.get("agents")
+    if not isinstance(agents, list) or not all(
+        isinstance(entry, dict) for entry in agents
+    ):
+        return None
+    return agents
+
+
+def _list_agents_exact_target(tool_input: Any) -> str | None:
+    if not isinstance(tool_input, dict):
+        return None
+    value = tool_input.get("path_prefix")
+    if not isinstance(value, str):
+        return None
+    return value if value.startswith("/") else None
+
+
+def _normalized_agent_status(value: Any) -> tuple[str, str | None]:
+    status = _native_status_tag(value)
+    if status is not None:
+        if status in (
+            LIST_AGENTS_ACTIVE_STATUSES
+            | LIST_AGENTS_ADVISORY_STATUSES
+            | LIST_AGENTS_TERMINAL_STATUSES
         ):
-            record = _task_record_for_attempt(state, task_id, mapped_attempt)
-            if isinstance(record, dict) and record.get("managed") is True:
-                return task_id
-    return None
+            return status, status
+        if status in LIST_AGENTS_ERROR_STATUSES:
+            detail = value.get(status) if isinstance(value, dict) else status
+            return "error", _bounded(detail, status)
+        return "unknown", status or None
+    return "unknown", None
+
+
+def _weak_list_agents_observation_preserves_terminal(
+    record: dict[str, Any], observation: str
+) -> bool:
+    return bool(
+        observation in {"absent", "pending_init", "unknown"}
+        and _execution_status(record) in {"stopped", "interrupted"}
+    )
+
+
+def _record_exact_absence(
+    state: dict[str, Any], target: str, observed_at: int
+) -> None:
+    mapped = _resolve_exact_dispatch_target_attempt(state, target)
+    if mapped is None:
+        return
+    task_id, attempt, _record = mapped
+    _ensure_canonical_task_record(state, task_id)
+    record = _task_record_for_attempt(state, task_id, attempt)
+    if not isinstance(record, dict):
+        return
+    if (
+        _identity_status(record) != "confirmed"
+        or _execution_is_closed(record) is True
+        or _weak_list_agents_observation_preserves_terminal(record, "absent")
+    ):
+        return
+    _apply_canonical_execution_update(record, "observation_observed_at", observed_at)
+    _apply_canonical_execution_update(record, "observation_source", "list_agents")
+    record["observation_record"]["observed_state"] = "absent_at_check"
+    _apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
+    record["updated_at"] = observed_at
+    lifecycle = record.get("last_lifecycle_operation")
+    if not (
+        isinstance(lifecycle, dict)
+        and lifecycle.get("operation_type") == "interrupt"
+        and lifecycle.get("call_observation") == "success"
+        and lifecycle.get("target_observation") == "not_found"
+    ):
+        return
+    _apply_canonical_execution_update(record, "observed_execution_status", "stopped")
+    _apply_canonical_execution_update(record, "closure_parent_action", "decide_disposition")
+    record.pop("last_lifecycle_operation", None)
+
+
+def _resolve_exact_dispatch_target_attempt(
+    state: dict[str, Any], target: str
+) -> tuple[str, int, dict[str, Any]] | None:
+    matches = [
+        (task_id, attempt, record)
+        for task_id, attempt, record in _iter_task_attempts(state)
+        if isinstance(record.get("dispatch_record"), dict)
+        and record["dispatch_record"].get("dispatch_target") == target
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _identity_mapping(task_id: str, attempt: int) -> dict[str, Any]:
     return {"task_id": task_id, "attempt": attempt}
 
 
-def _bind_identity_target(
-    state: dict[str, Any],
-    record: dict[str, Any],
-    target: str | None,
-) -> None:
-    if not target:
-        return
-    agents = state.get("agents")
-    if not isinstance(agents, dict):
-        raise StateValidationError("治理状态缺少 agents 对象")
-    desired = _identity_mapping(str(record["task_id"]), int(record["attempt"]))
-    existing = agents.get(target)
-    if existing is not None and existing != desired:
-        raise StateConflictError(f"Agent target 已绑定到其他 task/attempt：{target}")
-    agents[target] = desired
-
-
-def _handle_post_tool(payload: dict[str, Any], store: StateStore) -> dict[str, Any] | None:
-    session_id = str(payload.get("session_id") or "unknown")
-    kind = _tool_kind(str(payload.get("tool_name") or ""))
-    tool_use_id = str(payload.get("tool_use_id") or "")
+def _handle_post_tool_agent_status(
+    payload: dict[str, Any], store: StateStore, session_id: str
+) -> dict[str, Any] | None:
     response = payload.get("tool_response")
-
-    if kind == "agent_status":
-        entries = _agent_status_entries(response)
-        if not entries:
-            return None
-
-        def reconcile(state: dict[str, Any]) -> None:
-            for entry in entries:
-                target = str(entry.get("agent_name") or "")
-                task_id = _resolve_task_id(state, target)
-                mapped = state.get("agents", {}).get(target)
-                mapped_attempt = mapped.get("attempt") if isinstance(mapped, dict) else None
-                record = (
-                    _task_record_for_attempt(state, task_id, int(mapped_attempt))
-                    if task_id and isinstance(mapped_attempt, int)
-                    else state.get("tasks", {}).get(task_id) if task_id else None
-                )
-                if not isinstance(record, dict):
-                    continue
-                platform_status = entry.get("agent_status")
-                observed_at = _event_now(payload)
-                record["platform_checked_at"] = observed_at
-                record["platform_observation_source"] = "list_agents"
-                last = record.get("last_lifecycle_operation")
-                interrupt_unknown = bool(
-                    isinstance(last, dict)
-                    and last.get("operation_type") == "interrupt"
-                    and last.get("call_observation") == "unknown"
-                )
-                if isinstance(platform_status, dict) and platform_status.get("errored"):
-                    record["platform_observation"] = "error"
-                    record["platform_observation_summary"] = _bounded(platform_status.get("errored"))
-                    if record.get("execution_status") == "running":
-                        record["execution_status"] = "stopped"
-                        if interrupt_unknown:
-                            record["parent_action"] = "ask_user"
-                        elif record.get("recovery_count") == 0:
-                            record["recovery_status"] = None
-                            record["parent_action"] = "recover"
-                        elif record.get("recovery_count") == 1:
-                            record["recovery_status"] = "awaiting_authorization"
-                            record["parent_action"] = "ask_user"
-                        else:
-                            record["recovery_status"] = "exhausted"
-                            record["parent_action"] = "ask_user"
-                    elif interrupt_unknown:
-                        record["parent_action"] = "ask_user"
-                    record["updated_at"] = observed_at
-                    continue
-                if isinstance(platform_status, dict):
-                    if platform_status.get("running") is True:
-                        record["platform_observation"] = "normal"
-                        if interrupt_unknown:
-                            record["parent_action"] = "ask_user"
-                    elif platform_status.get("stopped") is True or platform_status.get("completed") is True:
-                        if record.get("execution_status") != "interrupted":
-                            record["execution_status"] = "stopped"
-                        record["platform_observation"] = "normal"
-                        if interrupt_unknown and _close_unselected_duplicate_attempt(
-                            state,
-                            record,
-                            reason="select_attempt_platform_stopped",
-                            observed_at=observed_at,
-                            execution_status="stopped",
-                        ):
-                            continue
-                        if interrupt_unknown:
-                            record["parent_action"] = "decide_disposition"
-                    else:
-                        record["platform_observation"] = "unknown"
-                else:
-                    record["platform_observation"] = "unknown"
-                record["updated_at"] = observed_at
-
+    entries = _agent_status_entries(response)
+    if entries is None:
+        return None
+    exact_query_target = _list_agents_exact_target(payload.get("tool_input"))
+    if exact_query_target is None:
+        return None
+    if not entries:
         try:
-            store.update(session_id, reconcile)
+            store.update(
+                session_id,
+                lambda state: _record_exact_absence(
+                    state, exact_query_target, _event_now(payload)
+                ),
+            )
         except (OSError, RuntimeError) as exc:
-            return {"systemMessage": f"Subagent Governance 无法对账 Agent 平台状态，已降级放行：{exc}"}
+            return {"systemMessage": f"Subagent Governance 无法记录精确空 Agent 对账，已降级放行：{exc}"}
         return None
 
-    if kind in {"communication", "followup", "interrupt"}:
-        observed_at = _event_now(payload)
+    if len(entries) != 1 or entries[0].get("agent_name") != exact_query_target:
+        return None
+
+    def reconcile(state: dict[str, Any]) -> None:
+        for entry in entries:
+            target = str(entry.get("agent_name") or "")
+            resolved = _resolve_exact_dispatch_target_attempt(state, target)
+            if resolved is None:
+                continue
+            task_id, mapped_attempt, _record = resolved
+            _ensure_canonical_task_record(state, task_id)
+            record = _task_record_for_attempt(state, task_id, mapped_attempt)
+            if not isinstance(record, dict):
+                continue
+            platform_status, _platform_summary = _normalized_agent_status(
+                entry.get("agent_status")
+            )
+            observed_at = _event_now(payload)
+            if _execution_is_closed(record) is True:
+                continue
+            if _weak_list_agents_observation_preserves_terminal(
+                record, platform_status
+            ):
+                continue
+            _apply_canonical_execution_update(record, "observation_observed_at", observed_at)
+            _apply_canonical_execution_update(record, "observation_source", "list_agents")
+            if _execution_status(record) == "interrupted":
+                record["updated_at"] = observed_at
+                continue
+            last = record.get("last_lifecycle_operation")
+            interrupt_reconcile = bool(
+                isinstance(last, dict)
+                and last.get("operation_type") == "interrupt"
+                and last.get("call_observation") in {"success", "unknown"}
+            )
+            recovery_error_reconcile = bool(
+                isinstance(last, dict)
+                and last.get("operation_type") == "platform_recovery"
+                and last.get("call_observation") in {"success", "unknown"}
+            )
+            if platform_status == "error":
+                execution_was_running = _execution_status(record) == "running"
+                if (
+                    execution_was_running
+                    or recovery_error_reconcile
+                ):
+                    _apply_canonical_execution_update(record, "observed_execution_status", "stopped")
+                    if interrupt_reconcile:
+                        _apply_canonical_execution_update(record, "closure_parent_action", "ask_user")
+                    else:
+                        if recovery_error_reconcile:
+                            record.pop("last_lifecycle_operation", None)
+                        if record.get("recovery_count") == 0:
+                            _apply_canonical_execution_update(record, "closure_parent_action", "recover")
+                        else:
+                            _apply_canonical_execution_update(record, "closure_parent_action", "ask_user")
+                elif interrupt_reconcile:
+                    _apply_canonical_execution_update(record, "closure_parent_action", "ask_user")
+                _apply_canonical_execution_update(record, "observed_platform_state", "error")
+                record["updated_at"] = observed_at
+                continue
+            if platform_status == "running":
+                _apply_canonical_execution_update(record, "observed_execution_status", "running")
+                if interrupt_reconcile:
+                    _apply_canonical_execution_update(record, "closure_parent_action", "ask_user")
+                else:
+                    _apply_canonical_execution_update(record, "closure_parent_action", "wait")
+            elif platform_status in {"stopped", "completed", "interrupted"}:
+                _apply_canonical_execution_update(
+                    record,
+                    "observed_execution_status",
+                    "interrupted" if platform_status == "interrupted" else "stopped",
+                )
+                _apply_canonical_execution_update(record, "observation_summary", platform_status)
+                if interrupt_reconcile:
+                    record.pop("last_lifecycle_operation", None)
+                _apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
+            elif platform_status == "pending_init":
+                _apply_canonical_execution_update(record, "observed_platform_state", "unknown")
+                _apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
+            else:
+                _apply_canonical_execution_update(record, "observed_platform_state", "unknown")
+            record["updated_at"] = observed_at
+    try:
+        store.update(session_id, reconcile)
+    except (OSError, RuntimeError) as exc:
+        return {"systemMessage": f"Subagent Governance 无法对账 Agent 平台状态，已降级放行：{exc}"}
+    return None
+
+
+def _handle_post_tool_lifecycle(
+    payload: dict[str, Any], store: StateStore, session_id: str
+) -> dict[str, Any] | None:
+    tool_use_id = str(payload.get("tool_use_id") or "")
+    response = payload.get("tool_response")
+    observed_at = _event_now(payload)
+    try:
+        state = store.read(session_id)
+        claimed = _claimed_action_for_tool_use(state, tool_use_id)
+    except Exception as exc:
+        return {
+            "systemMessage": (
+                "Subagent Governance 无法读取 lifecycle claim；原生调用已经发生，"
+                f"治理状态进入 degraded 并需人工对账：{exc}"
+            )
+        }
+    if claimed is not None:
+        task_id, attempt, _record, pending = claimed
+        observation = adapt_call_response(response, str(pending.get("operation_type")))
+
+        def predicate(current: dict[str, Any]) -> bool:
+            target = _task_record_for_attempt(current, task_id, attempt)
+            action = target.get("pending_action") if isinstance(target, dict) else None
+            return bool(
+                isinstance(action, dict)
+                and action.get("phase") == "claimed"
+                and action.get("tool_use_id") == tool_use_id
+            )
+
+        def apply(current: dict[str, Any]) -> None:
+            _ensure_canonical_task_record(current, task_id)
+            target = _task_record_for_attempt(current, task_id, attempt)
+            assert target is not None
+            current_pending = copy.deepcopy(target["pending_action"])
+            _apply_action_observation(
+                target,
+                current_pending,
+                observation,
+                observed_at,
+            )
+
         try:
-            state = store.read(session_id)
-            claimed = _claimed_action_for_tool_use(state, tool_use_id)
+            store.compare_and_set(session_id, predicate, apply)
         except Exception as exc:
             return {
                 "systemMessage": (
-                    "Subagent Governance 无法读取 lifecycle claim；原生调用已经发生，"
-                    f"治理状态进入 degraded 并需人工对账：{exc}"
+                    "Subagent Governance 已观察到原生调用 "
+                    f"{observation['call_observation']}，但状态写入失败；"
+                    f"已消耗的预算或 attempt 不回滚，治理状态 degraded：{exc}"
                 )
             }
-        if claimed is not None:
-            task_id, attempt, _record, pending = claimed
-            observation = adapt_call_response(response, str(pending.get("operation_type")))
-
-            def predicate(current: dict[str, Any]) -> bool:
-                target = _task_record_for_attempt(current, task_id, attempt)
-                action = target.get("pending_action") if isinstance(target, dict) else None
-                return bool(
-                    isinstance(action, dict)
-                    and action.get("phase") == "claimed"
-                    and action.get("tool_use_id") == tool_use_id
-                )
-
-            def apply(current: dict[str, Any]) -> None:
-                target = _task_record_for_attempt(current, task_id, attempt)
-                assert target is not None
-                current_pending = copy.deepcopy(target["pending_action"])
-                _apply_action_observation(
-                    target,
-                    current_pending,
-                    observation,
-                    observed_at,
-                    state=current,
-                )
-
-            try:
-                store.compare_and_set(session_id, predicate, apply)
-            except Exception as exc:
-                return {
-                    "systemMessage": (
-                        f"Subagent Governance 已观察到原生调用 {observation}，但状态写入失败；"
-                        f"已消耗的预算或 attempt 不回滚，治理状态 degraded：{exc}"
-                    )
-                }
-            return None
-
         return None
 
-    if kind != "spawn":
-        return None
+    return None
+
+
+def _handle_post_tool_spawn(
+    payload: dict[str, Any], store: StateStore, session_id: str
+) -> dict[str, Any] | None:
+    tool_use_id = str(payload.get("tool_use_id") or "")
+    response = payload.get("tool_response")
     try:
         prepared_store = PreparedContractStore(_prepared_root_for_store(store))
         prepared = prepared_store.find_claimed(session_id, tool_use_id)
@@ -4195,56 +5436,53 @@ def _handle_post_tool(payload: dict[str, Any], store: StateStore) -> dict[str, A
         return bool(
             record
             and record.get("task_ref") == task_ref
-            and record.get("spawn_tool_use_id") == tool_use_id
-            and record.get("spawn_observation") is None
+            and _dispatch_tool_use_id(record) == tool_use_id
+            and _spawn_observation(record) is None
         )
 
+    post_resolution = {"positive_evidence_preserved": False}
+
     def update_spawn(state: dict[str, Any]) -> None:
+        _ensure_canonical_task_record(state, task_id)
         record = _task_record_for_attempt(state, task_id, attempt)
         assert record is not None
-        spawn_observation = str(observation["observation"])
-        record["spawn_observation"] = spawn_observation
-        record["spawn_post_observed_at"] = observed_at
+        reported_spawn_observation = str(observation["observation"])
+        positive_evidence_preserved = bool(
+            reported_spawn_observation == "failed"
+            and _has_canonical_positive_execution_evidence(record)
+        )
+        post_resolution["positive_evidence_preserved"] = positive_evidence_preserved
+        spawn_observation = (
+            "unknown" if positive_evidence_preserved else reported_spawn_observation
+        )
+        _apply_canonical_execution_update(record, "dispatch_response", spawn_observation)
         record["updated_at"] = observed_at
-        if spawn_observation == "failed":
-            record["identity_status"] = "unconfirmed"
-            record["execution_status"] = (
-                "stopped" if record.get("spawn_retry_count") == RETRY_LIMITS["spawn"] else "not_started"
+        if positive_evidence_preserved:
+            _apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
+        elif spawn_observation == "failed":
+            _apply_canonical_execution_update(
+                record,
+                "observed_execution_status",
+                "stopped"
+                if record.get("spawn_retry_count") == RETRY_LIMITS["spawn"]
+                else "not_started",
             )
             retry_count = int(record.get("spawn_retry_count") or 0)
             if retry_count == 0:
-                record["parent_action"] = "retry_spawn"
+                _apply_canonical_execution_update(record, "closure_parent_action", "retry_spawn")
             elif retry_count == 1:
-                record["parent_action"] = "ask_user"
+                _apply_canonical_execution_update(record, "closure_parent_action", "ask_user")
             else:
-                record["parent_action"] = "decide_disposition"
-                record["spawn_close_reason"] = "spawn_retry_exhausted"
-                state["tombstones"][f"{task_id}:{attempt}"] = {
-                    "task_id": task_id,
-                    "attempt": attempt,
-                    "task_ref": task_ref,
-                    "close_reason": "spawn_retry_exhausted",
-                    "closed_at": observed_at,
-                }
-            return
-        agent_id = observation.get("agent_id")
-        canonical_path = observation.get("canonical_path")
-        if spawn_observation == "success" and (agent_id or canonical_path):
-            _bind_identity_target(state, record, agent_id)
-            _bind_identity_target(state, record, canonical_path)
-            record["agent_id"] = agent_id
-            record["canonical_task_path"] = canonical_path
-            record["identity_status"] = "confirmed"
-            record["execution_status"] = "running"
-            record["platform_observation"] = "normal"
-            record["platform_checked_at"] = observed_at
-            record["platform_observation_source"] = "spawn_response"
-            record["recovery_status"] = None
-            record["parent_action"] = "wait"
-            return
-        record["identity_status"] = "unconfirmed"
-        record["execution_status"] = "not_started"
-        record["parent_action"] = "reconcile"
+                _apply_canonical_execution_update(record, "closure_parent_action", "decide_disposition")
+        else:
+            # The response is a dispatch observation only. Lifecycle hooks do
+            # not provide a stable correlation key for execution identity.
+            _apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
+            _apply_canonical_execution_update(
+                record,
+                "dispatch_target",
+                observation.get("canonical_path"),
+            )
 
     try:
         store.compare_and_set(session_id, predicate, update_spawn)
@@ -4256,10 +5494,16 @@ def _handle_post_tool(payload: dict[str, Any], store: StateStore) -> dict[str, A
         }
     except (OSError, RuntimeError) as exc:
         return {"systemMessage": f"Subagent Governance 无法记录派发生命周期，已降级放行：{exc}"}
-    delete_prepared = observation["observation"] == "failed" or bool(
-        observation.get("agent_id") or observation.get("canonical_path")
+    delete_prepared = bool(
+        observation["observation"] == "failed"
+        and not post_resolution["positive_evidence_preserved"]
     )
-    warning = None
+    warning = (
+        "迟到 spawn failure 与已绑定的 canonical active/terminal 事实冲突；"
+        "已保留 observation/identity，并进入 reconcile。"
+        if post_resolution["positive_evidence_preserved"]
+        else None
+    )
     try:
         if delete_prepared:
             prepared_store.delete(session_id, task_ref)
@@ -4277,473 +5521,42 @@ def _handle_post_tool(payload: dict[str, Any], store: StateStore) -> dict[str, A
     return None
 
 
-def _mapped_attempt(
-    state: dict[str, Any], target: str
-) -> tuple[str, int, dict[str, Any]] | None:
-    agents = state.get("agents")
-    tasks = state.get("tasks")
-    if not isinstance(agents, dict) or not isinstance(tasks, dict):
-        raise StateValidationError("治理状态缺少启动绑定所需的 tasks 或 agents 对象")
-    existing = agents.get(target)
-    if isinstance(existing, dict):
-        task_id = existing.get("task_id")
-        mapped_attempt = existing.get("attempt")
-        if (
-            isinstance(task_id, str)
-            and isinstance(mapped_attempt, int)
-            and not isinstance(mapped_attempt, bool)
-        ):
-            record = _task_record_for_attempt(state, task_id, mapped_attempt)
-            if isinstance(record, dict):
-                return task_id, mapped_attempt, record
-    return None
-
-
-def _event_task_name(payload: dict[str, Any]) -> str | None:
-    for field_name in ("task_name", "canonical_task_path", "agent_name"):
-        value = payload.get(field_name)
-        if isinstance(value, str) and value.strip():
-            return value.strip().rstrip("/").rsplit("/", 1)[-1]
-    return None
-
-
-def _assign_starting_agent(
-    state: dict[str, Any],
-    agent_id: str,
-    canonical_path: str | None,
-    task_name: str | None,
-) -> tuple[str, int, str] | None:
-    targets = [target for target in (agent_id, canonical_path) if target]
-    lifecycle_candidates: list[tuple[str, int, dict[str, Any], str]] = []
-    failed_lifecycle_candidates: list[tuple[str, int, dict[str, Any]]] = []
-    for task_id, attempt, candidate in _iter_task_attempts(state):
-        pending = candidate.get("pending_action")
-        if isinstance(pending, dict) and pending.get("target") in targets and pending.get("phase") == "claimed":
-            operation_type = str(pending.get("operation_type") or "")
-            if operation_type in {"platform_recovery", "result_correction", "business_resume"}:
-                lifecycle_candidates.append((task_id, attempt, candidate, "pending"))
-        last = candidate.get("last_lifecycle_operation")
-        if isinstance(last, dict) and last.get("target") in targets:
-            operation_type = str(last.get("operation_type") or "")
-            observation = last.get("call_observation")
-            if operation_type in {"platform_recovery", "result_correction", "business_resume"}:
-                if observation in {"success", "unknown"}:
-                    lifecycle_candidates.append((task_id, attempt, candidate, "last"))
-                elif observation == "failed":
-                    failed_lifecycle_candidates.append((task_id, attempt, candidate))
-    unique_lifecycle = {
-        (task_id, attempt, source): (task_id, attempt, candidate, source)
-        for task_id, attempt, candidate, source in lifecycle_candidates
-    }
-    if len(unique_lifecycle) > 1:
-        raise StateConflictError("SubagentStart 匹配到多个 lifecycle operation")
-    lifecycle_authorization = next(iter(unique_lifecycle.values()), None)
-    lifecycle_operation_type = None
-    if lifecycle_authorization is not None:
-        _lifecycle_task, _lifecycle_attempt, lifecycle_record, source = lifecycle_authorization
-        lifecycle_value = (
-            lifecycle_record.get("pending_action")
-            if source == "pending"
-            else lifecycle_record.get("last_lifecycle_operation")
-        )
-        if isinstance(lifecycle_value, dict):
-            lifecycle_operation_type = lifecycle_value.get("operation_type")
-    resolved: tuple[str, int, dict[str, Any]] | None = None
-    for target in targets:
-        mapped = _mapped_attempt(state, target)
-        if mapped is not None:
-            if resolved is not None and mapped[:2] != resolved[:2]:
-                raise StateConflictError("SubagentStart 的 Agent ID 与 canonical path 映射冲突")
-            resolved = mapped
-    if lifecycle_authorization is not None:
-        lifecycle_task, lifecycle_attempt, lifecycle_record, _source = lifecycle_authorization
-        if resolved is not None and resolved[0] != lifecycle_task:
-            raise StateConflictError("SubagentStart 的 Agent 映射与 lifecycle task 冲突")
-        resolved = (lifecycle_task, lifecycle_attempt, lifecycle_record)
-    parsed = parse_task_name(task_name) if task_name else None
-    if resolved is not None and parsed is not None:
-        mapped_record = resolved[2]
-        business_resume_name_matches = bool(
-            lifecycle_operation_type == "business_resume"
-            and mapped_record.get("task_name") == task_name
-        )
-        if mapped_record.get("managed") is True and not business_resume_name_matches and (
-            mapped_record.get("task_name") != task_name
-            or mapped_record.get("task_ref") != parsed[2]
-            or mapped_record.get("resolved_mode") != parsed[0]
-        ):
-            raise StateConflictError(
-                "SubagentStart 的已确认 Agent 映射与事件 task_name/task_ref 冲突"
-            )
-    if resolved is None and parsed is not None:
-        _mode, _semantic_name, task_ref = parsed
-        matches = [
-            (str(task_id), int(record.get("attempt", 0)), record)
-            for task_id, record in state.get("tasks", {}).items()
-            if isinstance(record, dict)
-            and record.get("managed") is True
-            and record.get("task_ref") == task_ref
-            and record.get("task_name") == task_name
-        ]
-        if len(matches) == 1:
-            resolved = matches[0]
-    if resolved is None:
-        return None
-    task_id, attempt, record = resolved
-    if record.get("managed") is not True:
-        return task_id, attempt, "historical"
-    if record.get("attempt_closed") is True:
-        return task_id, attempt, "closed"
-    last_operation = record.get("last_lifecycle_operation")
-    if isinstance(last_operation, dict) and last_operation.get("operation_type") == "interrupt":
-        return task_id, attempt, "closed"
-    if record.get("business_result") is not None or record.get("execution_status") == "interrupted":
-        return task_id, attempt, "closed"
-    if record.get("spawn_observation") == "failed":
-        return task_id, attempt, "closed"
-    spawn_start_authorized = bool(
-        parsed is not None
-        and record.get("task_ref") == parsed[2]
-        and record.get("identity_status") == "unconfirmed"
-        and record.get("spawn_observation") in {None, "success", "unknown"}
-    )
-    if (
-        record.get("execution_status") in {"stopped", "not_started"}
-        and lifecycle_authorization is None
-        and not spawn_start_authorized
-    ):
-        if any(candidate[:2] == (task_id, attempt) for candidate in failed_lifecycle_candidates):
-            record["parent_action"] = "reconcile"
-            record["updated_at"] = _now()
-        return task_id, attempt, "closed"
-    if not targets:
-        return None
-    for target in targets:
-        desired = _identity_mapping(task_id, attempt)
-        existing = state["agents"].get(target)
-        if existing is not None and existing != desired:
-            if not (
-                lifecycle_authorization is not None
-                and isinstance(existing, dict)
-                and existing.get("task_id") == task_id
-            ):
-                raise StateConflictError(f"Agent target 已绑定到其他 task/attempt：{target}")
-            state["agents"][target] = desired
-        else:
-            _bind_identity_target(state, record, target)
-    if agent_id:
-        record["agent_id"] = agent_id
-    if canonical_path:
-        record["canonical_task_path"] = canonical_path
-    record["identity_status"] = "confirmed"
-    record["execution_status"] = "running"
-    record["platform_observation"] = "normal"
-    record["platform_checked_at"] = _now()
-    record["platform_observation_source"] = "subagent_start"
-    record["recovery_status"] = None
-    record["parent_action"] = "wait"
-    record["updated_at"] = _now()
-    if lifecycle_authorization is not None:
-        _task_id, _attempt, _candidate, source = lifecycle_authorization
-        if source == "pending":
-            pending = record.get("pending_action")
-            if isinstance(pending, dict):
-                pending["start_observed_at"] = _now()
-        else:
-            record.pop("last_lifecycle_operation", None)
-    return task_id, attempt, "managed"
-
-
-def _subagent_start_context(
-    task_id: str | None,
-    record: dict[str, Any],
-    warning: str | None,
-) -> str:
-    mapped = bool(task_id and record)
-    lifecycle_status = record.get("execution_status") or "unknown"
-    mode = record.get("resolved_mode") or "unknown"
-    lines = [
-        "【Subagent Governance 启动上下文】",
-        f"治理任务 ID：{task_id}" if mapped else "治理任务 ID：未映射",
-        f"治理状态：{lifecycle_status}" if mapped else "治理状态：unmanaged",
-        f"治理等级：{mode}" if mapped else "治理等级：unmanaged",
-        "契约来源：StateStore 最小摘要；本启动上下文不复制完整 dispatch prompt。",
-        "执行要求：本次派发消息是唯一当前任务；旧 ACK、旧任务和父线程历史不得覆盖本次目标。",
-        "执行要求：必须实际执行任务，不要只回复收到、明白或准备开始。",
-        "终态要求：完成、阻塞、失败或需要决策时提交结构化业务结果；自然语言摘要不替代正式结果。",
-        "证据要求：不得为了满足格式伪造测试、文件修改或检查证据。",
-    ]
-    if warning:
-        lines.append(f"状态告警：{_bounded(warning)}")
-    return "\n".join(lines)
-
-
-def _handle_subagent_start(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
+def _handle_post_tool(payload: dict[str, Any], store: StateStore) -> dict[str, Any] | None:
     session_id = str(payload.get("session_id") or "unknown")
-    agent_id = str(payload.get("agent_id") or "")
-    canonical_path_value = payload.get("canonical_task_path")
-    canonical_path = (
-        canonical_path_value
-        if isinstance(canonical_path_value, str) and canonical_path_value.startswith("/")
-        else None
-    )
-    event_task_name = _event_task_name(payload)
-    task_id = None
-    attempt = None
-    binding_kind = None
-    record: dict[str, Any] = {}
-    warning = None
-    try:
-        assigned = store.update(
-            session_id,
-            lambda state: _assign_starting_agent(
-                state,
-                agent_id,
-                canonical_path,
-                event_task_name,
-            ),
-        ) if (agent_id or canonical_path) else None
-        if assigned is not None:
-            task_id, attempt, binding_kind = assigned
-        if task_id:
-            record = store.read(session_id).get("tasks", {}).get(task_id, {})
-        if binding_kind == "historical":
-            warning = (
-                "检测到历史或非 managed Agent 映射；当前事件按 unmanaged 边界放行，"
-                "不会执行旧生命周期状态机。"
-            )
-            task_id = None
-            attempt = None
-            record = {}
-        warning = warning or getattr(store, "last_warning", None)
-    except (OSError, RuntimeError) as exc:
-        warning = f"治理状态不可读，当前子 Agent 使用通用执行边界：{exc}"
-    if task_id and binding_kind == "managed" and isinstance(record.get("task_ref"), str):
-        try:
-            PreparedContractStore(_prepared_root_for_store(store)).delete(
-                session_id,
-                record["task_ref"],
-            )
-        except Exception as exc:
-            warning = f"身份已确认，但 PreparedContract 删除失败：{exc}"
-    context = _subagent_start_context(task_id, record, warning)
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "SubagentStart",
-            "additionalContext": context,
-        }
-    }
-
-
-def _record_managed_result_protocol_gap(
-    session_id: str,
-    agent_target: str,
-    task_id: str,
-    attempt: int,
-    store: StateStore,
-    *,
-    observed_at: int,
-    detail: str,
-) -> str:
-    def mark(state: dict[str, Any]) -> str:
-        mapped = _managed_target_attempt(state, agent_target)
-        if mapped is None or mapped[:2] != (task_id, attempt):
-            raise StateConflictError("SubagentStop 的 Agent 映射在协议纠正前发生变化")
-        record = mapped[2]
-        if record.get("attempt_closed") is True or record.get("execution_status") == "interrupted":
-            return "ignored_terminal"
-        if record.get("result_protocol_status") == "valid" and record.get("result_storage_status") == "available":
-            return "already_valid"
-        record["execution_status"] = "stopped"
-        record["platform_observation"] = "normal"
-        record["business_result"] = None
-        record["acceptance_status"] = None
-        record["result_storage_status"] = None
-        correction_count = record.get("correction_count")
-        if isinstance(correction_count, bool) or not isinstance(correction_count, int):
-            raise StateValidationError("correction_count 必须是非负整数")
-        if correction_count < RETRY_LIMITS["correction"]:
-            record["result_protocol_status"] = "needs_correction"
-            record["parent_action"] = "correct_result"
-            status = "needs_correction"
-        else:
-            record["result_protocol_status"] = "exhausted"
-            record["parent_action"] = "manual_review"
-            status = "exhausted"
-        record["result_protocol_error"] = _bounded(detail)
-        _consume_result_correction(record)
-        record["updated_at"] = observed_at
-        return status
-
-    return store.update(session_id, mark)
-
-
-def _handle_subagent_stop(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
-    session_id = str(payload.get("session_id") or "unknown")
-    agent_id = str(payload.get("agent_id") or "")
-    try:
-        state = store.read(session_id)
-    except (OSError, RuntimeError) as exc:
-        return {"continue": True, "systemMessage": f"Subagent Governance 状态不可读，终态验收已降级放行：{exc}"}
-    warning = getattr(store, "last_warning", None)
-    mapping = state.get("agents", {}).get(agent_id)
-    if not mapping:
-        result = {"continue": True}
-        if warning:
-            result["systemMessage"] = str(warning)
-        return result
-    task_id = str(mapping.get("task_id")) if isinstance(mapping, dict) else str(mapping)
-    mapped_attempt = mapping.get("attempt") if isinstance(mapping, dict) else None
-    record = (
-        _task_record_for_attempt(state, task_id, int(mapped_attempt))
-        if isinstance(mapped_attempt, int) and not isinstance(mapped_attempt, bool)
-        else state.get("tasks", {}).get(task_id)
-    )
-    if not isinstance(record, dict):
-        def clean_stale_mapping(current: dict[str, Any]) -> bool:
-            agents = current.get("agents")
-            tasks = current.get("tasks")
-            if not isinstance(agents, dict) or not isinstance(tasks, dict):
-                raise StateValidationError(
-                    "治理状态缺少失效映射清理所需的 tasks 或 agents 对象"
-                )
-            if agents.get(agent_id) != mapping or isinstance(tasks.get(task_id), dict):
-                return False
-            agents.pop(agent_id, None)
-            return True
-
-        try:
-            cleaned = store.update(session_id, clean_stale_mapping)
-        except (OSError, RuntimeError) as exc:
-            return {
-                "continue": True,
-                "systemMessage": f"Subagent Governance 无法清理失效映射，终态已降级放行：{exc}",
-            }
-        message_text = "Subagent Governance 已清理失效映射，当前 Agent 按 unmanaged 终态放行。"
-        if not cleaned:
-            message_text = "Subagent Governance 检测到终态映射在检查期间发生变化，已放行并交给父任务对账。"
-        return {"continue": True, "systemMessage": message_text}
-
-    if record.get("managed") is True:
-        attempt = record.get("attempt")
-        if isinstance(attempt, bool) or not isinstance(attempt, int):
-            return {
-                "continue": True,
-                "systemMessage": "Subagent Governance managed attempt 缺少有效 attempt，已保留状态并要求人工对账。",
-            }
-        task_result = payload.get("task_result")
-        protocol_errors = validate_task_result(task_result) if isinstance(task_result, dict) else ["缺少显式 task_result 对象"]
-        if not protocol_errors and isinstance(task_result, dict):
-            if task_result.get("task_id") != task_id or task_result.get("attempt") != attempt:
-                protocol_errors.append("task_result 的 task_id/attempt 与精确 Agent 映射不匹配")
-        if protocol_errors:
-            try:
-                protocol_status = _record_managed_result_protocol_gap(
-                    session_id,
-                    agent_id,
-                    task_id,
-                    attempt,
-                    store,
-                    observed_at=_event_now(payload),
-                    detail="；".join(protocol_errors),
-                )
-            except (OSError, RuntimeError) as exc:
-                return {
-                    "continue": True,
-                    "systemMessage": f"Subagent Governance 无法可靠记录结果协议缺口：{exc}",
-                }
-            messages = {
-                "needs_correction": "managed attempt 已停止但没有合法结构化结果；应使用 result_correction 补交本次结果。",
-                "exhausted": "managed attempt 两次结果补交额度已耗尽，业务结果保持为空并进入人工检查。",
-                "already_valid": "managed attempt 已有合法正式结果，本次无结果 Stop 按幂等事件处理。",
-                "ignored_terminal": "managed attempt 已关闭或已成功中断，本次 Stop 不改写治理事实。",
-            }
-            result = {"continue": True, "systemMessage": messages[protocol_status]}
-        else:
-            try:
-                submitted = submit_task_result(
-                    task_result,
-                    session_id,
-                    agent_target=agent_id,
-                    state_store=store,
-                    results_root=_results_root_for_store(store),
-                    now=_event_now(payload),
-                )
-            except ResultSubmissionError as exc:
-                result = {
-                    "continue": True,
-                    "systemMessage": f"managed TaskResult 未被可靠接受，治理状态未伪造成功：{exc}",
-                }
-            else:
-                result = {
-                    "continue": True,
-                    "systemMessage": f"managed TaskResult 正式提交状态：{submitted['status']}。",
-                }
-        if warning:
-            result["systemMessage"] += f" {warning}"
-        return result
-
-    result = {
-        "continue": True,
-        "systemMessage": (
-            "Subagent Governance 检测到历史或非 managed Agent 映射；"
-            "当前 Stop 按 unmanaged 边界放行，不从自由文本生成正式结果，也不执行旧生命周期状态机。"
-        ),
-    }
-    if warning:
-        result["systemMessage"] += f" {warning}"
-    return result
+    kind = _tool_kind(str(payload.get("tool_name") or ""))
+    if kind == "agent_status":
+        return _handle_post_tool_agent_status(payload, store, session_id)
+    if kind in {"communication", "followup", "interrupt"}:
+        return _handle_post_tool_lifecycle(payload, store, session_id)
+    if kind == "spawn":
+        return _handle_post_tool_spawn(payload, store, session_id)
+    return None
 
 
 def _attempt_projection(
     task_id: str,
     attempt: int,
     record: dict[str, Any],
-    *,
-    current: bool,
 ) -> dict[str, Any]:
     projected = copy.copy(record)
-    projected.pop("prior_attempts", None)
     projected["task_id"] = task_id
     projected["attempt"] = attempt
-    projected["is_current_attempt"] = current
     projected["activity_at"] = _activity_timestamp(record)
     return projected
 
 
 def _view_attempt_records(state: dict[str, Any]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
     tasks = state.get("tasks")
     if not isinstance(tasks, dict):
         raise StateValidationError("治理状态缺少派生视图所需的 tasks 对象")
-    records: list[dict[str, Any]] = []
-    for task_id, current in tasks.items():
-        if not isinstance(current, dict) or current.get("managed") is not True:
-            continue
-        current_attempt = current.get("attempt")
-        if not isinstance(current_attempt, int) or isinstance(current_attempt, bool):
-            continue
-        records.append(
-            _attempt_projection(str(task_id), current_attempt, current, current=True)
-        )
-        prior_attempts = current.get("prior_attempts")
-        if isinstance(prior_attempts, dict):
-            for prior in prior_attempts.values():
-                prior_attempt = prior.get("attempt") if isinstance(prior, dict) else None
-                if (
-                    isinstance(prior, dict)
-                    and isinstance(prior_attempt, int)
-                    and not isinstance(prior_attempt, bool)
-                ):
-                    records.append(
-                        _attempt_projection(
-                            str(task_id), prior_attempt, prior, current=False
-                        )
-                    )
+    for task_id, attempt, record in _iter_task_attempts(state):
+        records.append(_attempt_projection(task_id, attempt, record))
     return records
 
 
 def _attempt_closed(state: dict[str, Any], record: dict[str, Any]) -> bool:
-    if record.get("attempt_closed") is True:
+    if _execution_is_closed(record) is True:
         return True
     tombstones = state.get("tombstones")
     key = f"{record.get('task_id')}:{record.get('attempt')}"
@@ -4752,8 +5565,8 @@ def _attempt_closed(state: dict[str, Any], record: dict[str, Any]) -> bool:
 
 def _managed_call_in_progress(record: dict[str, Any]) -> bool:
     spawn_call = (
-        record.get("spawn_tool_use_id") is not None
-        and record.get("spawn_observation") is None
+        _dispatch_tool_use_id(record) is not None
+        and _spawn_observation(record) is None
     )
     pending = record.get("pending_action")
     pending_call = isinstance(pending, dict) and pending.get("phase") in {
@@ -4768,36 +5581,31 @@ def _managed_call_in_progress(record: dict[str, Any]) -> bool:
     return spawn_call or pending_call or unresolved_lifecycle
 
 
-def _managed_action_required(state: dict[str, Any], record: dict[str, Any]) -> bool:
+def _canonical_action_required_candidate(
+    state: dict[str, Any], record: dict[str, Any]
+) -> bool:
     if _attempt_closed(state, record):
         return False
     return bool(
-        record.get("parent_action") is not None
-        or record.get("execution_status") == "running"
+        _parent_action(record) is not None
+        or _execution_status(record) == "running"
         or _managed_call_in_progress(record)
         or (
-            record.get("identity_status") == "unconfirmed"
-            and record.get("spawn_observation") in {"success", "unknown"}
+            _identity_status(record) == "unconfirmed"
+            and _spawn_observation(record) in {"success", "unknown"}
         )
-        or record.get("duplicate_execution") is True
-        or record.get("duplicate_not_selected") is True
     )
 
 
 def _action_priority(record: dict[str, Any]) -> int:
-    parent_action = record.get("parent_action")
+    parent_action = _parent_action(record)
     priority = {
         "recover": 0,
         "reconcile": 1,
         "retry_spawn": 2,
-        "resolve_duplicate": 3,
-        "correct_result": 4,
-        "accept_result": 5,
-        "ask_user": 6,
-        "manual_review": 7,
-        "decide_disposition": 8,
-        "business_resume": 9,
-        "wait": 10,
+        "ask_user": 3,
+        "decide_disposition": 4,
+        "wait": 5,
     }
     if parent_action in priority:
         return priority[str(parent_action)]
@@ -4807,7 +5615,7 @@ def _action_priority(record: dict[str, Any]) -> int:
 def _action_required_records(state: dict[str, Any]) -> list[dict[str, Any]]:
     records = []
     for record in _view_attempt_records(state):
-        if _managed_action_required(state, record):
+        if _canonical_action_required_candidate(state, record):
             records.append(record)
     records.sort(
         key=lambda record: (
@@ -4840,60 +5648,10 @@ def _recent_activity_records(
     return records
 
 
-def _managed_stop_blocking(record: dict[str, Any]) -> bool:
-    pending = record.get("pending_action")
-    lifecycle = record.get("last_lifecycle_operation")
-    if record.get("execution_status") == "running":
-        return True
-    if (
-        record.get("spawn_tool_use_id") is not None
-        and record.get("spawn_observation") is None
-    ):
-        return True
-    if isinstance(pending, dict) and pending.get("phase") in {"prepared", "claimed"}:
-        return True
-    if (
-        record.get("identity_status") == "unconfirmed"
-        and record.get("spawn_observation") in {"success", "unknown"}
-    ):
-        return True
-    if (
-        isinstance(lifecycle, dict)
-        and lifecycle.get("call_observation") in {"success", "unknown"}
-    ):
-        return True
-    if record.get("spawn_observation") == "failed" and record.get("parent_action") == "retry_spawn":
-        return True
-    if (
-        record.get("platform_observation") == "error"
-        and record.get("parent_action") in {"recover", "reconcile"}
-    ):
-        return True
-    return False
-
-
-def _stop_blocking_records(state: dict[str, Any]) -> list[dict[str, Any]]:
-    records = []
-    for record in _view_attempt_records(state):
-        if _attempt_closed(state, record):
-            continue
-        if _managed_stop_blocking(record):
-            records.append(record)
-    records.sort(
-        key=lambda record: (
-            -int(record.get("activity_at") or 0),
-            str(record.get("task_id") or ""),
-            int(record.get("attempt") or 0),
-        )
-    )
-    return records
-
-
 def _validate_group_value(
     value: Any,
     *,
     expected_group_id: str | None = None,
-    persisted: bool = False,
 ) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise GroupValidationError("group 必须是对象")
@@ -4950,12 +5708,6 @@ def _validate_group_value(
         "objective_summary": objective.strip(),
         "members": normalized_members,
     }
-    if persisted:
-        for field_name in ("created_at", "updated_at"):
-            timestamp = value.get(field_name)
-            if isinstance(timestamp, bool) or not isinstance(timestamp, int) or timestamp < 0:
-                raise GroupValidationError(f"group.{field_name} 必须是非负整数")
-            normalized[field_name] = timestamp
     return normalized
 
 
@@ -4964,11 +5716,9 @@ def upsert_group(
     session_id: str,
     *,
     state_store: StateStore | None = None,
-    now: int | None = None,
 ) -> dict[str, Any]:
     normalized = _validate_group_value(value)
     store = state_store or StateStore()
-    observed_at = _now() if now is None else now
 
     def upsert(state: dict[str, Any]) -> dict[str, Any]:
         tasks = state.get("tasks")
@@ -4990,27 +5740,11 @@ def upsert_group(
         existing = groups.get(normalized["group_id"])
         if existing is not None and not isinstance(existing, dict):
             raise GroupValidationError("已有 group 记录必须是对象")
-        created_at = observed_at
-        status = "created"
-        if isinstance(existing, dict):
-            validated_existing = _validate_group_value(
-                existing,
-                expected_group_id=normalized["group_id"],
-                persisted=True,
-            )
-            created_at = int(validated_existing["created_at"])
-            status = "updated"
-        record = {
-            **normalized,
-            "created_at": created_at,
-            "updated_at": observed_at,
-        }
-        groups[normalized["group_id"]] = record
+        status = "updated" if isinstance(existing, dict) else "created"
+        groups[normalized["group_id"]] = normalized
         return {
             "status": status,
             "group_id": normalized["group_id"],
-            "created_at": created_at,
-            "updated_at": observed_at,
         }
 
     return store.update(session_id, upsert, required_fields=("tasks", "agents"))
@@ -5052,159 +5786,6 @@ def _diagnostic_issue_sort_key(issue: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def _inspect_formal_result_read_only(
-    record: dict[str, Any],
-    task_id: str,
-    attempt: int,
-    results_root: Path,
-    *,
-    session_id: str | None = None,
-) -> tuple[dict[str, Any] | None, list[dict[str, Any]], bool]:
-    reference = record.get("result_reference")
-    storage_status = record.get("result_storage_status")
-    if storage_status != "available" and not (
-        isinstance(reference, str) and reference.strip()
-    ):
-        return None, [], False
-    issues: list[dict[str, Any]] = []
-    incomplete = False
-    path = result_file_path(results_root, task_id, attempt)
-    metadata = {
-        "reference": reference if isinstance(reference, str) else None,
-        "readable": False,
-        "usable": False,
-        "sha256_matches": None,
-        "business_result": None,
-        "result_chars": None,
-        "evidence_count": None,
-        "remaining_count": None,
-    }
-    try:
-        results_metadata = results_root.lstat()
-    except FileNotFoundError:
-        results_metadata = None
-    if results_metadata is not None and (
-        stat.S_ISLNK(results_metadata.st_mode)
-        or not stat.S_ISDIR(results_metadata.st_mode)
-        or not _owned_by_current_user(results_metadata)
-    ):
-        issues.append(
-            _diagnostic_issue(
-                "result_invalid",
-                "正式结果目录不是当前用户拥有的普通目录",
-                session_id=session_id,
-                task_id=task_id,
-                attempt=attempt,
-                path=str(results_root),
-            )
-        )
-        return metadata, issues, True
-    if not isinstance(reference, str) or not reference.strip():
-        issues.append(
-            _diagnostic_issue(
-                "current_required_field_missing",
-                "available 正式结果缺少 result_reference",
-                session_id=session_id,
-                task_id=task_id,
-                attempt=attempt,
-                field="result_reference",
-            )
-        )
-        incomplete = True
-    elif reference != path.name:
-        issues.append(
-            _diagnostic_issue(
-                "result_invalid",
-                "result_reference 与确定性结果地址不一致",
-                session_id=session_id,
-                task_id=task_id,
-                attempt=attempt,
-                field="result_reference",
-            )
-        )
-        incomplete = True
-    try:
-        path.lstat()
-    except FileNotFoundError:
-        issues.append(
-            _diagnostic_issue(
-                "result_missing",
-                "精确正式结果文件不存在",
-                session_id=session_id,
-                task_id=task_id,
-                attempt=attempt,
-                path=str(path),
-            )
-        )
-        return metadata, issues, True
-    try:
-        value, raw, digest = _read_result_path(path, task_id, attempt)
-    except ResultStorageError as exc:
-        issues.append(
-            _diagnostic_issue(
-                "result_invalid",
-                f"精确正式结果文件无法机械复验：{exc}",
-                session_id=session_id,
-                task_id=task_id,
-                attempt=attempt,
-                path=str(path),
-            )
-        )
-        return metadata, issues, True
-    metadata["readable"] = True
-    metadata["business_result"] = value.get("business_result")
-    metadata["result_chars"] = len(str(value.get("result") or ""))
-    metadata["evidence_count"] = len(value.get("evidence") or [])
-    metadata["remaining_count"] = len(value.get("remaining") or [])
-    stored_digest = record.get("result_sha256")
-    if not isinstance(stored_digest, str) or not re.fullmatch(r"[a-f0-9]{64}", stored_digest):
-        issues.append(
-            _diagnostic_issue(
-                "current_required_field_invalid",
-                "available 正式结果的 result_sha256 缺失或非法",
-                session_id=session_id,
-                task_id=task_id,
-                attempt=attempt,
-                field="result_sha256",
-            )
-        )
-        incomplete = True
-    else:
-        metadata["sha256_matches"] = stored_digest == digest
-        if stored_digest != digest:
-            issues.append(
-                _diagnostic_issue(
-                    "result_invalid",
-                    "StateStore 的 result_sha256 与正式结果文件不一致",
-                    session_id=session_id,
-                    task_id=task_id,
-                    attempt=attempt,
-                    field="result_sha256",
-                )
-            )
-            incomplete = True
-    if record.get("business_result") not in {None, value.get("business_result")}:
-        issues.append(
-            _diagnostic_issue(
-                "result_invalid",
-                "StateStore business_result 与正式结果文件不一致",
-                session_id=session_id,
-                task_id=task_id,
-                attempt=attempt,
-                field="business_result",
-            )
-        )
-        incomplete = True
-    metadata["usable"] = bool(
-        metadata["readable"]
-        and reference == path.name
-        and metadata["sha256_matches"] is True
-        and storage_status == "available"
-        and record.get("result_protocol_status") == "valid"
-    )
-    return metadata, issues, incomplete
-
-
 def _attempt_has_reasoned_close(
     state: dict[str, Any], task_id: str, attempt: int, record: dict[str, Any]
 ) -> bool:
@@ -5220,74 +5801,333 @@ def _attempt_has_reasoned_close(
         else None
     )
     reasons = (
-        record.get("attempt_close_reason"),
-        record.get("parent_disposition_reason"),
+        _execution_close_reason(record),
         tombstone.get("close_reason") if isinstance(tombstone, dict) else None,
     )
     return any(isinstance(reason, str) and reason.strip() for reason in reasons)
 
 
-def _task_disposition_complete(state: dict[str, Any], task_id: str) -> bool:
-    records = _task_attempt_records(state, task_id)
-    return bool(records) and all(
+def _canonical_work_item_view(
+    state: dict[str, Any], task_id: str
+) -> tuple[dict[str, Any] | None, list[tuple[int, dict[str, Any]]]]:
+    tasks = state.get("tasks")
+    task = tasks.get(task_id) if isinstance(tasks, dict) else None
+    if not isinstance(task, dict) or task.get("managed") is not True:
+        return None, []
+    work_item = task.get("work_item")
+    executions = task.get("executions")
+    if isinstance(work_item, dict) and isinstance(executions, dict):
+        records = [
+            (attempt, record)
+            for key, record in executions.items()
+            if isinstance(record, dict)
+            and (attempt := _parse_execution_key(key)) is not None
+        ]
+        return work_item, sorted(records)
+    return None, []
+
+
+def _decision_candidate_snapshot(
+    state: dict[str, Any],
+    record: dict[str, Any],
+    *,
+    current_attempt: int | None,
+    action_required: bool,
+) -> dict[str, Any]:
+    attempt = record.get("attempt")
+    closed = _attempt_closed(state, record)
+    if closed:
+        role = "tombstoned"
+    elif attempt == current_attempt:
+        role = "current"
+    else:
+        role = "prior"
+    identity = _identity_status(record)
+    identity = identity if identity in IDENTITY_STATUSES else "unknown"
+    execution = _execution_status(record)
+    execution = execution if execution in EXECUTION_STATUSES else "unknown"
+    platform = _platform_observation(record)
+    platform = platform if platform in PLATFORM_OBSERVATIONS else "not_checked"
+    observation = record.get("observation_record")
+    notification_observed = bool(
+        isinstance(observation, dict)
+        and observation.get("source") == "terminal_notification"
+        and observation.get("observed_state") == "terminal"
+        and _observation_is_bound(record)
+    )
+    timestamps = {
+        name: value
+        for name, value in (
+            ("activity_at", record.get("activity_at")),
+            ("platform_checked_at", _observation_checked_at(record)),
+            ("attempt_closed_at", _execution_closed_at(record)),
+        )
+        if isinstance(value, int) and not isinstance(value, bool)
+    }
+    dispatch_target = _dispatch_target(record)
+    target = (
+        {"dispatch_target": dispatch_target}
+        if isinstance(dispatch_target, str)
+        else None
+    )
+    return {
+        "attempt": attempt if isinstance(attempt, int) and not isinstance(attempt, bool) else None,
+        "role": role,
+        "target": target,
+        "identity": identity,
+        "execution": execution,
+        "platform": platform,
+        "notification": {
+            "observed": notification_observed,
+            "source": observation.get("source") if isinstance(observation, dict) else None,
+            "terminal_status": (
+                observation.get("terminal_status") if isinstance(observation, dict) else None
+            ),
+        },
+        "action_required": action_required,
+        "timestamps": timestamps,
+    }
+
+
+def _work_item_allowed_actions(
+    records: list[tuple[int, dict[str, Any]]],
+    *,
+    current_attempt: int | None,
+    lifecycle: str,
+) -> list[str]:
+    if lifecycle == "tombstoned":
+        return ["inspect_tombstone"]
+    if lifecycle == "indeterminate":
+        return ["reconcile"]
+    current = next(
+        (record for attempt, record in records if attempt == current_attempt), None
+    )
+    if not isinstance(current, dict):
+        return ["reconcile"]
+    actions: list[str] = []
+    execution = _execution_status(current)
+    platform = _platform_observation(current)
+    identity = _identity_status(current)
+    spawn = _spawn_observation(current)
+    observation = current.get("observation_record")
+    notification_observed = bool(
+        isinstance(observation, dict)
+        and observation.get("source") == "terminal_notification"
+        and observation.get("observed_state") == "terminal"
+    )
+    if execution == "running" and identity == "confirmed":
+        actions.append("wait")
+    if (
+        platform == "unknown"
+        or spawn == "unknown"
+        or identity != "confirmed"
+        or _parent_action(current) == "reconcile"
+    ):
+        actions.append("reconcile")
+    if (
+        spawn == "failed"
+        and _dispatch_reliably_not_created(current)
+        and int(current.get("spawn_retry_count") or 0) < int(RETRY_LIMITS["spawn"])
+        and identity == "unconfirmed"
+    ):
+        actions.append("retry_spawn")
+    if notification_observed or execution == "interrupted":
+        actions.append("close_task")
+    contract_ready = bool(current.get("contract_digest") and current.get("contract_summary"))
+    if contract_ready and _business_resume_allowed(current):
+        actions.append("resume_business")
+    order = {name: index for index, name in enumerate(_DECISION_ACTION_ORDER)}
+    return sorted(set(actions), key=order.__getitem__)
+
+
+def _build_work_item_decision_snapshot(
+    state: dict[str, Any],
+    task_id: str,
+    *,
+    session_id: str | None = None,
+    now: int | None = None,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], bool]:
+    work_item, records = _canonical_work_item_view(state, task_id)
+    if not isinstance(work_item, dict) or not records:
+        return None, [
+            _diagnostic_issue(
+                "current_required_field_invalid",
+                "managed work item 缺少可读取 execution",
+                session_id=session_id,
+                task_id=task_id,
+                field="work_item/executions",
+            )
+        ], True
+    issues: list[dict[str, Any]] = []
+    incomplete = False
+    current_attempt = work_item.get("current_attempt")
+    if (
+        isinstance(current_attempt, bool)
+        or not isinstance(current_attempt, int)
+        or current_attempt not in {attempt for attempt, _record in records}
+    ):
+        current_attempt = None
+        incomplete = True
+        issues.append(
+            _diagnostic_issue(
+                "current_required_field_invalid",
+                "work_item.current_attempt 无法关联 canonical execution",
+                session_id=session_id,
+                task_id=task_id,
+                field="work_item.current_attempt",
+            )
+        )
+    current_time = _now() if now is None else now
+    cutoff = current_time - int(RETENTION_SECONDS["recent_activity"])
+    candidates = []
+    work_item_recent_activity = False
+    for attempt, source_record in records:
+        record = _attempt_projection(task_id, attempt, source_record)
+        action_required = _canonical_action_required_candidate(state, record)
+        work_item_recent_activity = (
+            work_item_recent_activity or int(record.get("activity_at") or 0) >= cutoff
+        )
+        candidates.append(
+            _decision_candidate_snapshot(
+                state,
+                record,
+                current_attempt=current_attempt,
+                action_required=action_required,
+            )
+        )
+    persisted_lifecycle = work_item.get("lifecycle")
+    all_reasoned_closed = all(
         _attempt_has_reasoned_close(state, task_id, attempt, record)
         for attempt, record in records
     )
+    if persisted_lifecycle == "tombstoned" and all_reasoned_closed:
+        lifecycle = "tombstoned"
+    elif (
+        persisted_lifecycle == "open"
+        and current_attempt is not None
+        and not all_reasoned_closed
+    ):
+        lifecycle = "open"
+    else:
+        lifecycle = "indeterminate"
+        incomplete = True
+        issues.append(
+            _diagnostic_issue(
+                "current_required_field_invalid",
+                "work-item lifecycle 与 execution close facts 不完整",
+                session_id=session_id,
+                task_id=task_id,
+                field="work_item.lifecycle",
+            )
+        )
+    current_record = next(
+        (record for attempt, record in records if attempt == current_attempt), None
+    )
+    current_candidate = next(
+        (candidate for candidate in candidates if candidate.get("attempt") == current_attempt), None
+    )
+    if isinstance(current_candidate, dict):
+        notification = current_candidate.get("notification")
+        notification = notification if isinstance(notification, dict) else {}
+        notification_state = "observed" if notification.get("observed") is True else "pending"
+        notification_attempt = current_attempt
+        notification_source = notification.get("source")
+        terminal_status = notification.get("terminal_status")
+    else:
+        notification_state = "unknown"
+        notification_attempt = None
+        notification_source = None
+        terminal_status = None
+    allowed_actions = _work_item_allowed_actions(
+        records,
+        current_attempt=current_attempt,
+        lifecycle=lifecycle,
+    )
+    summary = (
+        current_record.get("contract_summary")
+        if isinstance(current_record, dict)
+        and isinstance(current_record.get("contract_summary"), dict)
+        else {}
+    )
+    objective = summary.get("objective")
+    if not isinstance(objective, str) or not objective.strip():
+        objective = None
+        issues.append(
+            _diagnostic_issue(
+                "current_required_field_missing",
+                "current execution 缺少有界 contract objective",
+                session_id=session_id,
+                task_id=task_id,
+                field="execution.contract_summary.objective",
+            )
+        )
+        incomplete = True
+    action_required = any(candidate.get("action_required") is True for candidate in candidates)
+    snapshot = {
+        "task_id": task_id,
+        "objective_summary": str(objective)[:600] if objective is not None else None,
+        "current_attempt": current_attempt,
+        "lifecycle": lifecycle,
+        "action_required": action_required,
+        "recent_activity": work_item_recent_activity,
+        "execution_candidates": candidates,
+        "terminal_notification": {
+            "state": notification_state,
+            "attempt": notification_attempt,
+            "source": notification_source,
+            "terminal_status": terminal_status,
+        },
+        "allowed_actions": allowed_actions,
+    }
+    return snapshot, issues, incomplete
 
 
 def _derive_group_snapshot(
     state: dict[str, Any],
     group: dict[str, Any],
     *,
-    results_root: Path,
     session_id: str | None = None,
-    result_cache: dict[tuple[str, int], dict[str, Any] | None] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], bool]:
     validated = _validate_group_value(
         group,
         expected_group_id=str(group.get("group_id") or ""),
-        persisted=True,
     )
     tasks = state.get("tasks")
     if not isinstance(tasks, dict):
         raise GroupValidationError("治理状态缺少 group 派生所需的 tasks 对象")
-    action_task_ids = {
-        str(record.get("task_id")) for record in _action_required_records(state)
-    }
     issues: list[dict[str, Any]] = []
     incomplete = False
     members = []
+    required_material_ready: list[bool] = []
+    required_action_required: list[bool] = []
     for member in validated["members"]:
         task_id = member["task_id"]
         current = tasks.get(task_id)
         exists = isinstance(current, dict)
-        current_attempt = current.get("attempt") if exists else None
-        formal_result = None
-        if exists and isinstance(current_attempt, int) and not isinstance(current_attempt, bool):
-            cache_key = (task_id, current_attempt)
-            if result_cache is not None and cache_key in result_cache:
-                formal_result = result_cache[cache_key]
-            else:
-                formal_result, result_issues, result_incomplete = (
-                    _inspect_formal_result_read_only(
-                        current,
-                        task_id,
-                        current_attempt,
-                        results_root,
-                        session_id=session_id,
-                    )
+        decision = None
+        if exists:
+            decision, decision_issues, decision_incomplete = (
+                _build_work_item_decision_snapshot(
+                    state,
+                    task_id,
+                    session_id=session_id,
                 )
-                issues.extend(result_issues)
-                incomplete = incomplete or result_incomplete
-                if result_cache is not None:
-                    result_cache[cache_key] = formal_result
-        disposition_complete = exists and _task_disposition_complete(state, task_id)
-        summary_material_ready = bool(
-            (isinstance(formal_result, dict) and formal_result.get("usable") is True)
-            or disposition_complete
+            )
+            issues.extend(decision_issues)
+            incomplete = incomplete or decision_incomplete
+        current_attempt = decision.get("current_attempt") if isinstance(decision, dict) else None
+        disposition_complete = bool(
+            isinstance(decision, dict) and decision.get("lifecycle") == "tombstoned"
         )
+        notification = (
+            decision.get("terminal_notification") if isinstance(decision, dict) else None
+        )
+        notification_state = notification.get("state") if isinstance(notification, dict) else None
+        summary_material_ready = bool(disposition_complete or notification_state == "observed")
         individual_action_required = bool(
-            task_id in action_task_ids or (exists and not disposition_complete)
+            not exists
+            or not isinstance(decision, dict)
+            or decision.get("action_required") is True
         )
         if not exists:
             issues.append(
@@ -5302,29 +6142,28 @@ def _derive_group_snapshot(
             )
             incomplete = True
             individual_action_required = True
+        if member["required"]:
+            required_material_ready.append(summary_material_ready)
+            required_action_required.append(individual_action_required)
         members.append(
             {
                 "task_id": task_id,
                 "required": member["required"],
                 "exists": exists,
                 "current_attempt": current_attempt if isinstance(current_attempt, int) else None,
-                "individual_action_required": individual_action_required,
-                "disposition_complete": bool(disposition_complete),
-                "summary_material_ready": summary_material_ready,
-                "formal_result": formal_result,
+                "lifecycle": decision.get("lifecycle") if isinstance(decision, dict) else "indeterminate",
+                "action_required": individual_action_required,
+                "terminal_notification": notification,
             }
         )
-    required_members = [member for member in members if member["required"]]
     snapshot = {
         "group_id": validated["group_id"],
         "objective_summary": validated["objective_summary"],
         "members": members,
-        "created_at": validated["created_at"],
-        "updated_at": validated["updated_at"],
-        "summary_ready": bool(required_members)
-        and all(member["summary_material_ready"] for member in required_members),
-        "group_action_required": bool(required_members)
-        and any(not member["disposition_complete"] for member in required_members),
+        "summary_ready": bool(required_material_ready)
+        and all(required_material_ready),
+        "group_action_required": bool(required_action_required)
+        and any(required_action_required),
     }
     return snapshot, issues, incomplete
 
@@ -5334,7 +6173,6 @@ def read_group(
     group_id: str,
     *,
     state_store: StateStore | None = None,
-    results_root: Path | None = None,
 ) -> dict[str, Any]:
     if not isinstance(group_id, str) or not group_id.strip():
         raise GroupValidationError("group_id 必须是非空字符串")
@@ -5343,21 +6181,19 @@ def read_group(
     groups = state.get("groups")
     if not isinstance(groups, dict) or not isinstance(groups.get(group_id), dict):
         raise GroupNotFoundError(f"group 不存在：{group_id}")
-    root = Path(results_root) if results_root is not None else _results_root_for_store(store)
     snapshot, _issues, _incomplete = _derive_group_snapshot(
         state,
         groups[group_id],
-        results_root=root,
         session_id=session_id,
     )
     return snapshot
 
 
 def _session_next_action(record: dict[str, Any]) -> str:
-    parent_action = record.get("parent_action")
+    parent_action = _parent_action(record)
     if parent_action:
         return str(parent_action)
-    if record.get("managed") is True and record.get("spawn_observation") is None:
+    if _spawn_observation(record) is None:
         return "派发调用仍在对账期；不要重复派发"
     return "等待原 Agent并按规则巡检"
 
@@ -5366,31 +6202,30 @@ def _session_summary_line(record: dict[str, Any]) -> str:
     task_id = _bounded(record.get("task_id"), "unknown")[:SESSION_SUMMARY_FIELD_LIMIT]
     attempt = record.get("attempt")
     mode = _bounded(record.get("resolved_mode"), "unknown")[:SESSION_SUMMARY_FIELD_LIMIT]
-    status = _bounded(record.get("execution_status"), "unknown")[:SESSION_SUMMARY_FIELD_LIMIT]
+    status = _bounded(_execution_status(record), "unknown")[:SESSION_SUMMARY_FIELD_LIMIT]
     summary = record.get("contract_summary") if isinstance(record.get("contract_summary"), dict) else {}
     objective = _bounded(summary.get("objective") or record.get("task_name"), "未命名任务")[:SESSION_SUMMARY_FIELD_LIMIT]
-    completion_values = summary.get("completion_conditions")
-    completion_text = "；".join(completion_values) if isinstance(completion_values, list) else None
-    completion = _bounded(completion_text, "未记录")[:SESSION_SUMMARY_FIELD_LIMIT]
-    target = _bounded(record.get("canonical_task_path") or record.get("agent_id"), "unmapped")[:SESSION_SUMMARY_FIELD_LIMIT]
+    target = _bounded(
+        record.get("dispatch_record", {}).get("dispatch_target"),
+        "unmapped",
+    )[:SESSION_SUMMARY_FIELD_LIMIT]
     next_action = _session_next_action(record)
-    parent_action = _bounded(record.get("parent_action"), "null")[:SESSION_SUMMARY_FIELD_LIMIT]
+    parent_action = _bounded(_parent_action(record), "null")[:SESSION_SUMMARY_FIELD_LIMIT]
     mechanical = "/".join(
         str(value)
         for value in (
-            record.get("execution_status"),
-            record.get("identity_status"),
-            record.get("platform_observation"),
-            record.get("business_result"),
-            record.get("result_protocol_status"),
-            record.get("acceptance_status"),
+            _execution_status(record),
+            _identity_status(record),
+            _platform_observation(record),
+            record.get("observation_record", {}).get("source"),
+            record.get("observation_record", {}).get("terminal_status"),
         )
         if value is not None
     ) or status
     return (
         f"- 任务 ID：{task_id}｜attempt：{attempt}｜治理等级：{mode}｜状态：{status}｜"
         f"机械状态：{mechanical[:SESSION_SUMMARY_FIELD_LIMIT]}｜parent_action：{parent_action}｜"
-        f"目标：{objective}｜完成条件：{completion}｜恢复对象：{target}｜下一步：{next_action}"
+        f"目标：{objective}｜恢复对象：{target}｜下一步：{next_action}"
     )
 
 
@@ -5457,6 +6292,82 @@ def _session_start_context(
     return context
 
 
+def _session_work_item_summary_line(snapshot: dict[str, Any]) -> str:
+    task_id = _bounded(snapshot.get("task_id"), "unknown")[:SESSION_SUMMARY_FIELD_LIMIT]
+    current_attempt = snapshot.get("current_attempt")
+    lifecycle = _bounded(snapshot.get("lifecycle"), "indeterminate")[:SESSION_SUMMARY_FIELD_LIMIT]
+    objective = _bounded(snapshot.get("objective_summary"), "未记录")[:SESSION_SUMMARY_FIELD_LIMIT]
+    candidates = snapshot.get("execution_candidates")
+    candidates = candidates if isinstance(candidates, list) else []
+    candidate_text = "、".join(
+        f"{candidate.get('attempt')}({candidate.get('execution')}/{candidate.get('identity')}/"
+        f"notification={bool((candidate.get('notification') or {}).get('observed'))})"
+        for candidate in candidates
+    )[:SESSION_SUMMARY_FIELD_LIMIT]
+    actions = snapshot.get("allowed_actions")
+    actions = actions if isinstance(actions, list) else []
+    action_text = ",".join(action for action in actions if isinstance(action, str)) or "none"
+    notification = snapshot.get("terminal_notification")
+    notification_state = (
+        notification.get("state") if isinstance(notification, dict) else "unknown"
+    )
+    return (
+        f"- 工作项 ID：{task_id}｜current attempt：{current_attempt}｜lifecycle：{lifecycle}｜"
+        f"notification：{notification_state}｜allowed_actions：{action_text[:SESSION_SUMMARY_FIELD_LIMIT]}｜"
+        f"目标：{objective}｜候选 executions：{candidate_text or 'none'}"
+    )
+
+
+def _session_start_work_item_context(work_items: list[dict[str, Any]]) -> str:
+    header = "Subagent Governance 会话恢复摘要（work-item 决策视图）："
+    footer = (
+        "不要因 compact/resume 重复创建已有 Agent；使用精确 execution/target 继续等待、对账或处置。\n"
+        "诊断摘要只展示持久化事实与允许入口，不代表业务授权、验收或自动调度。"
+    )
+    required = [item for item in work_items if item.get("action_required") is True]
+    recent_only = [
+        item
+        for item in work_items
+        if item.get("action_required") is not True and item.get("recent_activity") is True
+    ]
+
+    def render(
+        required_lines: list[str],
+        recent_lines: list[str],
+    ) -> str:
+        lines = [header]
+        if required:
+            lines.append("【需要处理】")
+            lines.extend(required_lines)
+            if len(required) > len(required_lines):
+                lines.append(f"还有 {len(required) - len(required_lines)} 个待处理 work item 未展开。")
+        if recent_only:
+            lines.append("【最近活动】")
+            lines.extend(recent_lines)
+            if len(recent_only) > len(recent_lines):
+                lines.append(f"还有 {len(recent_only) - len(recent_lines)} 个最近 work item 未展开。")
+        lines.append(footer)
+        return "\n".join(lines)
+
+    required_lines: list[str] = []
+    recent_lines: list[str] = []
+    for snapshot in required:
+        if len(required_lines) + len(recent_lines) >= SESSION_SUMMARY_RECORD_LIMIT:
+            break
+        line = _session_work_item_summary_line(snapshot)
+        if len(render([*required_lines, line], recent_lines)) > SESSION_SUMMARY_CONTEXT_LIMIT:
+            break
+        required_lines.append(line)
+    for snapshot in recent_only:
+        if len(required_lines) + len(recent_lines) >= SESSION_SUMMARY_RECORD_LIMIT:
+            break
+        line = _session_work_item_summary_line(snapshot)
+        if len(render(required_lines, [*recent_lines, line])) > SESSION_SUMMARY_CONTEXT_LIMIT:
+            break
+        recent_lines.append(line)
+    return render(required_lines, recent_lines)
+
+
 def _handle_stop(
     payload: dict[str, Any],
     store: StateStore,
@@ -5475,33 +6386,37 @@ def _handle_stop(
             if read_attempt < STOP_READ_ATTEMPTS - 1:
                 sleeper(STOP_READ_RETRY_DELAY_SECONDS)
     if state is None:
-        reason = (
-            "Subagent Governance 连续三次无法读取 StateStore，无法确认是否仍有运行中或调用对账任务；"
-            "需要用户决策：选择强制结束，或先诊断、修复并恢复治理状态。"
-            f"最后错误：{errors[-1] if errors else 'unknown'}"
-        )
-        if payload.get("stop_hook_active"):
-            return {"continue": True, "systemMessage": reason}
-        return {"decision": "block", "reason": reason}
-    blocking = _stop_blocking_records(state)
+        return {
+            "continue": True,
+            "systemMessage": (
+                "Subagent Governance 连续三次无法读取 StateStore；当前没有可靠正向证据可用于"
+                "阻止 parent Stop，已降级放行。"
+                f"最后错误：{errors[-1] if errors else 'unknown'}"
+            ),
+        }
+    advisory = _action_required_records(state)
     warning = getattr(store, "last_warning", None)
-    if not blocking:
+    if not advisory:
         result = {"continue": True}
         if warning:
             result["systemMessage"] = str(warning)
         return result
     summary = "、".join(
         f"{record.get('task_id')}#{record.get('attempt')}"
-        f"({record.get('execution_status') or record.get('status')})"
-        for record in blocking[:6]
+        f"({_execution_status(record)})"
+        for record in advisory[:6]
     )
-    omitted = len(blocking) - 6
+    omitted = len(advisory) - 6
     if omitted > 0:
         summary += f"，另有 {omitted} 个"
-    reason = f"仍有运行中或待恢复的治理子任务：{summary}。等待现有子 Agent 或处理其协议状态，不要重复派发。"
-    if payload.get("stop_hook_active"):
-        return {"continue": True, "systemMessage": reason}
-    return {"decision": "block", "reason": reason}
+    message = (
+        "仍有 action-required 治理子任务："
+        f"{summary}。当前没有可靠 active freshness 或 parent Stop hard-gate 证据；"
+        "以上仅作 advisory，未阻止 parent Stop。"
+    )
+    if warning:
+        message += f" StateStore 同时报告：{warning}"
+    return {"continue": True, "systemMessage": message}
 
 
 def _handle_session_start(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
@@ -5515,15 +6430,23 @@ def _handle_session_start(payload: dict[str, Any], store: StateStore) -> dict[st
             )
             reconcile_pending_actions(session_id, state_store=store)
         if callable(getattr(store, "cleanup_expired_tombstones", None)):
-            store.cleanup_expired_tombstones(
-                session_id,
-                result_cleanup=lambda task_id, attempt: _cleanup_task_result_file(
-                    _results_root_for_store(store), task_id, attempt
-                ),
-            )
+            store.cleanup_expired_tombstones(session_id)
         state = store.read(session_id)
         action_required = _action_required_records(state)
         recent_activity = _recent_activity_records(state)
+        work_items = []
+        tasks = state.get("tasks")
+        if isinstance(tasks, dict):
+            for task_id in sorted(str(key) for key in tasks):
+                snapshot, _issues, _incomplete = (
+                    _build_work_item_decision_snapshot(
+                        state,
+                        task_id,
+                        session_id=session_id,
+                    )
+                )
+                if isinstance(snapshot, dict):
+                    work_items.append(snapshot)
     except Exception as exc:
         return {
             "continue": True,
@@ -5533,7 +6456,7 @@ def _handle_session_start(payload: dict[str, Any], store: StateStore) -> dict[st
             ),
         }
     warning = getattr(store, "last_warning", None)
-    if not action_required and not recent_activity:
+    if not work_items and not action_required and not recent_activity:
         result = {"continue": True}
         if warning:
             result["systemMessage"] = str(warning)
@@ -5541,9 +6464,10 @@ def _handle_session_start(payload: dict[str, Any], store: StateStore) -> dict[st
     return {
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
-            "additionalContext": _session_start_context(
-                action_required,
-                recent_activity,
+            "additionalContext": (
+                _session_start_work_item_context(work_items)
+                if work_items
+                else _session_start_context(action_required, recent_activity)
             ),
         }
     }
@@ -5570,12 +6494,7 @@ def _handle_session_end(payload: dict[str, Any], store: StateStore) -> dict[str,
             )
             reconcile_pending_actions(session_id, state_store=store)
         if callable(getattr(store, "cleanup_expired_tombstones", None)):
-            store.cleanup_expired_tombstones(
-                session_id,
-                result_cleanup=lambda task_id, attempt: _cleanup_task_result_file(
-                    _results_root_for_store(store), task_id, attempt
-                ),
-            )
+            store.cleanup_expired_tombstones(session_id)
         deleted = store.delete_if(session_id, can_delete)
     except Exception as exc:
         return {"continue": True, "systemMessage": f"Subagent Governance 会话状态清理失败：{exc}"}
@@ -5583,7 +6502,7 @@ def _handle_session_end(payload: dict[str, Any], store: StateStore) -> dict[str,
     if not deleted:
         summary = "、".join(
             f"{_bounded(record.get('task_id'), 'unknown')[:SESSION_SUMMARY_FIELD_LIMIT]}"
-            f"({_bounded(record.get('execution_status'), 'unknown')[:SESSION_SUMMARY_FIELD_LIMIT]})"
+            f"({_bounded(_execution_status(record), 'unknown')[:SESSION_SUMMARY_FIELD_LIMIT]})"
             for record in preserved[:6]
         )
         omitted = len(preserved) - 6
@@ -5624,10 +6543,6 @@ def handle(payload: dict[str, Any], store: StateStore | None = None) -> dict[str
         return None
     if event == "PostToolUse":
         return _handle_post_tool(payload, active_store)
-    if event == "SubagentStart":
-        return _handle_subagent_start(payload, active_store)
-    if event == "SubagentStop":
-        return _handle_subagent_stop(payload, active_store)
     if event == "Stop":
         return _handle_stop(payload, active_store)
     if event == "SessionStart":
@@ -5675,78 +6590,60 @@ def _read_session_file_read_only(
     *,
     requested_session: str | None = None,
 ) -> dict[str, Any]:
+    diagnostic_codes = {
+        "symlink": "session_symlink",
+        "not_regular": "session_not_regular",
+        "owner_mismatch": "session_owner_mismatch",
+        "permissions_unsafe": "session_permissions_unsafe",
+        "oversized": "session_oversized",
+        "unreadable": "session_unreadable",
+    }
+    diagnostic_messages = {
+        "symlink": "Session 状态文件是符号链接",
+        "not_regular": "Session 状态目标不是普通文件",
+        "owner_mismatch": "Session 状态文件所有者不安全",
+        "permissions_unsafe": "Session 状态文件权限向 group/other 开放",
+        "oversized": f"Session 状态文件超过 {MAX_STATE_BYTES} 字节上限",
+        "unreadable": "Session 状态文件无法安全读取",
+    }
+
+    def diagnostic_storage_error(code: str, _message: str) -> Exception:
+        normalized_code = code if code in diagnostic_codes else "unreadable"
+        return DiagnosticReadError(
+            diagnostic_codes[normalized_code],
+            diagnostic_messages[normalized_code],
+            context={"path": str(path)},
+        )
+
     try:
-        metadata = path.lstat()
+        raw = read_private_bytes(
+            path,
+            label="Session 状态文件",
+            max_bytes=MAX_STATE_BYTES,
+            owned_by_current_user=_owned_by_current_user,
+            private_permissions_safe=_private_permissions_safe,
+            error_factory=diagnostic_storage_error,
+        )
     except FileNotFoundError as exc:
         raise DiagnosticReadError(
             "session_missing",
             "请求的 Session 状态文件不存在",
             context={"path": str(path)},
         ) from exc
-    if stat.S_ISLNK(metadata.st_mode):
-        raise DiagnosticReadError(
-            "session_symlink",
-            "Session 状态文件是符号链接",
-            context={"path": str(path)},
-        )
-    if not stat.S_ISREG(metadata.st_mode):
-        raise DiagnosticReadError(
-            "session_not_regular",
-            "Session 状态目标不是普通文件",
-            context={"path": str(path)},
-        )
-    if not _owned_by_current_user(metadata):
-        raise DiagnosticReadError(
-            "session_owner_mismatch",
-            "Session 状态文件不属于当前用户",
-            context={"path": str(path)},
-        )
-    if not _private_permissions_safe(metadata):
-        raise DiagnosticReadError(
-            "session_permissions_unsafe",
-            "Session 状态文件权限向 group/other 开放",
-            context={"path": str(path)},
-        )
-    if metadata.st_size > MAX_STATE_BYTES:
+    except DiagnosticReadError:
+        raise
+    except PrivateStorageCapacityError as exc:
         raise DiagnosticReadError(
             "session_oversized",
             f"Session 状态文件超过 {MAX_STATE_BYTES} 字节上限",
             context={"path": str(path)},
-        )
-    flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    try:
-        descriptor = os.open(path, flags)
-        with os.fdopen(descriptor, "rb") as state_file:
-            opened = os.fstat(state_file.fileno())
-            if not stat.S_ISREG(opened.st_mode):
-                raise DiagnosticReadError(
-                    "session_not_regular",
-                    "Session 状态文件打开后不是普通文件",
-                    context={"path": str(path)},
-                )
-            if not _owned_by_current_user(opened):
-                raise DiagnosticReadError(
-                    "session_owner_mismatch",
-                    "Session 状态文件打开后所有者异常",
-                    context={"path": str(path)},
-                )
-            raw = state_file.read(MAX_STATE_BYTES + 1)
-    except DiagnosticReadError:
-        raise
-    except OSError as exc:
+        ) from exc
+    except PrivateStorageError as exc:
         raise DiagnosticReadError(
             "session_unreadable",
             "Session 状态文件无法安全读取",
             context={"path": str(path)},
         ) from exc
-    if len(raw) > MAX_STATE_BYTES:
-        raise DiagnosticReadError(
-            "session_oversized",
-            f"Session 状态文件超过 {MAX_STATE_BYTES} 字节上限",
-            context={"path": str(path)},
-        )
     try:
         decoded = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -5782,7 +6679,14 @@ def _read_session_file_read_only(
             "Session 状态中的 session_id 与请求不匹配",
             context={"path": str(path), "session_id": stored_session},
         )
-    return value
+    try:
+        return _migrate_state_to_current(value)
+    except StateValidationError as exc:
+        raise DiagnosticReadError(
+            "session_format_unknown",
+            str(exc),
+            context={"path": str(path), "session_id": stored_session},
+        ) from exc
 
 
 def _diagnostic_validate_attempt(
@@ -5792,14 +6696,12 @@ def _diagnostic_validate_attempt(
     task_id: str,
     attempt: int,
 ) -> tuple[list[dict[str, Any]], bool, bool]:
-    if record.get("managed") is not True:
-        return [], False, True
     issues: list[dict[str, Any]] = []
     incomplete = False
     identity_valid = True
     try:
         _validate_task_identity(task_id, attempt)
-    except ResultSubmissionError:
+    except NotificationObservationError:
         issues.append(
             _diagnostic_issue(
                 "current_required_field_invalid",
@@ -5812,72 +6714,21 @@ def _diagnostic_validate_attempt(
         )
         incomplete = True
         identity_valid = False
-    enum_fields: dict[str, tuple[frozenset[str], bool]] = {
-        "execution_status": (EXECUTION_STATUSES, False),
-        "spawn_observation": (SPAWN_OBSERVATIONS, True),
-        "identity_status": (IDENTITY_STATUSES, False),
-        "platform_observation": (PLATFORM_OBSERVATIONS, True),
-        "business_result": (BUSINESS_RESULTS, True),
-        "acceptance_status": (ACCEPTANCE_STATUSES, True),
-        "result_protocol_status": (RESULT_PROTOCOL_STATUSES, True),
-        "result_storage_status": (RESULT_STORAGE_STATUSES, True),
-        "recovery_status": (RECOVERY_STATUSES, True),
-        "parent_action": (PARENT_ACTIONS, True),
-    }
-    for field_name, (allowed, nullable) in enum_fields.items():
-        if field_name not in record:
-            issues.append(
-                _diagnostic_issue(
-                    "current_required_field_missing",
-                    f"managed attempt 缺少 {field_name}",
-                    session_id=session_id,
-                    task_id=task_id,
-                    attempt=attempt,
-                    field=field_name,
-                )
-            )
-            incomplete = True
-            continue
-        value = record.get(field_name)
-        if value is None and nullable:
-            continue
-        if value not in allowed:
-            issues.append(
-                _diagnostic_issue(
-                    "current_required_field_invalid",
-                    f"managed attempt 的 {field_name} 非法",
-                    session_id=session_id,
-                    task_id=task_id,
-                    attempt=attempt,
-                    field=field_name,
-                )
-            )
-            incomplete = True
-    if "result_conflict" not in record:
-        issues.append(
-            _diagnostic_issue(
-                "current_required_field_missing",
-                "managed attempt 缺少 result_conflict",
-                session_id=session_id,
-                task_id=task_id,
-                attempt=attempt,
-                field="result_conflict",
-            )
-        )
-        incomplete = True
-    elif not isinstance(record.get("result_conflict"), bool):
+    try:
+        _validate_current_execution_planes(record)
+    except StateValidationError as exc:
         issues.append(
             _diagnostic_issue(
                 "current_required_field_invalid",
-                "managed attempt 的 result_conflict 必须是布尔值",
+                str(exc),
                 session_id=session_id,
                 task_id=task_id,
                 attempt=attempt,
-                field="result_conflict",
+                field="canonical_execution_planes",
             )
         )
         incomplete = True
-    for field_name in ("spawn_retry_count", "recovery_count", "correction_count"):
+    for field_name in ("spawn_retry_count", "recovery_count"):
         value = record.get(field_name)
         if field_name not in record:
             code = "current_required_field_missing"
@@ -5905,11 +6756,24 @@ def _diagnostic_skipped_attempt_issues(
     session_id: str,
 ) -> tuple[list[dict[str, Any]], bool]:
     issues: list[dict[str, Any]] = []
-    attempt_minimum = int(SEMANTIC_DEFINITIONS["attempt"]["minimum"])
-    task_id_maximum = int(SEMANTIC_DEFINITIONS["task_id"]["maxLength"])
-    for task_key, current in sorted(tasks.items(), key=lambda item: str(item[0])):
+    for task_key, task in sorted(tasks.items(), key=lambda item: str(item[0])):
         task_id = str(task_key)
-        if not isinstance(current, dict):
+        task_key_errors = _validate_text(
+            task_key,
+            "task_id",
+            maximum=int(SEMANTIC_DEFINITIONS["task_id"]["maxLength"]),
+        )
+        if task_key_errors:
+            issues.append(
+                _diagnostic_issue(
+                    "current_required_field_invalid",
+                    "tasks 键不是合法 task_id",
+                    session_id=session_id,
+                    task_id=task_id,
+                    field="tasks.<task_id>",
+                )
+            )
+        if not isinstance(task, dict):
             issues.append(
                 _diagnostic_issue(
                     "current_required_field_invalid",
@@ -5920,12 +6784,12 @@ def _diagnostic_skipped_attempt_issues(
                 )
             )
             continue
-        if current.get("managed") is not True:
+        if task.get("managed") is not True:
             issues.append(
                 _diagnostic_issue(
                     (
                         "current_required_field_missing"
-                        if "managed" not in current
+                        if "managed" not in task
                         else "current_required_field_invalid"
                     ),
                     "task 记录不是当前 managed attempt 结构；旧记录不会进入执行状态机",
@@ -5935,189 +6799,33 @@ def _diagnostic_skipped_attempt_issues(
                 )
             )
             continue
-        stored_task_id = current.get("task_id")
-        if "task_id" not in current:
-            task_id_code = "current_required_field_missing"
-        elif (
-            not isinstance(stored_task_id, str)
-            or not stored_task_id.strip()
-            or len(stored_task_id) > task_id_maximum
-            or stored_task_id != task_id
-        ):
-            task_id_code = "current_required_field_invalid"
-        else:
-            task_id_code = None
-        if task_id_code is not None:
-            issues.append(
-                _diagnostic_issue(
-                    task_id_code,
-                    "managed current attempt 的 task_id 缺失、非法或与 tasks 键不一致",
-                    session_id=session_id,
-                    task_id=task_id,
-                    field="task_id",
-                )
-            )
-        current_attempt = current.get("attempt")
-        if "attempt" not in current:
-            attempt_code = "current_required_field_missing"
-        elif (
-            isinstance(current_attempt, bool)
-            or not isinstance(current_attempt, int)
-            or current_attempt < attempt_minimum
-        ):
-            attempt_code = "current_required_field_invalid"
-        else:
-            attempt_code = None
-        if attempt_code is not None:
-            issues.append(
-                _diagnostic_issue(
-                    attempt_code,
-                    "managed current attempt 的 attempt 缺失或非法",
-                    session_id=session_id,
-                    task_id=task_id,
-                    field="attempt",
-                )
-            )
-        prior_attempts = current.get("prior_attempts")
-        if prior_attempts is None:
-            continue
-        if not isinstance(prior_attempts, dict):
-            issues.append(
-                _diagnostic_issue(
-                    "current_required_field_invalid",
-                    "managed task 的 prior_attempts 必须是对象",
-                    session_id=session_id,
-                    task_id=task_id,
-                    field="prior_attempts",
-                )
-            )
-            continue
-        for prior_key, prior in sorted(
-            prior_attempts.items(), key=lambda item: str(item[0])
-        ):
-            if not isinstance(prior, dict):
+        for field_name in ("work_item", "executions"):
+            if not isinstance(task.get(field_name), dict):
                 issues.append(
                     _diagnostic_issue(
-                        "current_required_field_invalid",
-                        "managed prior attempt 记录必须是对象",
+                        (
+                            "current_required_field_missing"
+                            if field_name not in task
+                            else "current_required_field_invalid"
+                        ),
+                        f"managed task 缺少 canonical {field_name} 对象；历史记录不会迁移或进入执行状态机",
                         session_id=session_id,
                         task_id=task_id,
-                        field=f"prior_attempts.{prior_key}",
-                    )
-                )
-                continue
-            prior_attempt = prior.get("attempt")
-            if "attempt" not in prior:
-                prior_code = "current_required_field_missing"
-            elif (
-                isinstance(prior_attempt, bool)
-                or not isinstance(prior_attempt, int)
-                or prior_attempt < attempt_minimum
-            ):
-                prior_code = "current_required_field_invalid"
-            else:
-                prior_code = None
-            if prior_code is not None:
-                issues.append(
-                    _diagnostic_issue(
-                        prior_code,
-                        "managed prior attempt 的 attempt 缺失或非法",
-                        session_id=session_id,
-                        task_id=task_id,
-                        field=f"prior_attempts.{prior_key}.attempt",
+                        field=field_name,
                     )
                 )
     return issues, bool(issues)
 
 
-def _diagnostic_attempt_snapshot(
-    state: dict[str, Any],
-    record: dict[str, Any],
-    *,
-    now: int,
-    action_keys: set[tuple[str, int]],
-    recent_keys: set[tuple[str, int]],
-    formal_result: dict[str, Any] | None,
-) -> dict[str, Any]:
-    task_id = str(record.get("task_id") or "")
-    attempt = int(record.get("attempt") or 0)
-    summary = record.get("contract_summary")
-    summary = summary if isinstance(summary, dict) else {}
-    completion = summary.get("completion_conditions")
-    completion = [
-        str(value)[:600]
-        for value in completion
-        if isinstance(value, str) and value.strip()
-    ] if isinstance(completion, list) else []
-    timestamp_fields = (
-        "created_at",
-        "updated_at",
-        "platform_checked_at",
-        "spawn_claimed_at",
-        "spawn_post_observed_at",
-        "result_stored_at",
-        "attempt_closed_at",
-    )
-    timestamps = {
-        field_name: record[field_name]
-        for field_name in timestamp_fields
-        if isinstance(record.get(field_name), int)
-        and not isinstance(record.get(field_name), bool)
-    }
-    key = (task_id, attempt)
-    activity_at = int(record.get("activity_at") or 0)
-    return {
-        "task_id": task_id,
-        "attempt": attempt,
-        "is_current_attempt": bool(record.get("is_current_attempt")),
-        "agent_id": record.get("agent_id") if isinstance(record.get("agent_id"), str) else None,
-        "canonical_task_path": (
-            record.get("canonical_task_path")
-            if isinstance(record.get("canonical_task_path"), str)
-            else None
-        ),
-        "execution_status": record.get("execution_status"),
-        "spawn_observation": record.get("spawn_observation"),
-        "identity_status": record.get("identity_status"),
-        "platform_observation": record.get("platform_observation"),
-        "business_result": record.get("business_result"),
-        "acceptance_status": record.get("acceptance_status"),
-        "result_protocol_status": record.get("result_protocol_status"),
-        "result_storage_status": record.get("result_storage_status"),
-        "result_conflict": record.get("result_conflict") if isinstance(record.get("result_conflict"), bool) else None,
-        "recovery_status": record.get("recovery_status"),
-        "parent_action": record.get("parent_action"),
-        "spawn_retry_count": record.get("spawn_retry_count") if isinstance(record.get("spawn_retry_count"), int) else None,
-        "recovery_count": record.get("recovery_count") if isinstance(record.get("recovery_count"), int) else None,
-        "correction_count": record.get("correction_count") if isinstance(record.get("correction_count"), int) else None,
-        "activity_at": activity_at or None,
-        "timestamps": timestamps,
-        "contract_summary": {
-            "resolved_mode": record.get("resolved_mode") if isinstance(record.get("resolved_mode"), str) else None,
-            "objective": str(summary.get("objective") or "")[:600] or None,
-            "completion_conditions": completion[:3],
-            "omitted_completion_conditions": max(0, len(completion) - 3),
-        },
-        "stale": activity_at < now - int(RETENTION_SECONDS["recent_activity"]),
-        "action_required": key in action_keys,
-        "recent_activity": key in recent_keys,
-        "closed": _attempt_closed(state, record),
-        "formal_result": formal_result,
-    }
-
-
-def _diagnostic_session_snapshot(
+def _diagnostic_normalize_session_shape(
     state: dict[str, Any],
     *,
     path: Path,
-    results_root: Path,
-    now: int,
-) -> tuple[dict[str, Any], bool, int]:
-    session_id = str(state.get("session_id") or "")
+    session_id: str,
+) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     incomplete = False
-    omitted = 0
-    for field_name in ("tasks", "agents", "health", "tombstones", "updated_at"):
+    for field_name in ("tasks", "agents", "health", "tombstones"):
         if field_name not in state:
             issues.append(
                 _diagnostic_issue(
@@ -6178,19 +6886,6 @@ def _diagnostic_session_snapshot(
         )
         tombstones = {}
         incomplete = True
-    updated_at = state.get("updated_at")
-    if isinstance(updated_at, bool) or not isinstance(updated_at, int):
-        issues.append(
-            _diagnostic_issue(
-                "current_required_field_invalid",
-                "Session updated_at 必须是整数",
-                session_id=session_id,
-                field="updated_at",
-            )
-        )
-        updated_at = None
-        incomplete = True
-
     normalized_state = dict(state)
     normalized_state["tasks"] = tasks
     normalized_state["agents"] = agents if isinstance(agents, dict) else {}
@@ -6200,6 +6895,25 @@ def _diagnostic_session_snapshot(
     )
     issues.extend(skipped_attempt_issues)
     incomplete = incomplete or skipped_attempt_incomplete
+    return {
+        "state": normalized_state,
+        "tasks": tasks,
+        "tombstones": tombstones,
+        "health_status": health_status,
+        "issues": issues,
+        "incomplete": incomplete,
+    }
+
+
+def _diagnostic_collect_attempts(
+    normalized_state: dict[str, Any],
+    *,
+    session_id: str,
+    now: int,
+) -> dict[str, Any]:
+    issues: list[dict[str, Any]] = []
+    incomplete = False
+    omitted = 0
     all_attempts = _view_attempt_records(normalized_state)
     all_attempts.sort(
         key=lambda record: (
@@ -6207,28 +6921,24 @@ def _diagnostic_session_snapshot(
             int(record.get("attempt") or 0),
         )
     )
-    allowed_attempts = all_attempts[:DIAGNOSTIC_ATTEMPT_LIMIT]
-    omitted += max(0, len(all_attempts) - len(allowed_attempts))
-    allowed_keys = {
-        (str(record.get("task_id") or ""), int(record.get("attempt") or 0))
-        for record in allowed_attempts
-    }
+    attempts_by_task: dict[str, list[dict[str, Any]]] = {}
+    for record in all_attempts:
+        attempts_by_task.setdefault(str(record.get("task_id") or ""), []).append(record)
+    allowed_attempts: list[dict[str, Any]] = []
+    allowed_task_ids: list[str] = []
+    for task_id in sorted(attempts_by_task):
+        task_attempts = attempts_by_task[task_id]
+        if len(allowed_attempts) + len(task_attempts) > DIAGNOSTIC_ATTEMPT_LIMIT:
+            omitted += len(task_attempts)
+            continue
+        allowed_task_ids.append(task_id)
+        allowed_attempts.extend(task_attempts)
     action_all = _action_required_records(normalized_state)
     recent_all = _recent_activity_records(normalized_state, now=now)
-    action_keys = {
-        (str(record.get("task_id") or ""), int(record.get("attempt") or 0))
-        for record in action_all
-    }
-    recent_keys = {
-        (str(record.get("task_id") or ""), int(record.get("attempt") or 0))
-        for record in recent_all
-    }
-    result_cache: dict[tuple[str, int], dict[str, Any] | None] = {}
-    snapshots: dict[tuple[str, int], dict[str, Any]] = {}
     for record in allowed_attempts:
         task_id = str(record.get("task_id") or "")
         attempt = int(record.get("attempt") or 0)
-        attempt_issues, attempt_incomplete, identity_valid = _diagnostic_validate_attempt(
+        attempt_issues, attempt_incomplete, _identity_valid = _diagnostic_validate_attempt(
             record,
             session_id=session_id,
             task_id=task_id,
@@ -6236,25 +6946,9 @@ def _diagnostic_session_snapshot(
         )
         issues.extend(attempt_issues)
         incomplete = incomplete or attempt_incomplete
-        if identity_valid:
-            formal_result, result_issues, result_incomplete = (
-                _inspect_formal_result_read_only(
-                    record,
-                    task_id,
-                    attempt,
-                    results_root,
-                    session_id=session_id,
-                )
-            )
-        else:
-            formal_result, result_issues, result_incomplete = None, [], True
-        result_cache[(task_id, attempt)] = formal_result
-        issues.extend(result_issues)
-        incomplete = incomplete or result_incomplete
         if (
-            record.get("managed") is True
-            and not _attempt_closed(normalized_state, record)
-            and record.get("identity_status") == "unconfirmed"
+            not _attempt_closed(normalized_state, record)
+            and _identity_status(record) == "unconfirmed"
         ):
             issues.append(
                 _diagnostic_issue(
@@ -6265,7 +6959,7 @@ def _diagnostic_session_snapshot(
                     attempt=attempt,
                 )
             )
-        if record.get("platform_observation") == "error":
+        if _platform_observation(record) == "error":
             issues.append(
                 _diagnostic_issue(
                     "platform_error",
@@ -6275,25 +6969,59 @@ def _diagnostic_session_snapshot(
                     attempt=attempt,
                 )
             )
-        if record.get("result_conflict") is True:
-            issues.append(
-                _diagnostic_issue(
-                    "result_conflict",
-                    "StateStore 已记录同一 attempt 的正式结果冲突",
-                    session_id=session_id,
-                    task_id=task_id,
-                    attempt=attempt,
-                )
-            )
-        snapshots[(task_id, attempt)] = _diagnostic_attempt_snapshot(
-            normalized_state,
-            record,
-            now=now,
-            action_keys=action_keys,
-            recent_keys=recent_keys,
-            formal_result=formal_result,
-        )
+    return {
+        "all_attempts": all_attempts,
+        "attempts_by_task": attempts_by_task,
+        "allowed_task_ids": allowed_task_ids,
+        "issues": issues,
+        "incomplete": incomplete,
+        "omitted": omitted,
+        "action_required": len(action_all),
+        "recent_activity": len(recent_all),
+    }
 
+
+def _diagnostic_collect_work_items(
+    normalized_state: dict[str, Any],
+    allowed_task_ids: list[str],
+    *,
+    session_id: str,
+    now: int,
+) -> dict[str, Any]:
+    issues: list[dict[str, Any]] = []
+    incomplete = False
+    work_item_snapshots: list[dict[str, Any]] = []
+    for task_id in allowed_task_ids:
+        work_item_snapshot, work_item_issues, work_item_incomplete = (
+            _build_work_item_decision_snapshot(
+                normalized_state,
+                task_id,
+                session_id=session_id,
+                now=now,
+            )
+        )
+        issues.extend(work_item_issues)
+        incomplete = incomplete or work_item_incomplete
+        if isinstance(work_item_snapshot, dict):
+            work_item_snapshots.append(work_item_snapshot)
+    work_item_snapshots.sort(key=lambda item: str(item.get("task_id") or ""))
+
+    return {
+        "snapshots": work_item_snapshots,
+        "issues": issues,
+        "incomplete": incomplete,
+    }
+
+
+def _diagnostic_collect_groups(
+    state: dict[str, Any],
+    normalized_state: dict[str, Any],
+    *,
+    session_id: str,
+) -> dict[str, Any]:
+    issues: list[dict[str, Any]] = []
+    incomplete = False
+    omitted = 0
     groups_value = state.get("groups")
     group_snapshots: list[dict[str, Any]] = []
     if groups_value is None:
@@ -6317,14 +7045,11 @@ def _diagnostic_session_snapshot(
             validated_group = _validate_group_value(
                 group_value,
                 expected_group_id=str(group_key),
-                persisted=True,
             )
             snapshot, group_issues, group_incomplete = _derive_group_snapshot(
                 normalized_state,
                 validated_group,
-                results_root=results_root,
                 session_id=session_id,
-                result_cache=result_cache,
             )
         except GroupValidationError as exc:
             issues.append(
@@ -6343,6 +7068,22 @@ def _diagnostic_session_snapshot(
         incomplete = incomplete or group_incomplete
     group_snapshots.sort(key=lambda group: str(group.get("group_id") or ""))
 
+    return {
+        "snapshots": group_snapshots,
+        "count": len(groups_items),
+        "issues": issues,
+        "incomplete": incomplete,
+        "omitted": omitted,
+    }
+
+
+def _diagnostic_finalize_session_issues(
+    issues: list[dict[str, Any]],
+    incomplete: bool,
+    omitted: int,
+    *,
+    session_id: str,
+) -> tuple[list[dict[str, Any]], bool, int]:
     if omitted:
         incomplete = True
         issues.append(
@@ -6368,47 +7109,78 @@ def _diagnostic_session_snapshot(
             )
         )
         issues.sort(key=_diagnostic_issue_sort_key)
-    action_snapshots = [
-        snapshots[key]
-        for key in [
-            (str(record.get("task_id") or ""), int(record.get("attempt") or 0))
-            for record in action_all
-        ]
-        if key in allowed_keys and key in snapshots
-    ]
-    recent_snapshots = [
-        snapshots[key]
-        for key in [
-            (str(record.get("task_id") or ""), int(record.get("attempt") or 0))
-            for record in recent_all
-        ]
-        if key in allowed_keys and key in snapshots
-    ]
+    return issues, incomplete, omitted
+
+
+def _diagnostic_session_snapshot(
+    state: dict[str, Any],
+    *,
+    path: Path,
+    now: int,
+) -> tuple[dict[str, Any], bool, int]:
+    session_id = str(state.get("session_id") or "")
+    normalized = _diagnostic_normalize_session_shape(
+        state,
+        path=path,
+        session_id=session_id,
+    )
+    normalized_state = normalized["state"]
+    tasks = normalized["tasks"]
+    tombstones = normalized["tombstones"]
+    issues = list(normalized["issues"])
+    incomplete = bool(normalized["incomplete"])
+    attempts = _diagnostic_collect_attempts(
+        normalized_state,
+        session_id=session_id,
+        now=now,
+    )
+    issues.extend(attempts["issues"])
+    incomplete = incomplete or bool(attempts["incomplete"])
+    work_items = _diagnostic_collect_work_items(
+        normalized_state,
+        attempts["allowed_task_ids"],
+        session_id=session_id,
+        now=now,
+    )
+    issues.extend(work_items["issues"])
+    incomplete = incomplete or bool(work_items["incomplete"])
+    groups = _diagnostic_collect_groups(
+        state,
+        normalized_state,
+        session_id=session_id,
+    )
+    issues.extend(groups["issues"])
+    incomplete = incomplete or bool(groups["incomplete"])
+    omitted = int(attempts["omitted"]) + int(groups["omitted"])
+    issues, incomplete, omitted = _diagnostic_finalize_session_issues(
+        issues,
+        incomplete,
+        omitted,
+        session_id=session_id,
+    )
     return (
         {
             "session_id": session_id,
             "component_health": {
-                "status": health_status,
+                "status": normalized["health_status"],
                 "source": "persisted_health",
             },
-            "updated_at": updated_at,
             "counts": {
                 "tasks": len(tasks),
-                "attempts": len(all_attempts),
-                "action_required": len(action_all),
-                "recent_activity": len(recent_all),
-                "groups": len(groups_items),
+                "work_items": len(attempts["attempts_by_task"]),
+                "attempts": len(attempts["all_attempts"]),
+                "action_required": attempts["action_required"],
+                "recent_activity": attempts["recent_activity"],
+                "groups": groups["count"],
                 "tombstones": len(tombstones),
             },
-            "action_required": action_snapshots,
-            "recent_activity": recent_snapshots,
-            "groups": group_snapshots,
+            "work_items": work_items["snapshots"],
+            "groups": groups["snapshots"],
             "issues": issues,
         },
         incomplete,
         omitted,
     )
-
 
 def _diagnostic_output_bytes(document: dict[str, Any]) -> bytes:
     return (
@@ -6513,7 +7285,6 @@ def _build_diagnostic_document(
             )
         )
     now = _now()
-    results_root = root / FORMAL_RESULT_STORAGE["directory"]
     snapshots = []
     for path in paths:
         scan["checked"] += 1
@@ -6535,7 +7306,6 @@ def _build_diagnostic_document(
         snapshot, session_incomplete, session_omitted = _diagnostic_session_snapshot(
             state,
             path=path,
-            results_root=results_root,
             now=now,
         )
         snapshots.append((snapshot, path.name))
@@ -6619,6 +7389,152 @@ def _emit_diagnostic_cli_error(message: str, arguments: list[str]) -> None:
     sys.stdout.buffer.write(_diagnostic_output_bytes(document))
 
 
+def _run_preparation_cli(args: argparse.Namespace) -> int:
+    if not args.session:
+        print("dispatch preparation requires --session", file=sys.stderr)
+        return 2
+    try:
+        raw_contract = json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
+        base = _prepare_private_directory(args.data_root.expanduser()) if args.data_root else _data_root()
+        state_store = StateStore(base / "sessions")
+        prepared_store = PreparedContractStore(base / "prepared")
+        if args.prepare_dispatch:
+            result = prepare_dispatch(
+                raw_contract,
+                args.session,
+                state_store=state_store,
+                prepared_store=prepared_store,
+            )
+        elif args.prepare_spawn_retry is not None:
+            result = prepare_spawn_retry(
+                raw_contract,
+                args.session,
+                args.prepare_spawn_retry,
+                authorized=args.authorize_final_retry,
+                state_store=state_store,
+                prepared_store=prepared_store,
+            )
+        elif args.prepare_communication:
+            result = prepare_communication(
+                raw_contract,
+                args.session,
+                authorized_recovery=args.authorize_recovery,
+                state_store=state_store,
+            )
+        else:
+            result = prepare_interrupt(
+                raw_contract,
+                args.session,
+                state_store=state_store,
+            )
+    except Exception as exc:
+        print(f"operation preparation failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def _run_reconciliation_cli(args: argparse.Namespace) -> int:
+    if not args.session:
+        print("interrupted attempt reconciliation requires --session", file=sys.stderr)
+        return 2
+    try:
+        raw_observation = json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
+        base = _prepare_private_directory(args.data_root.expanduser()) if args.data_root else _data_root()
+        result = reconcile_interrupted_attempt(
+            raw_observation,
+            args.session,
+            state_store=StateStore(base / "sessions"),
+        )
+    except Exception as exc:
+        print(f"interrupted attempt reconciliation failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def _run_lifecycle_cli(args: argparse.Namespace) -> int:
+    if not args.session:
+        print("lifecycle operations require --session", file=sys.stderr)
+        return 2
+    try:
+        base = _prepare_private_directory(args.data_root.expanduser()) if args.data_root else _data_root()
+        state_store = StateStore(base / "sessions")
+        if args.record_terminal_notification:
+            raw_notification = json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
+            result = record_terminal_notification(
+                raw_notification,
+                args.session,
+                state_store=state_store,
+            )
+        else:
+            raw_disposition = json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
+            result = apply_parent_disposition(
+                raw_disposition,
+                args.session,
+                state_store=state_store,
+            )
+    except Exception as exc:
+        print(f"lifecycle operation failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def _run_group_cli(args: argparse.Namespace) -> int:
+    if not args.session:
+        print("group operations require --session", file=sys.stderr)
+        return 2
+    if args.read_group and not args.group_id:
+        print("--read-group requires --group-id", file=sys.stderr)
+        return 2
+    try:
+        base = (
+            _prepare_private_directory(args.data_root.expanduser())
+            if args.data_root
+            else _data_root()
+        )
+        state_store = StateStore(base / "sessions")
+        if args.upsert_group:
+            raw_group = json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
+            result = upsert_group(
+                raw_group,
+                args.session,
+                state_store=state_store,
+            )
+        else:
+            result = read_group(
+                args.session,
+                args.group_id,
+                state_store=state_store,
+            )
+    except Exception as exc:
+        print(f"group operation failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def _run_hook_cli() -> int:
+    try:
+        raw_input = sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1)
+        if len(raw_input.encode("utf-8")) > MAX_HOOK_INPUT_BYTES:
+            raise ValueError(f"hook input exceeds {MAX_HOOK_INPUT_BYTES} bytes")
+        payload = json.loads(raw_input)
+        if not isinstance(payload, dict):
+            raise ValueError("hook input must be a JSON object")
+        result = handle(payload)
+    except Exception as exc:
+        event = locals().get("payload", {}).get("hook_event_name") if isinstance(locals().get("payload"), dict) else None
+        if event == "PreToolUse":
+            result = _deny(f"Subagent Governance 解析失败：{exc}")
+        else:
+            result = {"continue": True, "systemMessage": f"Subagent Governance 运行失败，已降级放行：{exc}"}
+    if result is not None:
+        print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
 def main() -> int:
     parser = _NonExitingArgumentParser(add_help=False)
     parser.add_argument("--diagnose", action="store_true")
@@ -6627,17 +7543,13 @@ def main() -> int:
     parser.add_argument("--authorize-final-retry", action="store_true")
     parser.add_argument("--prepare-communication", action="store_true")
     parser.add_argument("--prepare-interrupt", action="store_true")
+    parser.add_argument("--reconcile-interrupted-attempt", action="store_true")
     parser.add_argument("--authorize-recovery", action="store_true")
-    parser.add_argument("--submit-result", action="store_true")
-    parser.add_argument("--read-result", action="store_true")
-    parser.add_argument("--reassociate-result", action="store_true")
+    parser.add_argument("--record-terminal-notification", action="store_true")
     parser.add_argument("--parent-disposition", action="store_true")
     parser.add_argument("--upsert-group", action="store_true")
     parser.add_argument("--read-group", action="store_true")
     parser.add_argument("--group-id")
-    parser.add_argument("--agent-target")
-    parser.add_argument("--task-id")
-    parser.add_argument("--attempt", type=int)
     parser.add_argument("--session")
     parser.add_argument("--data-root", type=Path)
     raw_arguments = sys.argv[1:]
@@ -6659,9 +7571,8 @@ def main() -> int:
         "prepare_spawn_retry": args.prepare_spawn_retry is not None,
         "prepare_communication": args.prepare_communication,
         "prepare_interrupt": args.prepare_interrupt,
-        "submit_result": args.submit_result,
-        "read_result": args.read_result,
-        "reassociate_result": args.reassociate_result,
+        "reconcile_interrupted_attempt": args.reconcile_interrupted_attempt,
+        "record_terminal_notification": args.record_terminal_notification,
         "parent_disposition": args.parent_disposition,
         "upsert_group": args.upsert_group,
         "read_group": args.read_group,
@@ -6674,11 +7585,14 @@ def main() -> int:
             args.prepare_interrupt,
         )
     )
-    formal_result_mode = any(
+    lifecycle_mode = any(
         operation_modes[name]
-        for name in ("submit_result", "read_result", "reassociate_result", "parent_disposition")
+        for name in (
+            "record_terminal_notification", "parent_disposition",
+        )
     )
     group_mode = args.upsert_group or args.read_group
+    reconciliation_mode = args.reconcile_interrupted_attempt
     if sum(bool(value) for value in operation_modes.values()) > 1:
         if args.diagnose:
             _emit_diagnostic_cli_error("operation modes cannot be combined", raw_arguments)
@@ -6695,9 +7609,6 @@ def main() -> int:
         name
         for name, selected in (
             ("--group-id", args.group_id is not None),
-            ("--agent-target", args.agent_target is not None),
-            ("--task-id", args.task_id is not None),
-            ("--attempt", args.attempt is not None),
             ("--authorize-final-retry", args.authorize_final_retry),
             ("--authorize-recovery", args.authorize_recovery),
         )
@@ -6709,6 +7620,25 @@ def main() -> int:
         _emit_diagnostic_cli_error(message, raw_arguments)
         print(message, file=sys.stderr)
         return 2
+    invalid_authorization_combinations = []
+    if args.authorize_final_retry and args.prepare_spawn_retry is None:
+        invalid_authorization_combinations.append(
+            "--authorize-final-retry requires --prepare-spawn-retry"
+        )
+    if args.authorize_recovery and not args.prepare_communication:
+        invalid_authorization_combinations.append(
+            "--authorize-recovery requires --prepare-communication"
+        )
+    if args.group_id is not None and not args.read_group:
+        invalid_authorization_combinations.append(
+            "--group-id is only valid with --read-group"
+        )
+    if invalid_authorization_combinations:
+        message = "; ".join(invalid_authorization_combinations)
+        if args.diagnose:
+            _emit_diagnostic_cli_error(message, raw_arguments)
+        print(message, file=sys.stderr)
+        return 2
     if not args.diagnose and not any(operation_modes.values()) and (
         args.session is not None or args.data_root is not None or args.group_id is not None
     ):
@@ -6717,154 +7647,23 @@ def main() -> int:
     if args.diagnose:
         return _diagnose(args.session, args.data_root)
     if preparation_mode:
-        if not args.session:
-            print("dispatch preparation requires --session", file=sys.stderr)
-            return 2
-        try:
-            raw_contract = json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
-            base = _prepare_private_directory(args.data_root.expanduser()) if args.data_root else _data_root()
-            state_store = StateStore(base / "sessions")
-            prepared_store = PreparedContractStore(base / "prepared")
-            if args.prepare_dispatch:
-                result = prepare_dispatch(
-                    raw_contract,
-                    args.session,
-                    state_store=state_store,
-                    prepared_store=prepared_store,
-                )
-            elif args.prepare_spawn_retry is not None:
-                result = prepare_spawn_retry(
-                    raw_contract,
-                    args.session,
-                    args.prepare_spawn_retry,
-                    authorized=args.authorize_final_retry,
-                    state_store=state_store,
-                    prepared_store=prepared_store,
-                )
-            elif args.prepare_communication:
-                result = prepare_communication(
-                    raw_contract,
-                    args.session,
-                    authorized_recovery=args.authorize_recovery,
-                    state_store=state_store,
-                )
-            else:
-                result = prepare_interrupt(
-                    raw_contract,
-                    args.session,
-                    state_store=state_store,
-                )
-        except Exception as exc:
-            print(f"operation preparation failed: {exc}", file=sys.stderr)
-            return 1
-        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-        return 0
-    if formal_result_mode:
-        if not args.session:
-            print("formal result operations require --session", file=sys.stderr)
-            return 2
-        if args.submit_result and not args.agent_target:
-            print("--submit-result requires --agent-target", file=sys.stderr)
-            return 2
-        if (args.read_result or args.reassociate_result) and (
-            not args.task_id or args.attempt is None
-        ):
-            print("result read/reassociation requires --task-id and --attempt", file=sys.stderr)
-            return 2
-        try:
-            base = _prepare_private_directory(args.data_root.expanduser()) if args.data_root else _data_root()
-            state_store = StateStore(base / "sessions")
-            results_root = base / "results"
-            if args.submit_result:
-                raw_result = json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
-                result = submit_task_result(
-                    raw_result,
-                    args.session,
-                    agent_target=args.agent_target,
-                    state_store=state_store,
-                    results_root=results_root,
-                )
-            elif args.read_result:
-                result = read_task_result(
-                    args.session,
-                    args.task_id,
-                    args.attempt,
-                    state_store=state_store,
-                    results_root=results_root,
-                )
-            elif args.reassociate_result:
-                result = reassociate_task_result(
-                    args.session,
-                    args.task_id,
-                    args.attempt,
-                    state_store=state_store,
-                    results_root=results_root,
-                )
-            else:
-                raw_disposition = json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
-                result = apply_parent_disposition(
-                    raw_disposition,
-                    args.session,
-                    state_store=state_store,
-                )
-        except Exception as exc:
-            print(f"formal result operation failed: {exc}", file=sys.stderr)
-            return 1
-        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-        return 0
+        return _run_preparation_cli(args)
+    if reconciliation_mode:
+        return _run_reconciliation_cli(args)
+    if lifecycle_mode:
+        return _run_lifecycle_cli(args)
     if group_mode:
-        if not args.session:
-            print("group operations require --session", file=sys.stderr)
-            return 2
-        if args.read_group and not args.group_id:
-            print("--read-group requires --group-id", file=sys.stderr)
-            return 2
-        if args.upsert_group and args.group_id is not None:
-            print("--group-id is only valid with --read-group", file=sys.stderr)
-            return 2
-        try:
-            base = (
-                _prepare_private_directory(args.data_root.expanduser())
-                if args.data_root
-                else _data_root()
-            )
-            state_store = StateStore(base / "sessions")
-            if args.upsert_group:
-                raw_group = json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
-                result = upsert_group(
-                    raw_group,
-                    args.session,
-                    state_store=state_store,
-                )
-            else:
-                result = read_group(
-                    args.session,
-                    args.group_id,
-                    state_store=state_store,
-                    results_root=base / FORMAL_RESULT_STORAGE["directory"],
-                )
-        except Exception as exc:
-            print(f"group operation failed: {exc}", file=sys.stderr)
-            return 1
-        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-        return 0
-    try:
-        raw_input = sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1)
-        if len(raw_input.encode("utf-8")) > MAX_HOOK_INPUT_BYTES:
-            raise ValueError(f"hook input exceeds {MAX_HOOK_INPUT_BYTES} bytes")
-        payload = json.loads(raw_input)
-        if not isinstance(payload, dict):
-            raise ValueError("hook input must be a JSON object")
-        result = handle(payload)
-    except Exception as exc:
-        event = locals().get("payload", {}).get("hook_event_name") if isinstance(locals().get("payload"), dict) else None
-        if event == "PreToolUse":
-            result = _deny(f"Subagent Governance 解析失败：{exc}")
-        else:
-            result = {"continue": True, "systemMessage": f"Subagent Governance 运行失败，已降级放行：{exc}"}
-    if result is not None:
-        print(json.dumps(result, ensure_ascii=False))
-    return 0
+        return _run_group_cli(args)
+    return _run_hook_cli()
+    if preparation_mode:
+        return _run_preparation_cli(args)
+    if reconciliation_mode:
+        return _run_reconciliation_cli(args)
+    if lifecycle_mode:
+        return _run_lifecycle_cli(args)
+    if group_mode:
+        return _run_group_cli(args)
+    return _run_hook_cli()
 
 
 if __name__ == "__main__":

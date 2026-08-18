@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 
+import copy
 import importlib.util
-import json
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts/subagent_governance.py"
-SPEC = importlib.util.spec_from_file_location("subagent_governance_wp04", SCRIPT)
+SCRIPT = ROOT / "scripts" / "subagent_governance.py"
+SPEC = importlib.util.spec_from_file_location("subagent_governance_communication_v5", SCRIPT)
 governance = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 sys.modules[SPEC.name] = governance
@@ -21,1151 +21,613 @@ SPEC.loader.exec_module(governance)
 class CommunicationLifecycleTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
-        self.store = governance.StateStore(self.root / "sessions")
-
-    def tearDown(self):
-        self.temporary.cleanup()
+        self.addCleanup(self.temporary.cleanup)
+        root = Path(self.temporary.name)
+        self.store = governance.StateStore(root / "sessions")
+        self.session_id = "communication-v5"
 
     @staticmethod
-    def contract(**overrides):
-        value = {
+    def contract(current_state=None):
+        return {
             "semantic_name": "communication_task",
             "requested_mode": "standard",
             "objective": "完成通信与生命周期状态机验证",
-            "background": "WP-04 定向测试。",
+            "background": "notification-only lifecycle test",
             "work_scope": ["当前测试工作区"],
-            "forbidden_scope": [],
+            "forbidden_scope": ["formal result persistence"],
             "completion_conditions": ["相关状态转换通过测试"],
             "evidence_requirements": ["单元测试结果"],
             "relevant_files": ["scripts/subagent_governance.py"],
-            "current_state": None,
+            "current_state": current_state,
             "model": None,
             "reasoning_effort": None,
             "context_strategy": "isolated",
             "context_turns": None,
             "context_reason": None,
         }
-        value.update(overrides)
-        return value
 
     @staticmethod
-    def communication(operation_type, **overrides):
+    def communication(operation_type, target, **overrides):
         value = {
-            "target": "agent-wp04",
+            "target": target,
             "operation_type": operation_type,
             "purpose": "继续原治理任务",
             "reason": "需要验证当前生命周期边界",
-            "content": "请按当前目标继续，并返回实际结果。",
+            "content": "请按当前目标继续，并报告实际状态。",
             "expected_result": "返回验证证据和剩余事项",
         }
         value.update(overrides)
         return value
 
-    def add_managed(self, **overrides):
-        now = governance._now()
-        task_id = overrides.pop("task_id", "sg-task-wp04")
-        attempt = overrides.pop("attempt", 1)
-        target = overrides.pop("target", "agent-wp04")
-        record = {
-            "managed": True,
-            "task_id": task_id,
-            "attempt": attempt,
-            "task_ref": governance.derive_task_ref(task_id, attempt, 12),
-            "task_name": "sg_standard_communication_task_t_"
-            + governance.derive_task_ref(task_id, attempt, 12),
-            "semantic_name": "communication_task",
-            "requested_mode": "standard",
-            "resolved_mode": "standard",
-            "resolution_reason": "explicit_request",
-            "contract_summary": governance._contract_summary(
-                governance._contract_from_input(self.contract())
-            ),
-            **governance.AttemptState().to_record(),
-            "identity_status": "confirmed",
-            "execution_status": "running",
-            "platform_observation": "normal",
-            "parent_action": "wait",
-            "agent_id": target,
-            "canonical_task_path": None,
-            "created_at": now,
-            "updated_at": now,
-        }
-        record.update(overrides)
-
-        def add(state):
-            state["tasks"][task_id] = record
-            state["agents"][target] = {"task_id": task_id, "attempt": attempt}
-
-        self.store.update("session-wp04", add)
+    def add_managed(self, task_id="communication-task", target="/root/communication"):
+        contract = governance._contract_from_input(self.contract())
+        task_ref = governance.derive_task_ref(task_id, 1, 12)
+        container = governance._initial_task_record(
+            1,
+            task_ref,
+            f"sg_standard_communication_task_t_{task_ref}",
+            contract,
+            100,
+        )
+        execution = container["executions"]["1"]
+        execution["dispatch_record"].update(
+            dispatch_state="acknowledged",
+            dispatch_target=target,
+            tool_use_id="spawn-tool",
+            claimed_at=101,
+        )
+        governance._apply_canonical_execution_update(execution, "observed_execution_status", "running")
+        governance._apply_canonical_execution_update(execution, "closure_parent_action", "wait")
+        state = governance.StateStore._empty_state(self.session_id)
+        state["tasks"][task_id] = container
+        state["agents"][target] = {"task_id": task_id, "attempt": 1}
+        self.store.update(self.session_id, lambda current: current.update(state))
         return task_id, target
 
-    def test_generator_keeps_internal_operation_and_task_id_out_of_message(self):
-        task_id, target = self.add_managed()
-        prepared = governance.prepare_communication(
-            self.communication("normal_message", target=target),
-            "session-wp04",
-            state_store=self.store,
-            now=100,
-        )
+    def execution(self, task_id, attempt=1):
+        return self.store.read(self.session_id)["tasks"][task_id]["executions"][str(attempt)]
 
-        self.assertIn("【子 Agent 通信】", prepared["user_message"])
-        self.assertNotIn(task_id, prepared["message"])
-        self.assertNotIn("normal_message", prepared["message"])
-        self.assertEqual(prepared["native_args"], {"target": target, "message": prepared["message"]})
-        record = self.store.read("session-wp04")["tasks"][task_id]
-        self.assertEqual(record["pending_action"]["phase"], "prepared")
-        self.assertEqual(record["pending_action"]["operation_type"], "normal_message")
-
-    def test_recovery_budget_is_claimed_before_call_and_failed_does_not_roll_back(self):
-        task_id, target = self.add_managed(
-            execution_status="stopped",
-            platform_observation="error",
-            parent_action="recover",
-        )
-        prepared = governance.prepare_communication(
-            self.communication("platform_recovery", target=target),
-            "session-wp04",
-            state_store=self.store,
-        )
-        pre = governance.handle(
+    def notify(self, task_id, target, status="completed", now=150):
+        return governance.record_terminal_notification(
             {
-                "session_id": "session-wp04",
-                "hook_event_name": "PreToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "recovery-call-1",
-                "tool_input": prepared["native_args"],
+                "sender_target": target,
+                "task_id": task_id,
+                "attempt": 1,
+                "terminal_status": status,
             },
-            self.store,
-        )
-        self.assertEqual(pre["hookSpecificOutput"]["permissionDecision"], "allow")
-        claimed = self.store.read("session-wp04")["tasks"][task_id]
-        self.assertEqual(claimed["recovery_count"], 1)
-        self.assertEqual(claimed["pending_action"]["phase"], "claimed")
-
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PostToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "recovery-call-1",
-                "tool_response": {"isError": True, "status": "failed"},
-            },
-            self.store,
-        )
-        record = self.store.read("session-wp04")["tasks"][task_id]
-        self.assertEqual(record["recovery_count"], 1)
-        self.assertEqual(record["recovery_status"], "awaiting_authorization")
-        self.assertEqual(record["parent_action"], "ask_user")
-        self.assertNotIn("pending_action", record)
-
-    def test_claimed_action_becomes_unknown_only_after_twenty_minutes(self):
-        task_id, target = self.add_managed(
-            execution_status="stopped",
-            platform_observation="error",
-            parent_action="recover",
-        )
-        prepared = governance.prepare_communication(
-            self.communication("platform_recovery", target=target),
-            "session-wp04",
+            self.session_id,
             state_store=self.store,
-            now=100,
+            now=now,
         )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PreToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "recovery-timeout",
-                "tool_input": prepared["native_args"],
-                "now": 110,
-            },
-            self.store,
-        )
+
+    def test_supported_operation_types_have_native_tools(self):
         self.assertEqual(
-            governance.reconcile_pending_actions("session-wp04", state_store=self.store, now=1309),
-            {"expired": 0, "reconciled": 0},
-        )
-        self.assertEqual(
-            governance.reconcile_pending_actions("session-wp04", state_store=self.store, now=1310),
-            {"expired": 0, "reconciled": 1},
-        )
-        record = self.store.read("session-wp04")["tasks"][task_id]
-        self.assertEqual(record["parent_action"], "reconcile")
-        self.assertEqual(record["last_lifecycle_operation"]["call_observation"], "unknown")
-
-    def test_business_resume_creates_new_attempt_during_pre_tool_claim(self):
-        task_id, target = self.add_managed(
-            execution_status="stopped",
-            business_result="blocked",
-            parent_action="decide_disposition",
-        )
-        value = self.communication(
-            "business_resume",
-            target=target,
-            task_contract=self.contract(current_state="阻塞条件已经解除"),
-        )
-        prepared = governance.prepare_communication(
-            value,
-            "session-wp04",
-            state_store=self.store,
-        )
-        before = self.store.read("session-wp04")["tasks"][task_id]
-        self.assertEqual(before["attempt"], 1)
-
-        result = governance.handle(
+            governance.OPERATION_NATIVE_TOOLS,
             {
-                "session_id": "session-wp04",
-                "hook_event_name": "PreToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "resume-call-1",
-                "tool_input": prepared["native_args"],
+                "normal_message": "send_message",
+                "platform_recovery": "followup_task",
+                "business_resume": "followup_task",
+                "interrupt": "interrupt_agent",
             },
-            self.store,
         )
-        self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
-        current = self.store.read("session-wp04")["tasks"][task_id]
-        self.assertEqual(current["attempt"], 2)
-        self.assertEqual(current["execution_status"], "not_started")
-        self.assertIn("1", current["prior_attempts"])
-        self.assertEqual(current["pending_action"]["phase"], "claimed")
 
-    def test_interrupt_unknown_keeps_execution_state_and_requires_reconcile(self):
+    def test_interrupt_requires_only_exact_target(self):
         task_id, target = self.add_managed()
         prepared = governance.prepare_interrupt(
-            self.communication("normal_message", target=target),
-            "session-wp04",
+            {"target": target},
+            self.session_id,
             state_store=self.store,
+            now=110,
         )
-        governance.handle(
+        self.assertEqual(prepared["native_tool"], "interrupt_agent")
+        self.assertEqual(prepared["native_args"], {"target": target})
+        self.assertEqual(prepared["user_message"], f"【子 Agent 中断】\n对象：{target}")
+
+        allowed = governance.handle(
             {
-                "session_id": "session-wp04",
+                "session_id": self.session_id,
                 "hook_event_name": "PreToolUse",
                 "tool_name": "interrupt_agent",
-                "tool_use_id": "interrupt-call-1",
+                "tool_use_id": "interrupt-tool",
                 "tool_input": prepared["native_args"],
+                "now": 111,
             },
             self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PostToolUse",
-                "tool_name": "interrupt_agent",
-                "tool_use_id": "interrupt-call-1",
-                "tool_response": {"status": "running"},
-            },
-            self.store,
-        )
-        record = self.store.read("session-wp04")["tasks"][task_id]
-        self.assertEqual(record["execution_status"], "running")
-        self.assertEqual(record["parent_action"], "reconcile")
-        self.assertEqual(record["last_lifecycle_operation"]["operation_type"], "interrupt")
-        self.assertEqual(record["last_lifecycle_operation"]["call_observation"], "unknown")
-
-    def test_prepared_action_expires_after_five_minutes_without_consuming_budget(self):
-        task_id, target = self.add_managed(
-            execution_status="stopped",
-            platform_observation="error",
-            parent_action="recover",
-        )
-        governance.prepare_communication(
-            self.communication("platform_recovery", target=target),
-            "session-wp04",
-            state_store=self.store,
-            now=100,
         )
         self.assertEqual(
-            governance.reconcile_pending_actions("session-wp04", state_store=self.store, now=399),
-            {"expired": 0, "reconciled": 0},
+            allowed["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        pending = self.execution(task_id)["pending_action"]
+        self.assertEqual(pending["operation_type"], "interrupt")
+        self.assertEqual(pending["phase"], "claimed")
+        self.assertEqual(pending["tool_use_id"], "interrupt-tool")
+
+    def test_call_response_keeps_only_semantic_observations(self):
+        self.assertEqual(
+            governance.adapt_call_response({"status": "failed"}, "platform_recovery"),
+            {"call_observation": "failed", "target_observation": None},
         )
         self.assertEqual(
-            governance.reconcile_pending_actions("session-wp04", state_store=self.store, now=400),
-            {"expired": 1, "reconciled": 0},
+            governance.adapt_call_response(
+                {"previous_status": "running"}, "interrupt"
+            ),
+            {
+                "call_observation": "success",
+                "target_observation": "previously_running",
+            },
         )
-        record = self.store.read("session-wp04")["tasks"][task_id]
-        self.assertEqual(record["recovery_count"], 0)
-        self.assertNotIn("pending_action", record)
 
-    def test_same_target_pending_action_conflicts(self):
-        _task_id, target = self.add_managed()
-        governance.prepare_communication(
-            self.communication("normal_message", target=target),
-            "session-wp04",
-            state_store=self.store,
+    def test_lifecycle_record_omits_duplicate_execution_fields(self):
+        lifecycle = governance._last_lifecycle_from_pending(
+            {
+                "operation_type": "interrupt",
+                "target": "/root/communication",
+                "tool_use_id": "interrupt-tool",
+            },
+            {
+                "call_observation": "unknown",
+                "target_observation": None,
+            },
         )
-        with self.assertRaisesRegex(governance.CommunicationPreparationError, "pending_action"):
-            governance.prepare_communication(
-                self.communication("normal_message", target=target),
-                "session-wp04",
-                state_store=self.store,
-            )
 
-    def test_normal_message_fail_open_and_all_observations_leave_lifecycle_unchanged(self):
+        self.assertEqual(
+            lifecycle,
+            {
+                "operation_type": "interrupt",
+                "tool_use_id": "interrupt-tool",
+                "call_observation": "unknown",
+            },
+        )
+
+    def test_normal_message_prepares_and_claims_exact_pending_action(self):
         task_id, target = self.add_managed()
-        initial = self.store.read("session-wp04")["tasks"][task_id]
-        for index, response in enumerate(({}, {"isError": True}, {"unexpected": True}), start=1):
-            prepared = governance.prepare_communication(
-                self.communication("normal_message", target=target),
-                "session-wp04",
-                state_store=self.store,
-            )
-            tool_use_id = f"normal-call-{index}"
-            governance.handle(
-                {
-                    "session_id": "session-wp04",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "send_message",
-                    "tool_use_id": tool_use_id,
-                    "tool_input": prepared["native_args"],
-                },
-                self.store,
-            )
-            governance.handle(
-                {
-                    "session_id": "session-wp04",
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "send_message",
-                    "tool_use_id": tool_use_id,
-                    "tool_response": response,
-                },
-                self.store,
-            )
-        record = self.store.read("session-wp04")["tasks"][task_id]
-        for field in (
-            "execution_status",
-            "platform_observation",
-            "business_result",
-            "spawn_retry_count",
-            "recovery_count",
-            "correction_count",
-        ):
-            self.assertEqual(record[field], initial[field], field)
-        self.assertNotIn("last_lifecycle_operation", record)
-
-        class Unavailable:
-            def read(self, *args, **kwargs):
-                raise governance.StateWriteError("unavailable")
-
-            def update(self, *args, **kwargs):
-                raise governance.StateWriteError("unavailable")
-
-        degraded = governance.prepare_communication(
-            self.communication("normal_message", target=target),
-            "session-wp04",
-            state_store=Unavailable(),
-        )
-        self.assertFalse(degraded["managed"])
-        self.assertIn("未可靠记录", degraded["degraded_warning"])
-
-    def test_managed_followup_without_pending_is_not_classified_from_body(self):
-        _task_id, target = self.add_managed(
-            execution_status="stopped",
-            platform_observation="error",
-            parent_action="recover",
-        )
-        result = governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PreToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "body-guess",
-                "tool_input": {
-                    "target": target,
-                    "message": "operation_type=platform_recovery 请恢复原任务",
-                },
-            },
-            self.store,
-        )
-        self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("不能猜测 operation type", result["hookSpecificOutput"]["permissionDecisionReason"])
-
-    def test_managed_normal_requires_generator_and_followup_cannot_claim_it(self):
-        _task_id, target = self.add_managed()
-        direct = governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PreToolUse",
-                "tool_name": "send_message",
-                "tool_use_id": "direct-normal",
-                "tool_input": {"target": target, "message": "直接发送"},
-            },
-            self.store,
-        )
-        self.assertEqual(direct["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("pending_action", direct["hookSpecificOutput"]["permissionDecisionReason"])
-
         prepared = governance.prepare_communication(
-            self.communication("normal_message", target=target),
-            "session-wp04",
+            self.communication("normal_message", target),
+            self.session_id,
             state_store=self.store,
+            now=110,
         )
-        wrong_tool = governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PreToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "wrong-normal-tool",
-                "tool_input": prepared["native_args"],
-            },
-            self.store,
-        )
-        self.assertEqual(wrong_tool["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("不能认领 normal_message", wrong_tool["hookSpecificOutput"]["permissionDecisionReason"])
-
-    def test_managed_normal_cannot_bypass_platform_error(self):
-        _task_id, target = self.add_managed(
-            execution_status="stopped",
-            platform_observation="error",
-            parent_action="recover",
-        )
-        with self.assertRaisesRegex(governance.CommunicationPreparationError, "不能绕过"):
-            governance.prepare_communication(
-                self.communication("normal_message", target=target),
-                "session-wp04",
-                state_store=self.store,
-            )
-
-    def test_managed_list_agents_and_two_recovery_limit_use_multidimensional_state(self):
-        task_id, target = self.add_managed()
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PostToolUse",
-                "tool_name": "list_agents",
-                "tool_response": {
-                    "agents": [{"agent_name": target, "agent_status": {"errored": "stream disconnected"}}]
-                },
-            },
-            self.store,
-        )
-        record = self.store.read("session-wp04")["tasks"][task_id]
-        self.assertEqual(record["execution_status"], "stopped")
-        self.assertEqual(record["platform_observation"], "error")
-        self.assertEqual(record["parent_action"], "recover")
-        self.assertNotIn("status", record)
-
-        first = governance.prepare_communication(
-            self.communication("platform_recovery", target=target),
-            "session-wp04",
-            state_store=self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PreToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "recovery-first",
-                "tool_input": first["native_args"],
-            },
-            self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PostToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "recovery-first",
-                "tool_response": {"status": "success"},
-            },
-            self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "SubagentStart",
-                "agent_id": target,
-            },
-            self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PostToolUse",
-                "tool_name": "list_agents",
-                "tool_response": {
-                    "agents": [{"agent_name": target, "agent_status": {"errored": "again"}}]
-                },
-            },
-            self.store,
-        )
-        record = self.store.read("session-wp04")["tasks"][task_id]
-        self.assertEqual(record["recovery_status"], "awaiting_authorization")
-        with self.assertRaisesRegex(governance.CommunicationPreparationError, "明确授权"):
-            governance.prepare_communication(
-                self.communication("platform_recovery", target=target),
-                "session-wp04",
-                state_store=self.store,
-            )
-
-        second = governance.prepare_communication(
-            self.communication("platform_recovery", target=target),
-            "session-wp04",
-            authorized_recovery=True,
-            state_store=self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PreToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "recovery-second",
-                "tool_input": second["native_args"],
-            },
-            self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PostToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "recovery-second",
-                "tool_response": {"isError": True},
-            },
-            self.store,
-        )
-        record = self.store.read("session-wp04")["tasks"][task_id]
-        self.assertEqual(record["recovery_count"], 2)
-        self.assertEqual(record["recovery_status"], "exhausted")
-        with self.assertRaisesRegex(governance.CommunicationPreparationError, "耗尽"):
-            governance.prepare_communication(
-                self.communication("platform_recovery", target=target),
-                "session-wp04",
-                authorized_recovery=True,
-                state_store=self.store,
-            )
-
-    def test_result_correction_has_independent_two_attempt_budget(self):
-        task_id, target = self.add_managed(
-            execution_status="stopped",
-            result_protocol_status="needs_correction",
-            parent_action="correct_result",
-            spawn_retry_count=2,
-            recovery_count=2,
-        )
-        for index, response in enumerate(({"isError": True}, {"isError": True}), start=1):
-            prepared = governance.prepare_communication(
-                self.communication("result_correction", target=target),
-                "session-wp04",
-                state_store=self.store,
-            )
-            self.assertIn("不重做业务任务", prepared["message"])
-            tool_use_id = f"correction-{index}"
-            governance.handle(
-                {
-                    "session_id": "session-wp04",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "followup_task",
-                    "tool_use_id": tool_use_id,
-                    "tool_input": prepared["native_args"],
-                },
-                self.store,
-            )
-            governance.handle(
-                {
-                    "session_id": "session-wp04",
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "followup_task",
-                    "tool_use_id": tool_use_id,
-                    "tool_response": response,
-                },
-                self.store,
-            )
-        record = self.store.read("session-wp04")["tasks"][task_id]
-        self.assertEqual(record["spawn_retry_count"], 2)
-        self.assertEqual(record["recovery_count"], 2)
-        self.assertEqual(record["correction_count"], 2)
-        self.assertEqual(record["result_protocol_status"], "exhausted")
-        self.assertEqual(record["parent_action"], "manual_review")
-
-    def test_result_correction_success_and_unknown_keep_fixed_protocol_state(self):
-        for index, (response, parent_action, observation) in enumerate(
-            (
-                ({"status": "success"}, "wait", "success"),
-                ({"status": "running"}, "reconcile", "unknown"),
-            ),
-            start=1,
-        ):
-            task_id = f"correction-observation-{index}"
-            target = f"correction-agent-{index}"
-            self.add_managed(
-                task_id=task_id,
-                target=target,
-                execution_status="stopped",
-                result_protocol_status="needs_correction",
-                parent_action="correct_result",
-            )
-            prepared = governance.prepare_communication(
-                self.communication("result_correction", target=target),
-                "session-wp04",
-                state_store=self.store,
-            )
-            tool_use_id = f"correction-observation-call-{index}"
-            governance.handle(
-                {
-                    "session_id": "session-wp04",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "followup_task",
-                    "tool_use_id": tool_use_id,
-                    "tool_input": prepared["native_args"],
-                },
-                self.store,
-            )
-            governance.handle(
-                {
-                    "session_id": "session-wp04",
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "followup_task",
-                    "tool_use_id": tool_use_id,
-                    "tool_response": response,
-                },
-                self.store,
-            )
-            record = self.store.read("session-wp04")["tasks"][task_id]
-            self.assertEqual(record["execution_status"], "stopped")
-            self.assertEqual(record["result_protocol_status"], "needs_correction")
-            self.assertEqual(record["correction_count"], 1)
-            self.assertEqual(record["parent_action"], parent_action)
-            self.assertEqual(record["last_lifecycle_operation"]["call_observation"], observation)
-
-    def test_business_resume_success_unknown_and_failed_have_fixed_not_started_transitions(self):
-        observations = (
-            ("success", {"status": "success"}, "wait", False),
-            ("unknown", {"status": "running"}, "reconcile", False),
-            ("failed", {"isError": True}, "decide_disposition", True),
-        )
-        for index, (_name, response, parent_action, closed) in enumerate(observations, start=1):
-            with self.subTest(observation=_name):
-                task_id = f"resume-task-{index}"
-                target = f"resume-agent-{index}"
-                self.add_managed(
-                    task_id=task_id,
-                    target=target,
-                    execution_status="stopped",
-                    business_result="failed",
-                    parent_action="decide_disposition",
-                )
-                prepared = governance.prepare_communication(
-                    self.communication(
-                        "business_resume",
-                        target=target,
-                        task_contract=self.contract(current_state="父 Agent 已决定继续"),
-                    ),
-                    "session-wp04",
-                    state_store=self.store,
-                )
-                tool_use_id = f"resume-observation-{index}"
-                governance.handle(
-                    {
-                        "session_id": "session-wp04",
-                        "hook_event_name": "PreToolUse",
-                        "tool_name": "followup_task",
-                        "tool_use_id": tool_use_id,
-                        "tool_input": prepared["native_args"],
-                    },
-                    self.store,
-                )
-                governance.handle(
-                    {
-                        "session_id": "session-wp04",
-                        "hook_event_name": "PostToolUse",
-                        "tool_name": "followup_task",
-                        "tool_use_id": tool_use_id,
-                        "tool_response": response,
-                    },
-                    self.store,
-                )
-                record = self.store.read("session-wp04")["tasks"][task_id]
-                self.assertEqual(record["execution_status"], "stopped" if closed else "not_started")
-                self.assertEqual(record["parent_action"], parent_action)
-                self.assertEqual(record.get("attempt_closed", False), closed)
-
-    def test_business_resume_start_rebinds_attempt_and_unknown_blocks_same_agent_reuse(self):
-        task_id, target = self.add_managed(
-            task_id="resume-rebind-task",
-            target="resume-rebind-agent",
-            execution_status="stopped",
-            business_result="blocked",
-            parent_action="decide_disposition",
-        )
-        old_task_name = self.store.read("session-wp04")["tasks"][task_id]["task_name"]
-        prepared = governance.prepare_communication(
-            self.communication(
-                "business_resume",
-                target=target,
-                task_contract=self.contract(current_state="阻塞已经解除"),
-            ),
-            "session-wp04",
-            state_store=self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PreToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "resume-rebind-call",
-                "tool_input": prepared["native_args"],
-            },
-            self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PostToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "resume-rebind-call",
-                "tool_response": {"status": "success"},
-            },
-            self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "SubagentStart",
-                "agent_id": target,
-                "task_name": old_task_name,
-            },
-            self.store,
-        )
-        state = self.store.read("session-wp04")
-        self.assertEqual(state["tasks"][task_id]["attempt"], 2)
-        self.assertEqual(state["tasks"][task_id]["execution_status"], "running")
-        self.assertEqual(state["agents"][target], {"task_id": task_id, "attempt": 2})
-        self.assertNotIn("last_lifecycle_operation", state["tasks"][task_id])
-
-        unknown_task, unknown_target = self.add_managed(
-            task_id="resume-unknown-task",
-            target="resume-unknown-agent",
-            execution_status="stopped",
-            business_result="failed",
-            parent_action="decide_disposition",
-        )
-        unknown = governance.prepare_communication(
-            self.communication(
-                "business_resume",
-                target=unknown_target,
-                task_contract=self.contract(current_state="父 Agent 决定继续"),
-            ),
-            "session-wp04",
-            state_store=self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PreToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "resume-unknown-call",
-                "tool_input": unknown["native_args"],
-            },
-            self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PostToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "resume-unknown-call",
-                "tool_response": {"status": "running"},
-            },
-            self.store,
-        )
-        self.assertEqual(self.store.read("session-wp04")["tasks"][unknown_task]["attempt"], 2)
-        with self.assertRaisesRegex(governance.CommunicationPreparationError, "new Agent"):
-            governance.prepare_communication(
-                self.communication(
-                    "business_resume",
-                    target=unknown_target,
-                    task_contract=self.contract(current_state="尝试绕过 unknown"),
-                ),
-                "session-wp04",
-                state_store=self.store,
-            )
-
-    def test_late_subagent_start_consumes_success_or_unknown_but_not_failed_or_interrupt(self):
-        for index, response in enumerate(({"status": "success"}, {"status": "running"}), start=1):
-            task_id = f"late-start-{index}"
-            target = f"late-agent-{index}"
-            self.add_managed(
-                task_id=task_id,
-                target=target,
-                execution_status="stopped",
-                platform_observation="error",
-                parent_action="recover",
-            )
-            prepared = governance.prepare_communication(
-                self.communication("platform_recovery", target=target),
-                "session-wp04",
-                state_store=self.store,
-            )
-            tool_use_id = f"late-recovery-{index}"
-            governance.handle(
-                {
-                    "session_id": "session-wp04",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "followup_task",
-                    "tool_use_id": tool_use_id,
-                    "tool_input": prepared["native_args"],
-                },
-                self.store,
-            )
-            governance.handle(
-                {
-                    "session_id": "session-wp04",
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "followup_task",
-                    "tool_use_id": tool_use_id,
-                    "tool_response": response,
-                },
-                self.store,
-            )
-            governance.handle(
-                {
-                    "session_id": "session-wp04",
-                    "hook_event_name": "SubagentStart",
-                    "agent_id": target,
-                },
-                self.store,
-            )
-            record = self.store.read("session-wp04")["tasks"][task_id]
-            self.assertEqual(record["execution_status"], "running")
-            self.assertEqual(record["platform_observation"], "normal")
-            self.assertNotIn("last_lifecycle_operation", record)
-
-        failed_task, failed_target = self.add_managed(
-            task_id="failed-start",
-            target="failed-start-agent",
-            execution_status="stopped",
-            result_protocol_status="needs_correction",
-            parent_action="correct_result",
-        )
-        correction = governance.prepare_communication(
-            self.communication("result_correction", target=failed_target),
-            "session-wp04",
-            state_store=self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PreToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "failed-correction",
-                "tool_input": correction["native_args"],
-            },
-            self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PostToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "failed-correction",
-                "tool_response": {"isError": True},
-            },
-            self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "SubagentStart",
-                "agent_id": failed_target,
-            },
-            self.store,
-        )
-        record = self.store.read("session-wp04")["tasks"][failed_task]
-        self.assertEqual(record["execution_status"], "stopped")
-        self.assertEqual(record["parent_action"], "reconcile")
-
-    def test_interrupt_success_failed_unknown_and_list_reconciliation(self):
-        cases = (
-            ("success", {"status": "interrupted"}, "interrupted", "decide_disposition"),
-            ("failed", {"isError": True}, "running", "wait"),
-            ("unknown", {"status": "running"}, "running", "reconcile"),
-        )
-        for index, (_name, response, execution, parent_action) in enumerate(cases, start=1):
-            task_id = f"interrupt-task-{index}"
-            target = f"interrupt-agent-{index}"
-            self.add_managed(task_id=task_id, target=target)
-            prepared = governance.prepare_interrupt(
-                self.communication("normal_message", target=target),
-                "session-wp04",
-                state_store=self.store,
-            )
-            tool_use_id = f"interrupt-case-{index}"
-            governance.handle(
-                {
-                    "session_id": "session-wp04",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "interrupt_agent",
-                    "tool_use_id": tool_use_id,
-                    "tool_input": prepared["native_args"],
-                },
-                self.store,
-            )
-            governance.handle(
-                {
-                    "session_id": "session-wp04",
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "interrupt_agent",
-                    "tool_use_id": tool_use_id,
-                    "tool_response": response,
-                },
-                self.store,
-            )
-            record = self.store.read("session-wp04")["tasks"][task_id]
-            self.assertEqual(record["execution_status"], execution)
-            self.assertEqual(record["parent_action"], parent_action)
-            if _name == "success":
-                self.assertNotIn("last_lifecycle_operation", record)
-            else:
-                self.assertEqual(record["last_lifecycle_operation"]["call_observation"], _name)
-
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PostToolUse",
-                "tool_name": "list_agents",
-                "tool_response": {
-                    "agents": [{"agent_name": "interrupt-agent-3", "agent_status": {"running": True}}]
-                },
-            },
-            self.store,
-        )
-        record = self.store.read("session-wp04")["tasks"]["interrupt-task-3"]
-        self.assertEqual(record["execution_status"], "running")
-        self.assertEqual(record["parent_action"], "ask_user")
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "SubagentStart",
-                "agent_id": "interrupt-agent-3",
-            },
-            self.store,
-        )
-        record = self.store.read("session-wp04")["tasks"]["interrupt-task-3"]
-        self.assertEqual(record["parent_action"], "ask_user")
-
-    def test_interrupt_unknown_list_error_and_stopped_use_observed_state(self):
-        for index, (platform_status, execution, platform, parent_action) in enumerate(
-            (
-                ({"errored": "stream disconnected"}, "stopped", "error", "ask_user"),
-                ({"stopped": True}, "stopped", "normal", "decide_disposition"),
-            ),
-            start=1,
-        ):
-            task_id = f"interrupt-list-task-{index}"
-            target = f"interrupt-list-agent-{index}"
-            self.add_managed(task_id=task_id, target=target)
-            prepared = governance.prepare_interrupt(
-                self.communication("normal_message", target=target),
-                "session-wp04",
-                state_store=self.store,
-            )
-            tool_use_id = f"interrupt-list-call-{index}"
-            governance.handle(
-                {
-                    "session_id": "session-wp04",
-                    "hook_event_name": "PreToolUse",
-                    "tool_name": "interrupt_agent",
-                    "tool_use_id": tool_use_id,
-                    "tool_input": prepared["native_args"],
-                },
-                self.store,
-            )
-            governance.handle(
-                {
-                    "session_id": "session-wp04",
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "interrupt_agent",
-                    "tool_use_id": tool_use_id,
-                    "tool_response": {"status": "running"},
-                },
-                self.store,
-            )
-            governance.handle(
-                {
-                    "session_id": "session-wp04",
-                    "hook_event_name": "PostToolUse",
-                    "tool_name": "list_agents",
-                    "tool_response": {
-                        "agents": [{"agent_name": target, "agent_status": platform_status}]
-                    },
-                },
-                self.store,
-            )
-            record = self.store.read("session-wp04")["tasks"][task_id]
-            self.assertEqual(record["execution_status"], execution)
-            self.assertEqual(record["platform_observation"], platform)
-            self.assertEqual(record["parent_action"], parent_action)
-            self.assertEqual(record["last_lifecycle_operation"]["call_observation"], "unknown")
-
-    def test_last_lifecycle_operation_has_no_time_ttl(self):
-        task_id, target = self.add_managed(
-            execution_status="stopped",
-            platform_observation="error",
-            parent_action="recover",
-        )
-        prepared = governance.prepare_communication(
-            self.communication("platform_recovery", target=target),
-            "session-wp04",
-            state_store=self.store,
-            now=100,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PreToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "no-ttl-call",
-                "tool_input": prepared["native_args"],
-                "now": 110,
-            },
-            self.store,
-        )
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PostToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "no-ttl-call",
-                "tool_response": {"status": "success"},
-                "now": 120,
-            },
-            self.store,
-        )
-        governance.reconcile_pending_actions(
-            "session-wp04",
-            state_store=self.store,
-            now=120 + 365 * 24 * 60 * 60,
-        )
-        record = self.store.read("session-wp04")["tasks"][task_id]
-        self.assertEqual(record["last_lifecycle_operation"]["tool_use_id"], "no-ttl-call")
-
-    def test_cli_prepares_communication_and_interrupt(self):
-        _task_id, target = self.add_managed()
-        communication = subprocess.run(
-            [
-                sys.executable,
-                str(SCRIPT),
-                "--prepare-communication",
-                "--session",
-                "session-wp04",
-                "--data-root",
-                str(self.root),
-            ],
-            input=json.dumps(self.communication("normal_message", target=target), ensure_ascii=False),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(communication.returncode, 0, communication.stderr)
-        communication_output = json.loads(communication.stdout)
-        self.assertEqual(communication_output["native_tool"], "send_message")
+        self.assertEqual(prepared["native_tool"], "send_message")
+        self.assertNotIn(task_id, prepared["message"])
+        self.assertIn("需要验证当前生命周期边界", prepared["message"])
 
         claimed = governance.handle(
             {
-                "session_id": "session-wp04",
+                "session_id": self.session_id,
                 "hook_event_name": "PreToolUse",
                 "tool_name": "send_message",
-                "tool_use_id": "cli-normal-call",
-                "tool_input": communication_output["native_args"],
+                "tool_use_id": "message-tool",
+                "tool_input": prepared["native_args"],
+                "now": 111,
             },
             self.store,
         )
         self.assertEqual(claimed["hookSpecificOutput"]["permissionDecision"], "allow")
-        governance.handle(
-            {
-                "session_id": "session-wp04",
-                "hook_event_name": "PostToolUse",
-                "tool_name": "send_message",
-                "tool_use_id": "cli-normal-call",
-                "tool_response": {"status": "success"},
-            },
-            self.store,
-        )
+        pending = self.execution(task_id)["pending_action"]
+        self.assertNotIn("start_observed_at", pending)
+        self.assertEqual(pending["phase"], "claimed")
+        self.assertEqual(pending["tool_use_id"], "message-tool")
+        self.assertNotIn("expires_at", pending)
+        self.assertNotIn("reason", pending)
+        self.assertNotIn("authorized_recovery", pending)
 
-        interrupt = subprocess.run(
-            [
-                sys.executable,
-                str(SCRIPT),
-                "--prepare-interrupt",
-                "--session",
-                "session-wp04",
-                "--data-root",
-                str(self.root),
-            ],
-            input=json.dumps(self.communication("normal_message", target=target), ensure_ascii=False),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(interrupt.returncode, 0, interrupt.stderr)
-        interrupt_output = json.loads(interrupt.stdout)
-        self.assertEqual(interrupt_output["native_tool"], "interrupt_agent")
-        self.assertEqual(interrupt_output["native_args"], {"target": target})
-
-    def test_post_tool_state_write_failure_is_degraded_without_budget_rollback(self):
-        task_id, target = self.add_managed(
-            execution_status="stopped",
-            platform_observation="error",
-            parent_action="recover",
-        )
+    def test_prepared_pending_expiry_derives_from_created_at(self):
+        task_id, target = self.add_managed()
         prepared = governance.prepare_communication(
-            self.communication("platform_recovery", target=target),
-            "session-wp04",
+            self.communication("normal_message", target),
+            self.session_id,
             state_store=self.store,
+            now=100,
         )
-        governance.handle(
+
+        denied = governance.handle(
             {
-                "session_id": "session-wp04",
+                "session_id": self.session_id,
                 "hook_event_name": "PreToolUse",
-                "tool_name": "followup_task",
-                "tool_use_id": "degraded-post",
+                "tool_name": "send_message",
+                "tool_use_id": "expired-message-tool",
                 "tool_input": prepared["native_args"],
+                "now": 400,
             },
             self.store,
         )
+        self.assertEqual(
+            denied["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertNotIn("pending_action", self.execution(task_id))
 
-        class FailingPostStore:
-            last_warning = None
+        governance.prepare_communication(
+            self.communication("normal_message", target),
+            self.session_id,
+            state_store=self.store,
+            now=500,
+        )
+        self.assertEqual(
+            governance.reconcile_pending_actions(
+                self.session_id, state_store=self.store, now=799
+            ),
+            {"expired": 0, "reconciled": 0},
+        )
+        self.assertIn("pending_action", self.execution(task_id))
+        self.assertEqual(
+            governance.reconcile_pending_actions(
+                self.session_id, state_store=self.store, now=800
+            ),
+            {"expired": 1, "reconciled": 0},
+        )
+        self.assertNotIn("pending_action", self.execution(task_id))
 
-            def read(_self, *args, **kwargs):
-                return self.store.read(*args, **kwargs)
+    def test_expired_pending_cleanup_does_not_delete_concurrent_claim(self):
+        task_id, target = self.add_managed()
+        prepared = governance.prepare_communication(
+            self.communication("normal_message", target),
+            self.session_id,
+            state_store=self.store,
+            now=100,
+        )
+        original_read = self.store.read
+        original_compare_and_set = self.store.compare_and_set
+        injected = False
 
-            def compare_and_set(_self, *args, **kwargs):
-                raise governance.StateWriteError("simulated post failure")
+        def read_then_claim(session_id, **kwargs):
+            nonlocal injected
+            snapshot = original_read(session_id, **kwargs)
+            if not injected:
+                injected = True
 
+                def claim(current):
+                    record = governance._task_record_for_attempt(current, task_id, 1)
+                    assert record is not None
+                    pending = record["pending_action"]
+                    pending["phase"] = "claimed"
+                    pending["tool_use_id"] = "racing-tool"
+                    pending["claimed_at"] = 399
+
+                original_compare_and_set(
+                    session_id,
+                    lambda current: True,
+                    claim,
+                )
+            return snapshot
+
+        with mock.patch.object(self.store, "read", side_effect=read_then_claim):
+            denied = governance.handle(
+                {
+                    "session_id": self.session_id,
+                    "hook_event_name": "PreToolUse",
+                    "tool_name": "send_message",
+                    "tool_use_id": "expired-tool",
+                    "tool_input": prepared["native_args"],
+                    "now": 400,
+                },
+                self.store,
+            )
+
+        self.assertEqual(
+            denied["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        pending = self.execution(task_id)["pending_action"]
+        self.assertEqual(pending["phase"], "claimed")
+        self.assertEqual(pending["tool_use_id"], "racing-tool")
+
+    def test_result_correction_is_rejected_at_input_boundary(self):
+        _task_id, target = self.add_managed()
+        with self.assertRaises(governance.CommunicationPreparationError):
+            governance.prepare_communication(
+                self.communication("result_correction", target),
+                self.session_id,
+                state_store=self.store,
+            )
+
+    def test_business_resume_requires_terminal_notification(self):
+        task_id, target = self.add_managed()
+        value = self.communication(
+            "business_resume",
+            target,
+            task_contract=self.contract("父 Agent 决定继续"),
+        )
+        with self.assertRaises(governance.CommunicationPreparationError):
+            governance.prepare_communication(
+                value,
+                self.session_id,
+                state_store=self.store,
+            )
+
+        self.notify(task_id, target)
+        prepared = governance.prepare_communication(
+            value,
+            self.session_id,
+            state_store=self.store,
+            now=160,
+        )
+        self.assertEqual(prepared["operation_type"], "business_resume")
+        self.assertNotIn("TaskResult", prepared["message"])
+
+    def test_business_resume_claim_creates_next_attempt(self):
+        task_id, target = self.add_managed()
+        self.notify(task_id, target)
+        prepared = governance.prepare_communication(
+            self.communication(
+                "business_resume",
+                target,
+                task_contract=self.contract("继续执行"),
+            ),
+            self.session_id,
+            state_store=self.store,
+            now=160,
+        )
         result = governance.handle(
             {
-                "session_id": "session-wp04",
-                "hook_event_name": "PostToolUse",
+                "session_id": self.session_id,
+                "hook_event_name": "PreToolUse",
                 "tool_name": "followup_task",
-                "tool_use_id": "degraded-post",
-                "tool_response": {"status": "success"},
+                "tool_use_id": "resume-tool",
+                "tool_input": prepared["native_args"],
+                "now": 161,
             },
-            FailingPostStore(),
+            self.store,
         )
-        self.assertIn("degraded", result["systemMessage"])
-        record = self.store.read("session-wp04")["tasks"][task_id]
-        self.assertEqual(record["recovery_count"], 1)
-        self.assertEqual(record["pending_action"]["phase"], "claimed")
+        self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
+        task = self.store.read(self.session_id)["tasks"][task_id]
+        self.assertEqual(task["work_item"]["current_attempt"], 2)
+        self.assertNotIn("last_growth_authorization", task["work_item"])
+        self.assertNotIn("dispatch_kind", task["executions"]["2"])
+        self.assertNotIn("transition", task["executions"]["2"])
+        self.assertNotIn("growth_authorization", task["executions"]["2"])
+        self.assertNotIn("deliverable_contract", task["executions"]["2"])
+        self.assertEqual(task["executions"]["2"]["pending_action"]["tool_use_id"], "resume-tool")
+        self.assertNotIn(
+            "growth_authorization", task["executions"]["2"]["pending_action"]
+        )
+        self.assertNotIn(
+            "deliverable_contract", task["executions"]["2"]["pending_action"]
+        )
+        self.assertNotIn("transition", task["executions"]["2"]["pending_action"])
+        self.assertNotIn(
+            "authorized_recovery", task["executions"]["2"]["pending_action"]
+        )
+        self.assertNotIn(
+            "deliverable_contract_digest", task["executions"]["2"]["pending_action"]
+        )
+        self.assertNotIn(
+            "resume_contract_summary", task["executions"]["2"]["pending_action"]
+        )
+        self.assertNotIn(
+            "resume_contract_digest", task["executions"]["2"]["pending_action"]
+        )
+        self.assertNotIn("resume_task_ref", task["executions"]["2"]["pending_action"])
+        self.assertNotIn("task_id", task["executions"]["2"]["pending_action"])
+        self.assertNotIn("reason", task["executions"]["2"]["pending_action"])
 
-    def test_unmanaged_communication_and_interrupt_do_not_create_governance_association(self):
-        normal = governance.prepare_communication(
-            self.communication("normal_message", target="unmanaged-agent"),
-            "session-wp04",
+    def test_business_resume_claim_persist_then_raise_is_confirmed(self):
+        task_id, target = self.add_managed()
+        self.notify(task_id, target)
+        prepared = governance.prepare_communication(
+            self.communication(
+                "business_resume",
+                target,
+                task_contract=self.contract("继续执行"),
+            ),
+            self.session_id,
             state_store=self.store,
+            now=160,
         )
-        interrupt = governance.prepare_interrupt(
-            self.communication("normal_message", target="unmanaged-agent"),
-            "session-wp04",
-            state_store=self.store,
-        )
-        self.assertFalse(normal["managed"])
-        self.assertFalse(interrupt["managed"])
-        self.assertEqual(normal["native_tool"], "send_message")
-        self.assertEqual(interrupt["native_tool"], "interrupt_agent")
-        self.assertEqual(self.store.read("session-wp04")["tasks"], {})
+        payload = {
+            "session_id": self.session_id,
+            "hook_event_name": "PreToolUse",
+            "tool_name": "followup_task",
+            "tool_use_id": "resume-partial",
+            "tool_input": prepared["native_args"],
+            "now": 161,
+        }
+        original_write = self.store._write_path
+        write_calls = 0
 
+        def persist_then_report_failure(*args, **kwargs):
+            nonlocal write_calls
+            write_calls += 1
+            result = original_write(*args, **kwargs)
+            if write_calls == 1:
+                raise governance.StateWriteError(
+                    "simulated lifecycle claim readback failure"
+                )
+            return result
+
+        with mock.patch.object(
+            self.store,
+            "_write_path",
+            side_effect=persist_then_report_failure,
+        ):
+            result = governance.handle(payload, self.store)
+
+        self.assertEqual(
+            result["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        task = self.store.read(self.session_id)["tasks"][task_id]
+        self.assertEqual(task["work_item"]["current_attempt"], 2)
+        self.assertEqual(
+            task["executions"]["2"]["pending_action"]["phase"], "claimed"
+        )
+        self.assertEqual(
+            task["executions"]["2"]["pending_action"]["tool_use_id"],
+            "resume-partial",
+        )
+
+    def test_lifecycle_claim_failure_preserves_concurrent_state_change(self):
+        task_id, target = self.add_managed()
+        self.notify(task_id, target)
+        prepared = governance.prepare_communication(
+            self.communication(
+                "business_resume",
+                target,
+                task_contract=self.contract("继续执行"),
+            ),
+            self.session_id,
+            state_store=self.store,
+            now=160,
+        )
+        payload = {
+            "session_id": self.session_id,
+            "hook_event_name": "PreToolUse",
+            "tool_name": "followup_task",
+            "tool_use_id": "resume-diverged",
+            "tool_input": prepared["native_args"],
+            "now": 161,
+        }
+        original_write = self.store._write_path
+        write_calls = 0
+
+        def persist_change_then_report_failure(*args, **kwargs):
+            nonlocal write_calls
+            write_calls += 1
+            result = original_write(*args, **kwargs)
+            if write_calls == 1:
+                changed = copy.deepcopy(args[2])
+                changed["health"]["concurrent_marker"] = True
+                original_write(args[0], args[1], changed, **kwargs)
+                raise governance.StateWriteError(
+                    "simulated lifecycle claim failure after concurrent change"
+                )
+            return result
+
+        with mock.patch.object(
+            self.store,
+            "_write_path",
+            side_effect=persist_change_then_report_failure,
+        ):
+            result = governance.handle(payload, self.store)
+
+        self.assertEqual(
+            result["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn("degraded", str(result))
+        state = self.store.read(self.session_id)
+        self.assertTrue(state["health"]["concurrent_marker"])
+        self.assertEqual(state["tasks"][task_id]["work_item"]["current_attempt"], 2)
+        self.assertEqual(
+            state["tasks"][task_id]["executions"]["2"]["pending_action"]["phase"],
+            "claimed",
+        )
+
+    def test_platform_recovery_requires_observation_error_and_consumes_budget_on_claim(self):
+        task_id, target = self.add_managed()
+
+        def mark_error(state):
+            record = state["tasks"][task_id]["executions"]["1"]
+            observation = record["observation_record"]
+            observation.update(
+                source="list_agents",
+                observed_state="error",
+                observed_at=120,
+            )
+            governance._apply_canonical_execution_update(record, "observed_execution_status", "stopped")
+            governance._apply_canonical_execution_update(record, "observed_platform_state", "error")
+            governance._apply_canonical_execution_update(record, "closure_parent_action", "recover")
+
+        self.store.update(self.session_id, mark_error)
+        prepared = governance.prepare_communication(
+            self.communication("platform_recovery", target),
+            self.session_id,
+            state_store=self.store,
+            now=130,
+        )
+        governance.handle(
+            {
+                "session_id": self.session_id,
+                "hook_event_name": "PreToolUse",
+                "tool_name": "followup_task",
+                "tool_use_id": "recovery-tool",
+                "tool_input": prepared["native_args"],
+                "now": 131,
+            },
+            self.store,
+        )
+        self.assertEqual(self.execution(task_id)["recovery_count"], 1)
+
+    def test_interrupted_reconciliation_keeps_only_canonical_state(self):
+        task_id, target = self.add_managed()
+
+        def mark_reconciliation_state(state):
+            record = state["tasks"][task_id]["executions"]["1"]
+            record["observation_record"].update(
+                source="list_agents",
+                observed_state="unknown",
+                observed_at=140,
+                terminal_status=None,
+            )
+            record["last_lifecycle_operation"] = {
+                "operation_type": "interrupt",
+                "tool_use_id": "interrupt-tool",
+                "call_observation": "success",
+                "target_observation": "not_found",
+            }
+            governance._apply_canonical_execution_update(
+                record, "closure_parent_action", "reconcile"
+            )
+            record["updated_at"] = 140
+
+        self.store.update(self.session_id, mark_reconciliation_state)
+        observation = {
+            "task_id": task_id,
+            "attempt": 1,
+        }
+
+        with self.assertRaisesRegex(governance.ReconciliationError, "unknown=thread_id"):
+            governance.reconcile_interrupted_attempt(
+                {
+                    **observation,
+                    "thread_id": "019ff4ef-aac5-77c1-81ef-682411ff1a3f",
+                },
+                self.session_id,
+                state_store=self.store,
+                now=150,
+            )
+
+        result = governance.reconcile_interrupted_attempt(
+            observation,
+            self.session_id,
+            state_store=self.store,
+            now=150,
+        )
+        self.assertEqual(result["status"], "confirmed_inactive")
+        record = self.execution(task_id)
+        self.assertEqual(
+            record["observation_record"],
+            {
+                "source": "session",
+                "observed_state": "terminal",
+                "observed_at": 150,
+                "terminal_status": "interrupted",
+            },
+        )
+        self.assertEqual(governance._parent_action(record), "decide_disposition")
+        self.assertNotIn("last_lifecycle_operation", record)
+        self.assertNotIn("reconciliation_reason", record)
+        self.assertNotIn("reconciled_thread_id", record)
+        self.assertNotIn("reconciled_thread_status", record)
+
+    def test_terminal_list_fact_waits_for_notification(self):
+        task_id, target = self.add_managed()
+
+        def persist_terminal(state):
+            record = state["tasks"][task_id]["executions"]["1"]
+            record["observation_record"].update(
+                source="list_agents",
+                observed_state="terminal",
+                observed_at=140,
+                terminal_status="completed",
+            )
+            governance._apply_canonical_execution_update(record, "observed_execution_status", "stopped")
+            governance._apply_canonical_execution_update(record, "observation_source", "list_agents")
+            governance._apply_canonical_execution_update(record, "observation_summary", "completed")
+            governance._apply_canonical_execution_update(record, "observation_observed_at", 140)
+            governance._apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
+
+        self.store.update(self.session_id, persist_terminal)
+        record = self.execution(task_id)
+        self.assertNotIn("closure_state", record["closure_record"])
+        self.assertEqual(governance._execution_status(record), "stopped")
+        self.assertEqual(governance._parent_action(record), "reconcile")
 
 if __name__ == "__main__":
     unittest.main()

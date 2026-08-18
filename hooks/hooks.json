@@ -58,35 +58,6 @@
         ]
       }
     ],
-    "SubagentStart": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"$PLUGIN_ROOT/scripts/subagent_governance.py\"",
-            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\scripts\\subagent_governance.py\"",
-            "timeout": 10,
-            "statusMessage": "加载子 Agent 执行边界",
-            "additionalContextLimit": 1800
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"$PLUGIN_ROOT/scripts/subagent_governance.py\"",
-            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\scripts\\subagent_governance.py\"",
-            "timeout": 10,
-            "statusMessage": "验收子 Agent 终态"
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [

@@ -108,8 +108,6 @@ class GovernanceTests(unittest.TestCase):
     def test_handle_routes_registered_events_and_ignores_unknown_events(self):
         routes = {
             "PostToolUse": "_handle_post_tool",
-            "SubagentStart": "_handle_subagent_start",
-            "SubagentStop": "_handle_subagent_stop",
             "Stop": "_handle_stop",
             "SessionStart": "_handle_session_start",
             "SessionEnd": "_handle_session_end",
@@ -122,7 +120,8 @@ class GovernanceTests(unittest.TestCase):
                 payload = {"hook_event_name": event}
                 self.assertEqual(governance.handle(payload, self.store), sentinel)
                 handler.assert_called_once_with(payload, self.store)
-        self.assertIsNone(governance.handle({"hook_event_name": "UnknownEvent"}, self.store))
+        for event in ("SubagentStart", "SubagentStop", "UnknownEvent"):
+            self.assertIsNone(governance.handle({"hook_event_name": event}, self.store))
 
     def test_main_fails_open_for_invalid_hook_input(self):
         for raw_input in ("{", "[]"):
@@ -141,6 +140,13 @@ class GovernanceTests(unittest.TestCase):
     def test_main_rejects_unknown_arguments_and_orphan_selectors(self):
         invocations = (
             (["--unexpected"], "unsupported arguments"),
+            (["--reconcile-terminal-attempt"], "unsupported arguments"),
+            (["--agent-target", "/root/agent"], "unsupported arguments"),
+            (["--task-id", "task-1"], "unsupported arguments"),
+            (["--attempt", "1"], "unsupported arguments"),
+            (["--authorize-final-retry"], "requires --prepare-spawn-retry"),
+            (["--authorize-recovery"], "requires --prepare-communication"),
+            (["--upsert-group", "--group-id", "group-1"], "only valid with --read-group"),
             (["--session", "session-1"], "require --diagnose"),
             (["--data-root", str(self.root)], "require --diagnose"),
         )
@@ -162,19 +168,6 @@ class GovernanceTests(unittest.TestCase):
         self.assertEqual(result["updatedInput"], payload["tool_input"])
         self.assertEqual(self.store.read("session-1")["tasks"], {})
 
-    def test_unmapped_subagent_stop_is_not_governed(self):
-        result = governance.handle(
-            {
-                "session_id": "session-1",
-                "hook_event_name": "SubagentStop",
-                "agent_id": "native-unmapped-agent",
-                "last_assistant_message": "原生自由文本结果",
-            },
-            self.store,
-        )
-        self.assertEqual(result, {"continue": True})
-        self.assertEqual(self.store.read("session-1")["tasks"], {})
-
     def test_published_rules_match_current_runtime_contract(self):
         asset = (PLUGIN_ROOT / "assets/agents-governance.md").read_text(encoding="utf-8")
         skill = (PLUGIN_ROOT / "skills/subagent-governance/SKILL.md").read_text(encoding="utf-8")
@@ -186,14 +179,16 @@ class GovernanceTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("$subagent-governance", asset)
         self.assertIn("完整协作契约", asset)
+        self.assertIn("`requested_mode`", skill)
         for mode in governance.REQUESTED_MODES:
-            self.assertIn(f"requested_mode={mode}", skill)
+            self.assertIn(f"`{mode}`", skill)
             self.assertIn(mode, levels.lower())
         self.assertIn("sg_<resolved_mode>_<semantic_name>_t_<task_ref>", skill)
-        self.assertIn("结构化结果是唯一正式业务结果", skill)
-        self.assertIn("不从原生自由文本推断或生成正式结果", skill)
-        self.assertIn("不使用协议版本作为兼容门禁", boundaries)
-        self.assertIn("`unknown`", boundaries)
+        self.assertIn("## 终态通知与父处置", skill)
+        self.assertIn("不保存通知正文", skill)
+        self.assertIn("不替代原生终态通知，也不生成业务结果", skill)
+        self.assertIn("未知格式版本 fail-open 且不重写原文件", boundaries)
+        self.assertIn("PostToolUse unknown 不自动重发", boundaries)
 
     def test_long_session_ids_get_distinct_state_paths(self):
         first = "x" * 200 + "A"
@@ -245,6 +240,9 @@ class GovernanceTests(unittest.TestCase):
             completion_conditions=["列出状态转换和验证结论"],
         )
         record = self.store.read("session-1")["tasks"][prepared["task_id"]]
+        execution = record["executions"][str(record["work_item"]["current_attempt"])]
+        self.assertNotIn("created_at", record["work_item"])
+        self.assertNotIn("attempt_count", record["work_item"])
         for retired in (
             "protocol",
             "status",
@@ -255,8 +253,15 @@ class GovernanceTests(unittest.TestCase):
             "message_visibility",
         ):
             self.assertNotIn(retired, record)
-        for field_name, expected in governance.AttemptState().to_record().items():
-            self.assertEqual(record[field_name], expected)
+        self.assertEqual(set(execution), set(governance.REQUIRED_EXECUTION_FIELDS))
+        self.assertEqual(execution["dispatch_record"]["dispatch_state"], "prepared")
+        self.assertEqual(
+            execution["observation_record"]["observed_state"], "not_observed"
+        )
+        self.assertNotIn("closure_state", execution["closure_record"])
+        self.assertEqual(governance._execution_status(execution), "not_started")
+        self.assertEqual(execution["dispatch_record"]["dispatch_state"], "prepared")
+        self.assertIsNone(execution["closure_record"]["parent_action"])
 
     def test_runtime_task_contract_matches_schema_shape(self):
         schema = json.loads(

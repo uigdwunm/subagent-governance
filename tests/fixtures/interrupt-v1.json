@@ -6,7 +6,7 @@
     "tool_name": "collaboration.interrupt_agent",
     "tool_use_id": "interrupt-call",
     "tool_input": {
-      "target": "interrupt-agent",
+      "target": "/root/interrupt-agent",
       "purpose": "停止当前执行",
       "reason": "父 Agent 已明确决定主动中断",
       "content": "立即停止当前执行并保留已有结果。",
@@ -19,7 +19,19 @@
     "hook_event_name": "PostToolUse",
     "tool_name": "collaboration.interrupt_agent",
     "tool_use_id": "interrupt-call",
-    "tool_input": {"target": "interrupt-agent"},
-    "tool_response": {"status": "interrupted"}
+    "tool_input": {"target": "/root/interrupt-agent"},
+    "tool_response": {"previous_status": "running"}
+  },
+  {
+    "session_id": "interrupt-session",
+    "turn_id": "interrupt-turn",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "collaboration.list_agents",
+    "tool_input": {"path_prefix": "/root/interrupt-agent"},
+    "tool_response": {
+      "agents": [
+        {"agent_name": "/root/interrupt-agent", "agent_status": "interrupted"}
+      ]
+    }
   }
 ]

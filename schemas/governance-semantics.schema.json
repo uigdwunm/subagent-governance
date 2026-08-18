@@ -34,7 +34,21 @@
     },
     "operation_type": {
       "type": "string",
-      "enum": ["normal_message", "platform_recovery", "result_correction", "business_resume"]
+      "enum": ["normal_message", "platform_recovery", "business_resume"]
+    },
+    "dispatch_state": {
+      "type": "string",
+      "enum": ["prepared", "claimed", "acknowledged", "rejected", "indeterminate"]
+    },
+    "observation_source": {
+      "type": "string",
+      "enum": [
+        "list_agents", "terminal_notification", "session"
+      ]
+    },
+    "observed_state": {
+      "type": "string",
+      "enum": ["not_observed", "active", "terminal", "absent_at_check", "error", "unknown"]
     },
     "execution_status": {
       "type": "string",
@@ -52,26 +66,6 @@
       "type": "string",
       "enum": ["normal", "error", "unknown"]
     },
-    "business_result": {
-      "type": "string",
-      "enum": ["complete", "blocked", "failed", "needs_decision"]
-    },
-    "acceptance_status": {
-      "type": "string",
-      "enum": ["pending", "accepted", "rejected"]
-    },
-    "result_protocol_status": {
-      "type": "string",
-      "enum": ["needs_correction", "valid", "exhausted"]
-    },
-    "result_storage_status": {
-      "type": "string",
-      "enum": ["available", "unavailable"]
-    },
-    "recovery_status": {
-      "type": "string",
-      "enum": ["awaiting_authorization", "exhausted"]
-    },
     "parent_action": {
       "type": "string",
       "enum": [
@@ -79,18 +73,13 @@
         "reconcile",
         "retry_spawn",
         "recover",
-        "correct_result",
         "decide_disposition",
-        "business_resume",
-        "accept_result",
-        "ask_user",
-        "manual_review",
-        "resolve_duplicate"
+        "ask_user"
       ]
     },
     "parent_disposition": {
       "type": "string",
-      "enum": ["accept_result", "reject_result", "close_task", "select_attempt"]
+      "enum": ["close_task"]
     },
     "call_observation": {
       "type": "string",
@@ -100,9 +89,15 @@
       "type": "string",
       "enum": ["prepared", "claimed"]
     },
+    "pending_operation_type": {
+      "type": "string",
+      "enum": [
+        "normal_message", "platform_recovery", "business_resume", "interrupt"
+      ]
+    },
     "lifecycle_operation_type": {
       "type": "string",
-      "enum": ["platform_recovery", "result_correction", "business_resume", "interrupt"]
+      "enum": ["platform_recovery", "business_resume", "interrupt"]
     },
     "semantic_name": {
       "type": "string",
@@ -119,12 +114,6 @@
     "attempt": {
       "type": "integer",
       "minimum": 1
-    },
-    "result_text": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 65536,
-      "pattern": "\\S"
     },
     "business_text": {
       "type": "string",
@@ -180,8 +169,7 @@
         "writes_files",
         "destructive",
         "production",
-        "concurrent_write",
-        "multi_stage_acceptance"
+        "concurrent_write"
       ],
       "properties": {
         "risk": {"$ref": "#/$defs/risk"},
@@ -189,11 +177,453 @@
         "writes_files": {"type": "boolean"},
         "destructive": {"type": "boolean"},
         "production": {"type": "boolean"},
-        "concurrent_write": {"type": "boolean"},
-        "multi_stage_acceptance": {"type": "boolean"},
-        "allows_child_agents": {"type": "boolean"}
+        "concurrent_write": {"type": "boolean"}
       },
       "additionalProperties": true
+    },
+    "work_item_lifecycle": {
+      "type": "string",
+      "enum": ["open", "tombstoned"]
+    },
+    "task_ref": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{12}(?:[a-f0-9]{4}){0,5}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "timestamp": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "nullable_timestamp": {
+      "anyOf": [
+        {"$ref": "#/$defs/timestamp"},
+        {"type": "null"}
+      ]
+    },
+    "work_item": {
+      "type": "object",
+      "required": [
+        "lifecycle",
+        "current_attempt"
+      ],
+      "properties": {
+        "objective_summary": false,
+        "lifecycle": {"$ref": "#/$defs/work_item_lifecycle"},
+        "current_attempt": {"$ref": "#/$defs/attempt"},
+        "created_at": false,
+        "updated_at": false,
+        "attempt_count": false,
+        "last_disposition": false,
+        "last_parent_disposition": false,
+        "action_required": false
+      },
+      "additionalProperties": true
+    },
+    "contract_summary": {
+      "type": "object",
+      "required": ["objective", "model"],
+      "properties": {
+        "objective": {"$ref": "#/$defs/short_text"},
+        "completion_conditions": false,
+        "model": {"$ref": "#/$defs/model"}
+      },
+      "additionalProperties": false
+    },
+    "dispatch_record": {
+      "type": "object",
+      "required": [
+        "dispatch_state", "tool_use_id", "dispatch_target"
+      ],
+      "properties": {
+        "dispatch_state": {"$ref": "#/$defs/dispatch_state"},
+        "tool_use_id": {"type": ["string", "null"], "minLength": 1},
+        "dispatch_target": {"type": ["string", "null"], "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "observation_record": {
+      "type": "object",
+      "required": [
+        "source", "observed_state", "observed_at",
+        "terminal_status"
+      ],
+      "properties": {
+        "subject": false,
+        "source": {
+          "anyOf": [{"$ref": "#/$defs/observation_source"}, {"type": "null"}]
+        },
+        "observed_state": {"$ref": "#/$defs/observed_state"},
+        "observed_at": {"$ref": "#/$defs/nullable_timestamp"},
+        "terminal_status": {
+          "type": ["string", "null"],
+          "enum": [null, "completed", "stopped", "interrupted"]
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"observed_state": {"const": "terminal"}}},
+          "then": {"properties": {"terminal_status": {"type": "string"}}}
+        }
+      ]
+    },
+    "closure_record": {
+      "type": "object",
+      "required": [
+        "reason", "closed_at", "parent_action"
+      ],
+      "properties": {
+        "closure_state": false,
+        "reason": {"$ref": "#/$defs/nullable_short_text"},
+        "closed_at": {"$ref": "#/$defs/nullable_timestamp"},
+        "parent_action": {
+          "anyOf": [{"$ref": "#/$defs/parent_action"}, {"type": "null"}]
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "reason": {"type": "null"},
+            "closed_at": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "reason": {"$ref": "#/$defs/short_text"},
+            "closed_at": {"$ref": "#/$defs/timestamp"}
+          }
+        }
+      ]
+    },
+    "execution_record": {
+      "type": "object",
+      "required": [
+        "task_ref", "task_name",
+        "resolved_mode",
+        "contract_summary", "contract_digest",
+        "dispatch_record",
+        "observation_record", "closure_record",
+        "spawn_retry_count", "recovery_count",
+        "updated_at"
+      ],
+      "properties": {
+        "managed": false,
+        "task_id": false,
+        "attempt": false,
+        "task_ref": {"$ref": "#/$defs/task_ref"},
+        "task_name": {
+          "anyOf": [
+            {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "\\S"},
+            {"type": "null"}
+          ]
+        },
+        "resolved_mode": {"$ref": "#/$defs/resolved_mode"},
+        "contract_summary": {"$ref": "#/$defs/contract_summary"},
+        "contract_digest": {"$ref": "#/$defs/sha256"},
+        "dispatch_record": {"$ref": "#/$defs/dispatch_record"},
+        "observation_record": {"$ref": "#/$defs/observation_record"},
+        "closure_record": {"$ref": "#/$defs/closure_record"},
+        "execution_status": false,
+        "spawn_observation": false,
+        "identity_status": false,
+        "platform_observation": false,
+        "recovery_status": false,
+        "parent_action": false,
+        "spawn_retry_count": {"type": "integer", "minimum": 0, "maximum": 2},
+        "recovery_count": {"type": "integer", "minimum": 0, "maximum": 2},
+        "spawn_tool_use_id": false,
+        "spawn_claimed_at": false,
+        "spawn_post_observed_at": false,
+        "spawn_observed_agent_id": false,
+        "spawn_observed_canonical_path": false,
+        "spawn_result_credential_id": false,
+        "agent_id": false,
+        "canonical_task_path": false,
+        "pending_action": {"$ref": "#/$defs/pending_action"},
+        "last_lifecycle_operation": {"$ref": "#/$defs/lifecycle_operation"},
+        "parent_disposition_record": false,
+        "attempt_closed": false,
+        "attempt_close_reason": false,
+        "attempt_closed_at": false,
+        "created_at": false,
+        "updated_at": {"$ref": "#/$defs/timestamp"},
+        "activity_at": false,
+        "terminal_reconciliation_reason": false,
+        "terminal_reconciled_at": false,
+        "reconciliation_reason": false,
+        "reconciled_thread_id": false,
+        "reconciled_thread_status": false,
+        "spawn_close_reason": false,
+        "platform_checked_at": false,
+        "platform_observation_source": false,
+        "platform_observation_summary": false,
+        "platform_observation_target": false,
+        "start_observed_at": false,
+        "parent_disposition": false,
+        "parent_disposition_reason": false,
+        "parent_disposition_at": false,
+        "spawn_not_created": false
+      },
+      "additionalProperties": true
+    },
+    "pending_action": {
+      "type": "object",
+      "required": [
+        "target", "attempt", "task_ref", "operation_type", "phase",
+        "created_at", "tool_use_id", "claimed_at"
+      ],
+      "properties": {
+        "target": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S"},
+        "attempt": {"$ref": "#/$defs/attempt"},
+        "task_ref": {"$ref": "#/$defs/task_ref"},
+        "operation_type": {"$ref": "#/$defs/pending_operation_type"},
+        "phase": {"$ref": "#/$defs/pending_action_phase"},
+        "created_at": {"$ref": "#/$defs/timestamp"},
+        "expires_at": false,
+        "tool_use_id": {"type": ["string", "null"], "minLength": 1},
+        "claimed_at": {"$ref": "#/$defs/nullable_timestamp"},
+        "authorized_recovery": {"type": "boolean"},
+        "result_credential_id": false,
+        "resume_contract": {"type": "object"},
+        "prepared_on_attempt": {"$ref": "#/$defs/attempt"},
+        "disposition": false
+      },
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "required": ["phase"],
+            "properties": {"phase": {"const": "claimed"}}
+          },
+          "then": {
+            "required": ["tool_use_id", "claimed_at"],
+            "properties": {
+              "tool_use_id": {"type": "string", "minLength": 1},
+              "claimed_at": {"$ref": "#/$defs/timestamp"}
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["operation_type"],
+            "properties": {"operation_type": {"const": "business_resume"}}
+          },
+          "then": {
+            "required": [
+              "resume_contract", "prepared_on_attempt"
+            ]
+          }
+        }
+      ]
+    },
+    "lifecycle_operation": {
+      "type": "object",
+      "required": [
+        "operation_type", "tool_use_id", "call_observation"
+      ],
+      "properties": {
+        "operation_type": {"$ref": "#/$defs/lifecycle_operation_type"},
+        "target": false,
+        "tool_use_id": {"type": "string", "minLength": 1},
+        "call_observation": {"$ref": "#/$defs/call_observation"},
+        "target_observation": {"type": "string", "minLength": 1, "maxLength": 128}
+      },
+      "additionalProperties": true
+    },
+    "tombstone_record": {
+      "type": "object",
+      "required": ["close_reason", "closed_at"],
+      "properties": {
+        "task_id": false,
+        "attempt": false,
+        "task_ref": {"$ref": "#/$defs/task_ref"},
+        "dispatch_target": {"type": "string", "minLength": 1},
+        "last_execution_status": false,
+        "close_reason": {"$ref": "#/$defs/short_text"},
+        "closed_at": {"$ref": "#/$defs/timestamp"}
+      },
+      "additionalProperties": true
+    },
+    "agent_identity_mapping": {
+      "type": "object",
+      "required": ["task_id", "attempt"],
+      "properties": {
+        "task_id": {"$ref": "#/$defs/task_id"},
+        "attempt": {"$ref": "#/$defs/attempt"}
+      },
+      "additionalProperties": true
+    },
+    "canonical_task_container": {
+      "type": "object",
+      "required": ["managed", "work_item", "executions"],
+      "properties": {
+        "managed": {"const": true},
+        "task_id": false,
+        "work_item": {"$ref": "#/$defs/work_item"},
+        "executions": {
+          "type": "object",
+          "minProperties": 1,
+          "patternProperties": {
+            "^[1-9][0-9]*$": {"$ref": "#/$defs/execution_record"}
+          },
+          "additionalProperties": false
+        },
+        "result_credentials": false
+      },
+      "additionalProperties": true
+    },
+    "canonical_state": {
+      "type": "object",
+      "required": [
+        "state_format_version", "session_id", "tasks", "agents", "health",
+        "tombstones"
+      ],
+      "properties": {
+        "state_format_version": {"const": 5},
+        "session_id": {"type": "string", "minLength": 1},
+        "tasks": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/task_id"},
+          "additionalProperties": {"$ref": "#/$defs/canonical_task_container"}
+        },
+        "agents": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/agent_identity_mapping"}
+        },
+        "health": {"type": "object"},
+        "tombstones": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/tombstone_record"}
+        },
+        "updated_at": false
+      },
+      "additionalProperties": true
+    },
+    "decision_allowed_action": {
+      "type": "string",
+      "enum": [
+        "wait",
+        "reconcile",
+        "retry_spawn",
+        "close_task",
+        "resume_business",
+        "inspect_tombstone"
+      ]
+    },
+    "decision_target": {
+      "type": "object",
+      "required": ["dispatch_target"],
+      "properties": {
+        "dispatch_target": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "decision_candidate_timestamps": {
+      "type": "object",
+      "properties": {
+        "activity_at": {"$ref": "#/$defs/timestamp"},
+        "platform_checked_at": {"$ref": "#/$defs/timestamp"},
+        "attempt_closed_at": {"$ref": "#/$defs/timestamp"}
+      },
+      "additionalProperties": false
+    },
+    "decision_execution_candidate": {
+      "type": "object",
+      "required": [
+        "attempt", "role", "target", "identity", "execution", "platform",
+        "notification", "action_required", "timestamps"
+      ],
+      "properties": {
+        "attempt": {"anyOf": [{"$ref": "#/$defs/attempt"}, {"type": "null"}]},
+        "role": {
+          "type": "string",
+          "enum": ["current", "prior", "tombstoned"]
+        },
+        "target": {
+          "anyOf": [{"$ref": "#/$defs/decision_target"}, {"type": "null"}]
+        },
+        "identity": {
+          "type": "string",
+          "enum": ["confirmed", "unconfirmed", "unknown"]
+        },
+        "execution": {
+          "type": "string",
+          "enum": ["not_started", "running", "stopped", "interrupted", "unknown"]
+        },
+        "platform": {
+          "type": "string",
+          "enum": ["normal", "error", "unknown", "not_checked"]
+        },
+        "notification": {"$ref": "#/$defs/decision_candidate_notification"},
+        "action_required": {"type": "boolean"},
+        "timestamps": {"$ref": "#/$defs/decision_candidate_timestamps"}
+      },
+      "additionalProperties": false
+    },
+    "decision_candidate_notification": {
+      "type": "object",
+      "required": ["observed", "source", "terminal_status"],
+      "properties": {
+        "observed": {"type": "boolean"},
+        "source": {
+          "anyOf": [{"$ref": "#/$defs/observation_source"}, {"type": "null"}]
+        },
+        "terminal_status": {
+          "type": ["string", "null"],
+          "enum": [null, "completed", "stopped", "interrupted"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "decision_terminal_notification": {
+      "type": "object",
+      "required": ["state", "attempt", "source", "terminal_status"],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["pending", "observed", "unknown"]
+        },
+        "attempt": {"anyOf": [{"$ref": "#/$defs/attempt"}, {"type": "null"}]},
+        "source": {
+          "anyOf": [{"$ref": "#/$defs/observation_source"}, {"type": "null"}]
+        },
+        "terminal_status": {
+          "type": ["string", "null"],
+          "enum": [null, "completed", "stopped", "interrupted"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "work_item_decision_snapshot": {
+      "type": "object",
+      "required": [
+        "task_id", "objective_summary", "current_attempt", "lifecycle",
+        "action_required", "recent_activity", "execution_candidates",
+        "terminal_notification", "allowed_actions"
+      ],
+      "properties": {
+        "task_id": {"$ref": "#/$defs/task_id"},
+        "objective_summary": {"$ref": "#/$defs/nullable_short_text"},
+        "current_attempt": {"anyOf": [{"$ref": "#/$defs/attempt"}, {"type": "null"}]},
+        "lifecycle": {"type": "string", "enum": ["open", "tombstoned", "indeterminate"]},
+        "action_required": {"type": "boolean"},
+        "recent_activity": {"type": "boolean"},
+        "execution_candidates": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/decision_execution_candidate"}
+        },
+        "terminal_notification": {"$ref": "#/$defs/decision_terminal_notification"},
+        "allowed_actions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/decision_allowed_action"}
+        }
+      },
+      "additionalProperties": false
     }
   },
   "x-semantics": {
@@ -217,120 +647,88 @@
       "context_turns",
       "context_reason"
     ],
-    "task_result_fields": [
-      "task_id",
-      "attempt",
-      "business_result",
-      "result",
-      "evidence",
-      "remaining",
-      "suggested_parent_next_step",
-      "blocker",
-      "attempted",
-      "required_to_resume",
-      "failure_reason",
-      "retry_conditions",
-      "decision_question",
-      "options",
-      "recommendation"
-    ],
     "task_contract_optional_fields": [
       "task_features",
       "model",
       "reasoning_effort"
     ],
-    "task_result_base_required_fields": [
-      "task_id",
-      "attempt",
-      "business_result",
-      "result",
-      "evidence",
-      "remaining",
-      "suggested_parent_next_step"
-    ],
-    "task_result_scenario_fields": {
-      "blocked": ["blocker", "attempted", "required_to_resume"],
-      "failed": ["failure_reason", "attempted", "retry_conditions"],
-      "needs_decision": ["decision_question", "options", "recommendation"]
+    "terminal_notification_channel": {
+      "record_entrypoint": "record_terminal_notification_stdin_only",
+      "authority": "parent_with_current_native_child_notification",
+      "sender_binding": "exact_task_attempt_dispatch_target",
+      "scope": ["task_id", "attempt", "sender_target", "terminal_status"],
+      "idempotency": "same_exact_terminal_observation",
+      "conflict_policy": "preserve_first_terminal_observation_and_reconcile",
+      "scans_notification_body": false,
+      "persists_notification_body": false
     },
-    "attempt_state_fields": [
-      "execution_status",
-      "spawn_observation",
-      "identity_status",
-      "platform_observation",
-      "business_result",
-      "acceptance_status",
-      "result_protocol_status",
-      "result_storage_status",
-      "result_conflict",
-      "recovery_status",
-      "parent_action",
-      "spawn_retry_count",
-      "recovery_count",
-      "correction_count"
-    ],
-    "formal_result_state_fields": [
-      "result_reference",
-      "result_sha256",
-      "result_stored_at",
-      "result_conflict_sha256",
-      "result_conflict_first_seen_at"
-    ],
-    "formal_result_storage": {
-      "directory": "results",
-      "file_name_pattern": "^result-[a-f0-9]{64}-attempt-[1-9][0-9]*\\.json$",
-      "digest": "sha256",
-      "canonical_json": true,
-      "state_embeds_full_result": false
+    "platform_observation_adapter": {
+      "source": "post_tool_use_list_agents",
+      "accepted_response_types": ["object", "json_string"],
+      "response_container": "top_level_agents_only",
+      "query_binding": "exact_canonical_path_prefix",
+      "nonempty_binding": "path_prefix_equals_agent_name_equals_unique_dispatch_target",
+      "native_status_shapes": ["string", "single_tag_object"],
+      "active_statuses": ["running"],
+      "advisory_statuses": ["pending_init"],
+      "terminal_statuses": ["completed", "stopped", "interrupted"],
+      "error_statuses": ["errored", "error", "failed"],
+      "boolean_error_flags": ["isError", "is_error"],
+      "explicit_error_field": "error",
+      "wrapper_status_fields": ["status", "state"],
+      "wrapper_error_statuses": ["errored", "error", "failed", "failure"],
+      "wrapper_status_parse_policy": "present_must_be_single_native_tag",
+      "malformed_or_explicit_error": "no_exact_bound_fact",
+      "empty_response": "absent_at_check_only",
+      "recursive_content_scan": false,
+      "transcript_summary_final_history_scan": false,
+      "unknown_or_malformed": "no_exact_bound_fact"
     },
-    "parent_disposition_fields": [
-      "task_id",
-      "attempt",
-      "action",
-      "reason"
-    ],
+    "late_event_routing": {
+      "execution_identity": ["task_key", "execution_key", "dispatch_target"],
+      "active_target_mapping_is_authoritative_for_retained_events": false,
+      "terminal_notification_route": "parent_records_exact_sender_target_without_business_payload",
+      "mapping_or_payload_conflict": "unassociated_without_other_attempt_mutation"
+    },
+    "hook_capability_contract": {
+      "contract_path": "schemas/codex-hook-events-v1.contract.json",
+      "source_url": "https://learn.chatgpt.com/docs/hooks",
+      "checked_date": "2026-08-14",
+      "subagent_session_scope": "parent_session",
+      "transcript_correctness_authority": "none",
+      "unknown_subagent_extensions": "ignore_fail_open",
+      "unreliable_parent_stop_state": "advisory_fail_open",
+      "active_freshness_authority": "disabled",
+      "positive_parent_stop_gate": "none_through_slice_4",
+      "parent_stop_behavior": "advisory_continue"
+    },
+    "target_lifecycle_admission": {
+      "authority": "canonical_execution_target_provenance",
+      "active_index_role": "repairable_current_lookup_only",
+      "reliable_closed_fact": "attempt_closed=true",
+      "unique_open_retained_candidate": "repair_active_index_inside_state_lock_then_managed",
+      "multiple_open_retained_candidates": "reconcile_fail_closed",
+      "live_index_provenance_conflict": "reconcile_fail_closed",
+      "closed_historical_provenance": "reject_without_reactivation",
+      "no_canonical_provenance": "unmanaged_compatibility",
+      "generator_and_pretool_share_classifier": true,
+      "governed_operation_without_pending": "deny",
+      "pending_owner_must_equal_admission_candidate": true,
+      "business_resume_source_field": "prepared_on_attempt",
+      "resume_delivery_failed_pending_owner": "active_admission_candidate",
+      "stale_pending_claim": "deny_and_preserve_for_reconcile_or_expiry",
+      "normal_message_store_unavailable": "warn_fail_open",
+      "explicit_interrupt_store_unavailable": "warn_fail_open",
+      "implicit_current_attempt_selection": false
+    },
     "parent_disposition_reason_max_length": 600,
     "retry_limits": {
       "spawn": 2,
-      "recovery": 2,
-      "correction": 2
+      "recovery": 2
     },
-    "communication_fields": [
-      "target",
-      "purpose",
-      "reason",
-      "content",
-      "expected_result",
-      "operation_type"
-    ],
-    "pending_action_fields": [
-      "target",
-      "task_id",
-      "attempt",
-      "task_ref",
-      "operation_type",
-      "phase",
-      "created_at",
-      "expires_at",
-      "tool_use_id",
-      "claimed_at",
-      "reason",
-      "authorized_recovery",
-      "start_observed_at"
-    ],
-    "last_lifecycle_operation_fields": [
-      "operation_type",
-      "target",
-      "tool_use_id",
-      "call_observation",
-      "claimed_at",
-      "completed_at",
-      "reason"
-    ],
     "operation_native_tools": {
       "normal_message": "send_message",
       "platform_recovery": "followup_task",
-      "result_correction": "followup_task",
       "business_resume": "followup_task",
       "interrupt": "interrupt_agent"
     },
@@ -343,9 +741,7 @@
       "strict_true_fields": [
         "destructive",
         "production",
-        "concurrent_write",
-        "multi_stage_acceptance",
-        "allows_child_agents"
+        "concurrent_write"
       ],
       "light_match": {
         "risk": "low",
@@ -364,16 +760,47 @@
       "recent_activity": 43200,
       "tombstone": 604800
     },
+    "spawn_admission": {
+      "required_work_item_lifecycle": "open",
+      "source_execution_must_be_unclosed": true,
+      "checked_at_preparation_and_claim": true,
+      "claim_persist_then_error_requires_exact_preclaim_restore": true,
+      "claim_restore_requires_exact_postclaim_task_snapshot": true,
+      "claim_pre_callback_failure_requires_exact_preclaim_state_for_reuse": true,
+      "initial_task_binding_source": "deterministic_prepared_contract_rebuild",
+      "initial_task_snapshot_is_duplicated": false,
+      "initial_task_delete_requires_exact_full_post_state": true,
+      "initial_task_delete_precedes_prepared_contract_delete": true,
+      "initial_divergence_retains_task_and_prepared_contract": true,
+      "initial_rollback_incomplete_is_degraded_and_action_required_when_persistable": true,
+      "initial_rollback_marker_cas_predicate": "exact_observed_task_only",
+      "initial_rollback_health_status_order": ["ok", "degraded", "unavailable"],
+      "initial_rollback_health_updates_block_task_marker": false,
+      "initial_rollback_health_marker_replace": "absent_or_existing_observed_at_lte_new",
+      "initial_rollback_invalid_health_facts_are_preserved": true,
+      "initial_task_absent_allows_orphan_prepared_cleanup": true,
+      "claim_rechecks": [
+        "work_item_lifecycle",
+        "source_execution"
+      ],
+      "unclaimed_expiry_seconds": 300,
+      "unsafe_rollback_is_degraded": true
+    },
     "wait_timeout_ms": 1200000,
     "stop_read_attempts": 3,
     "derived_views": {
       "action_required": {
-        "includes_prior_attempts": true,
+        "authority": "canonical_action_required_candidate",
+        "persisted_on_work_item": false,
+        "work_item_aggregation": "any_canonical_candidate",
+        "includes_all_executions": true,
         "uses_recent_activity_window": false,
-        "primary_rule": "unclosed_parent_action_or_authoritative_call"
+        "primary_rule": "unclosed_parent_action_or_authoritative_call_running_identity",
+        "closed_candidates_are_action_required": false,
+        "legacy_persisted_field_is_ignored_and_removed_during_migration": true
       },
       "recent_activity": {
-        "includes_prior_attempts": true,
+        "includes_all_executions": true,
         "uses_recent_activity_window": true,
         "authoritative_lifecycle_state": false
       }
@@ -385,13 +812,18 @@
       "issues": 256,
       "output_bytes": 2097152
     },
+    "work_item_decision_snapshot": {
+      "primary_unit": "work_item",
+      "canonical_sources": ["work_item", "executions"],
+      "canonical_executions_only": true,
+      "read_only": true,
+      "capacity_truncates_complete_work_items": true
+    },
     "group": {
       "fields": [
         "group_id",
         "objective_summary",
-        "members",
-        "created_at",
-        "updated_at"
+        "members"
       ],
       "member_fields": ["task_id", "required"],
       "members_max_items": 128,
@@ -399,34 +831,29 @@
       "objective_summary_max_length": 600,
       "summary_ready_requires_nonempty_required": true,
       "optional_members_affect_required_aggregates": false,
-      "persists_derived_status": false
+      "persists_derived_status": false,
+      "decision_source": "work_item_decision_snapshot",
+      "generates_aggregate_result": false,
+      "schedules_or_cancels_members": false
     },
     "task_name": {
-      "pattern": "^sg_(light|standard|strict)_[a-z0-9]+(?:_[a-z0-9]+)*_t_[a-f0-9]{12,32}$",
+      "pattern": "^sg_(light|standard|strict)_([a-z0-9]+(?:_[a-z0-9]+)*)_t_([a-f0-9]{12,32})$",
       "max_length": 64,
       "task_ref_lengths": [12, 16, 20, 24, 28, 32]
     },
-    "initial_attempt_state": {
-      "execution_status": "not_started",
-      "spawn_observation": null,
-      "identity_status": "unconfirmed",
-      "platform_observation": null,
-      "business_result": null,
-      "acceptance_status": null,
-      "result_protocol_status": null,
-      "result_storage_status": null,
-      "result_conflict": false,
-      "recovery_status": null,
-      "parent_action": null,
-      "spawn_retry_count": 0,
-      "recovery_count": 0,
-      "correction_count": 0
-    },
-    "business_result_parent_action": {
-      "complete": "accept_result",
-      "blocked": "decide_disposition",
-      "failed": "decide_disposition",
-      "needs_decision": "ask_user"
+    "canonical_record": {
+      "state_format_version": 5,
+      "task_key": "task_id",
+      "work_item_field": "work_item",
+      "executions_field": "executions",
+      "execution_key": "attempt",
+      "root_fields": ["managed", "work_item", "executions"],
+      "legacy_projection_retired": true,
+      "execution_plane_fields": [
+        "dispatch_record", "observation_record", "closure_record"
+      ],
+      "legacy_projection_scope": "v1_v4_migration_input_only",
+      "unknown_version_behavior": "fail_open_without_rewrite"
     }
   }
 }

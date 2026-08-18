@@ -203,7 +203,7 @@ Agent 映射固定为精确 target → `{task_id, attempt}`，不能只映射 ta
 
 ### 9.3 状态转换
 
-- failed：只在适配器取得可靠失败事实时写 `spawn_observation=failed`。首次失败且 count=0 → `parent_action=retry_spawn`；第一次 retry 失败且 count=1 → `parent_action=ask_user`；第二次 retry 失败且 count=2 → 写 `execution_status=stopped + parent_action=decide_disposition` 和 `spawn_retry_exhausted` attempt tombstone，不写业务 failed，也不关闭整个 task。retry 认领在下一次原生调用前增加计数，调用 failed/unknown 不回退。
+- failed：只在适配器取得可靠失败事实时写 `spawn_observation=failed`。首次失败且 count=0 → `parent_action=retry_spawn`；第一次 retry 失败且 count=1 → `parent_action=ask_user`；第二次 retry 失败且 count=2 → 写 `execution_status=stopped + parent_action=decide_disposition`，保持 attempt 未关闭并等待父处置。retry 认领在下一次原生调用前增加计数，调用 failed/unknown 不回退。
 - unknown：写 `spawn_observation=unknown + identity_status=unconfirmed + execution_status=not_started + parent_action=reconcile`；不得自动重派、关闭或改为 running。
 - success 无身份：写 `spawn_observation=success + identity_status=unconfirmed + execution_status=not_started + parent_action=reconcile`。
 - success 有可靠身份：精确绑定 Agent ID/canonical path，写 `identity_status=confirmed + execution_status=running + platform_observation=normal + recovery_status=null + parent_action=wait`。
@@ -348,7 +348,7 @@ WP-04 必须另行实现并保持分离：
 - success 无身份保持 `not_started + unconfirmed + reconcile`；可靠 Agent ID/canonical path 映射为 `{task_id, attempt}` 后才进入 `running + normal + wait`。
 - `SubagentStart` 只接受已有精确 Agent 映射或事件中的合法 task name/task ref；同名、同轮、唯一候选和任意候选绑定已退出。unknown 后的迟到精确启动可绑定原 attempt；明确 failed、stopped、interrupted 或已有业务结果的 attempt 不被启动事件复活。
 - 未消费 PreparedContract 满5分钟后精确删除契约和仍为空的初始 attempt；consumed 且缺少 PostToolUse 满20分钟后转换为 unknown/reconcile，但不建设后台 scheduler。
-- spawn retry 在原生调用前认领并增加独立计数：首次 retry 写1，用户授权的最后一次 retry 写2；unknown 不回退计数也不能继续复用 attempt；最后一次明确 failed 写 stopped/decide_disposition、`spawn_retry_exhausted` tombstone，并停止同 attempt 重派。
+- spawn retry 在原生调用前认领并增加独立计数：首次 retry 写1，用户授权的最后一次 retry 写2；unknown 不回退计数也不能继续复用 attempt；最后一次明确 failed 写 stopped/decide_disposition，并停止同 attempt 重派，最终 closure 与 tombstone 只由父处置统一写入。
 - 身份确认或明确 failed 后删除完整 PreparedContract；删除失败只产生告警，不回滚已经确认的观察事实。
 - 新 managed 记录不会被 legacy `list_agents`、follow-up、interrupt 或自由文本 SubagentStop 分支写入混合 `status`；WP-04/05 目标状态机仍未实现。
 

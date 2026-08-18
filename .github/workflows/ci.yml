@@ -30,7 +30,7 @@ jobs:
           scripts/check_installation.py
           scripts/reinstall_preserving_caches.py
           scripts/release_preflight.py
-      - name: Validate plugin, Skill, versions, and public content
+      - name: Validate portable plugin and Skill contract, versions, and public content
         run: python scripts/release_preflight.py --mode development
       - name: Run tests
         run: python -m unittest discover -s tests -v

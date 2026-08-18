@@ -491,7 +491,7 @@ schemas=3 refs=35 patterns=10 fixtures=5 wp06_anchors=ok
 - 真实 `followup_task` 同 Agent恢复、`interrupt_agent` success/failed/unknown、迟到 SubagentStart/PostToolUse/list-agents 的平台事件顺序。
 - 真实 startup/resume/clear/compact 的 SessionStart Hook 时序、摘要注入与上下文压缩恢复展示。
 - 真实 Stop hook recursion、SessionEnd 触发、Hook trust、Provider 断流和 Codex App终止行为。
-- 真实平台是否向 managed `SubagentStop` 传递 WP-05 的自定义 `task_result`，以及子 Agent是否能直接调用正式结果 CLI。
+- 真实平台是否在当前原生子 Agent 终态通知中稳定向父 Agent 提供完整 TaskResult 与精确 sender target；官方 `SubagentStop` 不承诺自定义 `task_result`，当前方案也不要求子 Agent 调用结果 CLI。
 
 以上均未用本地 fixture 冒充通过。
 
@@ -504,7 +504,7 @@ WP-06 退出条件已满足：两个派生视图独立并覆盖 current/prior at
 ### 17.5 WP-07 交接
 
 - 稳定派生视图：`_action_required_records(state)` 和 `_recent_activity_records(state, now=...)` 均返回按 attempt 投影的确定性有界机械记录；前者无时间过滤，后者只表示12小时展示。
-- 多 attempt/target：投影含 `task_id`、`attempt`、`is_current_attempt`、`activity_at`，并保留机械状态、parent action、Agent ID/canonical path 与最小 contract summary；WP-07 不应重新扫描 current-only 或按 task name 猜测。
+- 多 attempt/target：投影含 `task_id`、`attempt`、`activity_at`，并保留机械状态、parent action、Agent ID/canonical path 与最小 contract summary；current attempt 直接由 `work_item.current_attempt` 判定，WP-07 不应重新扫描 current-only 或按 task name 猜测。
 - Session/Stop degraded：StateStore/reconcile/cleanup 失败已产生明确即时 degraded 文案；WP-07 可读取和规范化这些可观察事实，但不得根据错误文字推断 delivery/execution/orchestration 根因。
 - result/tombstone：`_cleanup_task_result_file()` 与 `StateStore.cleanup_expired_tombstones()` 形成精确 task/attempt 清理边界；WP-07 诊断只读，不得触发该清理或转储完整 result/evidence。
 - duplicate/select：关闭事实、tombstone、Agent映射清理和 selected parent action 已是持久化权威；诊断只展示，不自动选择、中断或恢复。

@@ -41,6 +41,9 @@ class ReleasePreflightTests(unittest.TestCase):
     def marketplace_path(self, root: Path) -> Path:
         return root / ".agents/plugins/marketplace.json"
 
+    def manifest_path(self, root: Path) -> Path:
+        return root / ".codex-plugin/plugin.json"
+
     def set_marketplace_ref(self, root: Path, ref: str) -> None:
         path = self.marketplace_path(root)
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -97,6 +100,28 @@ class ReleasePreflightTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(preflight.PreflightFailure, "host-specific"):
+                preflight.run_preflight(root, "development")
+
+    def test_manifest_rejects_unknown_fields_and_non_https_urls(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.copy_public_tree(root)
+            manifest_path = self.manifest_path(root)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+            manifest["interface"]["unexpectedField"] = "must be rejected"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(
+                preflight.PreflightFailure, "unsupported field"
+            ):
+                preflight.run_preflight(root, "development")
+
+            manifest["interface"].pop("unexpectedField")
+            manifest["homepage"] = "http://example.test/plugin"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(
+                preflight.PreflightFailure, "homepage.*https"
+            ):
                 preflight.run_preflight(root, "development")
 
 

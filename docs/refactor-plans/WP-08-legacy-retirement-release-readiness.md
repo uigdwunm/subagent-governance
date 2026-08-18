@@ -1,5 +1,9 @@
 # WP-08 旧路径退役与发布准备验证详细方案
 
+> 2026-08-14 状态：本文保留为历史退役计划。其 managed SubagentStop
+> `task_result` 规则已被平台能力切片 1 supersede，不能作为当前 runtime、
+> Skill 或发布保证。
+
 ## 一、状态、唯一目标与授权边界
 
 - 阶段：WP-08，WP-01～WP-07 之后的最终本地收口阶段。
@@ -389,3 +393,13 @@ no matches
 - 不能宣称“稳定版可发布验收完成”：目标新版本没有真实加载，Hook trust、真实派发/恢复/结果/Session/group和整体回滚均未验证；当前环境还保留8份历史缓存，不满足目标N/N-1保留策略。
 - 本任务未执行发布、安装、稳定源替换、Marketplace更新、运行缓存写入、全局规则应用、Hook trust修改、Registry写入、缓存清理、stage、commit或push。
 - 剩余事项只有用户另行明确授权后的受控发布/安装流程：生成正式版本/cachebuster和tag候选、导出稳定副本、包装重装、应用稳定版最小入口、完成真实平台矩阵、确认N/N-1整体回滚和后置缓存清理。
+
+## 十四、D6 S6 后续兼容投影退役
+
+WP-08 删除旧混合状态机后，D6 S1～S5 曾为纵向迁移保留 root current/`prior_attempts` 投影及 attempt-first diagnose/group 输出。2026-08-13 的 S6 已在所有新消费者切换到 `work_item + executions` 后删除这些临时兼容层；这不改写本节之前记录的 WP-08 历史基线。
+
+- 新 task root 只含 `managed/task_id/work_item/executions`，projection writer/reader 已删除。
+- 历史 flat record 不惰性迁移、不参与 Hook、CLI、Session、Stop、diagnose 或 group 决策；精确旧 Agent 映射只告警并 fail-open。
+- diagnose 不再输出顶层 attempt-first `action_required/recent_activity` 数组；group member 不再输出三个旧别名。
+- S6 失败先行、测试迁移、两个已知 D6 host-specific path errors、只读发布前检查和真实平台 `not_checked` 详见 `docs/redesign/S6-compatibility-retirement-release-preflight-implementation.md`。
+- 本轮没有安装、发布、缓存同步、stage、commit 或 push；WP-08 先前只读安装现状不能证明本开发工作树已加载。

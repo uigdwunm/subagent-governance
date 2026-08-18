@@ -9,6 +9,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlparse
 
 
 PLUGIN_NAME = "subagent-governance"
@@ -44,6 +45,40 @@ TEXT_SUFFIXES = {
     ".txt",
     ".yaml",
     ".yml",
+}
+MANIFEST_KEYS = {
+    "id",
+    "name",
+    "version",
+    "description",
+    "skills",
+    "apps",
+    "mcpServers",
+    "interface",
+    "author",
+    "homepage",
+    "repository",
+    "license",
+    "keywords",
+}
+AUTHOR_KEYS = {"name", "email", "url"}
+INTERFACE_KEYS = {
+    "displayName",
+    "shortDescription",
+    "longDescription",
+    "developerName",
+    "category",
+    "capabilities",
+    "websiteURL",
+    "privacyPolicyURL",
+    "termsOfServiceURL",
+    "brandColor",
+    "composerIcon",
+    "logo",
+    "logoDark",
+    "screenshots",
+    "defaultPrompt",
+    "default_prompt",
 }
 
 
@@ -88,12 +123,34 @@ def require_non_empty_string(payload: dict[str, Any], key: str, label: str) -> s
     return value.strip()
 
 
+def reject_unknown_keys(
+    payload: dict[str, Any], allowed: set[str], label: str
+) -> None:
+    unexpected = sorted(set(payload) - allowed)
+    if unexpected:
+        raise PreflightFailure(
+            f"{label} contains unsupported field(s): {', '.join(unexpected)}"
+        )
+
+
+def require_https_url(payload: dict[str, Any], key: str, label: str) -> None:
+    value = payload.get(key)
+    if value is None:
+        return
+    if not isinstance(value, str):
+        raise PreflightFailure(f"{label}.{key} must be an absolute https:// URL")
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise PreflightFailure(f"{label}.{key} must be an absolute https:// URL")
+
+
 def public_version(version: str) -> str:
     return version.split("+", 1)[0]
 
 
 def validate_manifest(root: Path) -> tuple[dict[str, Any], str, str]:
     manifest = load_json_object(root, MANIFEST_PATH)
+    reject_unknown_keys(manifest, MANIFEST_KEYS, "plugin.json")
     name = require_non_empty_string(manifest, "name", "plugin.json")
     if name != PLUGIN_NAME:
         raise PreflightFailure(
@@ -111,9 +168,26 @@ def validate_manifest(root: Path) -> tuple[dict[str, Any], str, str]:
         )
     if manifest.get("license") != "MIT":
         raise PreflightFailure("plugin.json license must be MIT")
+    for field_name in ("homepage", "repository"):
+        require_https_url(manifest, field_name, "plugin.json")
+    author = manifest.get("author")
+    if not isinstance(author, dict):
+        raise PreflightFailure("plugin.json.author must be an object")
+    reject_unknown_keys(author, AUTHOR_KEYS, "plugin.json.author")
+    require_non_empty_string(author, "name", "plugin.json.author")
+    for field_name in ("email", "url"):
+        if field_name in author and not isinstance(author[field_name], str):
+            raise PreflightFailure(
+                f"plugin.json.author.{field_name} must be a non-empty string"
+            )
+    if "email" in author and not author["email"].strip():
+        raise PreflightFailure("plugin.json.author.email must be a non-empty string")
+    if "url" in author:
+        require_https_url(author, "url", "plugin.json.author")
     interface = manifest.get("interface")
     if not isinstance(interface, dict):
         raise PreflightFailure("plugin.json interface must be an object")
+    reject_unknown_keys(interface, INTERFACE_KEYS, "plugin.json.interface")
     for field in (
         "displayName",
         "shortDescription",
@@ -130,6 +204,8 @@ def validate_manifest(root: Path) -> tuple[dict[str, Any], str, str]:
         raise PreflightFailure(
             "plugin.json interface.capabilities must be a non-empty string array"
         )
+    for field_name in ("websiteURL", "privacyPolicyURL", "termsOfServiceURL"):
+        require_https_url(interface, field_name, "plugin.json.interface")
     return manifest, version, public_version(version)
 
 
