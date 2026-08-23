@@ -966,6 +966,163 @@ class DispatchIdentityTests(unittest.TestCase):
         self.assertNotIn(prepared["task_id"], self.store.read("session-1")["tasks"])
         self.assertEqual(self.prepared_store().list_records("session-1"), [])
 
+    def test_missing_unclaimed_initial_credential_is_tombstoned_after_expiry(self):
+        prepared_store = self.prepared_store()
+        prepared = governance.prepare_dispatch(
+            self.contract(),
+            "session-1",
+            state_store=self.store,
+            prepared_store=prepared_store,
+            task_id_factory=lambda: "sg-task-missing-credential",
+            now=1_000,
+        )
+        prepared_store.delete("session-1", prepared["task_ref"], missing_ok=False)
+
+        result = governance.reconcile_prepared_dispatches(
+            "session-1",
+            state_store=self.store,
+            prepared_store=prepared_store,
+            now=1_301,
+        )
+
+        self.assertEqual(result, {"expired": 1, "reconciled": 0})
+        state = self.store.read("session-1")
+        task = state["tasks"][prepared["task_id"]]
+        execution = task["executions"]["1"]
+        self.assertEqual(task["work_item"]["lifecycle"], "tombstoned")
+        self.assertEqual(
+            execution["closure_record"],
+            {
+                "closed_at": 1_301,
+                "parent_action": None,
+                "reason": "automatic_close:expired_unclaimed_dispatch",
+            },
+        )
+        self.assertEqual(
+            state["tombstones"][f'{prepared["task_id"]}:1']["close_reason"],
+            "automatic_close:expired_unclaimed_dispatch",
+        )
+        self.assertEqual(
+            execution["observation_record"],
+            {
+                "observed_at": None,
+                "observed_state": "not_observed",
+                "source": None,
+                "terminal_status": None,
+            },
+        )
+
+    def test_missing_unclaimed_initial_credential_is_retained_before_expiry(self):
+        prepared_store = self.prepared_store()
+        prepared = governance.prepare_dispatch(
+            self.contract(),
+            "session-1",
+            state_store=self.store,
+            prepared_store=prepared_store,
+            task_id_factory=lambda: "sg-task-young-missing-credential",
+            now=1_000,
+        )
+        prepared_store.delete("session-1", prepared["task_ref"], missing_ok=False)
+
+        result = governance.reconcile_prepared_dispatches(
+            "session-1",
+            state_store=self.store,
+            prepared_store=prepared_store,
+            now=1_299,
+        )
+
+        self.assertEqual(result, {"expired": 0, "reconciled": 0})
+        task = self.store.read("session-1")["tasks"][prepared["task_id"]]
+        self.assertEqual(task["work_item"]["lifecycle"], "open")
+        self.assertEqual(task["executions"]["1"]["closure_record"]["closed_at"], None)
+
+    def test_missing_credential_never_auto_closes_unknown_spawn(self):
+        prepared_store = self.prepared_store()
+        prepared = governance.prepare_dispatch(
+            self.contract(),
+            "session-1",
+            state_store=self.store,
+            prepared_store=prepared_store,
+            task_id_factory=lambda: "sg-task-unknown-missing-credential",
+            now=1_000,
+        )
+
+        def mark_unknown(state):
+            execution = state["tasks"][prepared["task_id"]]["executions"]["1"]
+            governance._apply_canonical_execution_update(
+                execution, "dispatch_tool_use_id", "unknown-tool-use"
+            )
+            governance._apply_canonical_execution_update(
+                execution, "dispatch_response", "unknown"
+            )
+            governance._apply_canonical_execution_update(
+                execution, "closure_parent_action", "reconcile"
+            )
+            execution["updated_at"] = 1_000
+
+        self.store.update("session-1", mark_unknown)
+        prepared_store.delete("session-1", prepared["task_ref"], missing_ok=False)
+
+        result = governance.reconcile_prepared_dispatches(
+            "session-1",
+            state_store=self.store,
+            prepared_store=prepared_store,
+            now=10_000,
+        )
+
+        self.assertEqual(result, {"expired": 0, "reconciled": 0})
+        task = self.store.read("session-1")["tasks"][prepared["task_id"]]
+        execution = task["executions"]["1"]
+        self.assertEqual(task["work_item"]["lifecycle"], "open")
+        self.assertEqual(governance._spawn_observation(execution), "unknown")
+        self.assertEqual(governance._parent_action(execution), "reconcile")
+        self.assertIsNone(execution["closure_record"]["closed_at"])
+
+    def test_missing_credential_auto_close_preserves_concurrent_state_change(self):
+        prepared_store = self.prepared_store()
+        prepared = governance.prepare_dispatch(
+            self.contract(),
+            "session-1",
+            state_store=self.store,
+            prepared_store=prepared_store,
+            task_id_factory=lambda: "sg-task-concurrent-missing-credential",
+            now=1_000,
+        )
+        prepared_store.delete("session-1", prepared["task_ref"], missing_ok=False)
+        original_compare_and_set = self.store.compare_and_set
+        changed = False
+
+        def change_before_close(*args, **kwargs):
+            nonlocal changed
+            if not changed:
+                changed = True
+                original_compare_and_set(
+                    "session-1",
+                    lambda _state: True,
+                    lambda state: state["tasks"][prepared["task_id"]].update(
+                        {"concurrent_extension": "must-survive"}
+                    ),
+                )
+            return original_compare_and_set(*args, **kwargs)
+
+        with mock.patch.object(
+            self.store,
+            "compare_and_set",
+            side_effect=change_before_close,
+        ):
+            result = governance.reconcile_prepared_dispatches(
+                "session-1",
+                state_store=self.store,
+                prepared_store=prepared_store,
+                now=1_301,
+            )
+
+        self.assertEqual(result, {"expired": 0, "reconciled": 0})
+        task = self.store.read("session-1")["tasks"][prepared["task_id"]]
+        self.assertEqual(task["concurrent_extension"], "must-survive")
+        self.assertEqual(task["work_item"]["lifecycle"], "open")
+        self.assertIsNone(task["executions"]["1"]["closure_record"]["closed_at"])
+
     def test_unclaimed_initial_expiry_retains_concurrent_change_and_marks_reconcile(self):
         prepared = governance.prepare_dispatch(
             self.contract(), "session-1", state_store=self.store,

@@ -81,6 +81,7 @@
 ## F10 Session 闭环
 
 - SessionStart 对账 prepared/claimed 操作、清理到期 tombstone，并输出 work-item 决策摘要。
+- 对 PreparedContract 已缺失且超过5分钟的 initial dispatch，仅在 canonical state 精确证明未 claim、无 target、无观察、零 retry 且无并发变化时自动关闭并写7天 tombstone；不伪造 terminal notification。
 - Stop 最多读取 StateStore 三次，只给 advisory，固定 fail-open。
 - SessionEnd 只在无 action-required 且无保留期 tombstone 时删除 Session JSON。
 - 稳定 lock 永不删除。

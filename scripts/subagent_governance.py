@@ -3893,6 +3893,128 @@ def prepare_spawn_retry(
     }
 
 
+def _expired_unclaimed_initial_without_credential(
+    task: Any,
+    *,
+    prepared_refs: set[str],
+    cutoff: int,
+) -> bool:
+    """Prove that one initial dispatch can no longer create a native Agent."""
+    if not isinstance(task, dict) or task.get("managed") is not True:
+        return False
+    work_item = task.get("work_item")
+    executions = task.get("executions")
+    if (
+        work_item != {"current_attempt": 1, "lifecycle": "open"}
+        or not isinstance(executions, dict)
+        or set(executions) != {"1"}
+    ):
+        return False
+    execution = executions.get("1")
+    if not isinstance(execution, dict):
+        return False
+    task_ref = execution.get("task_ref")
+    updated_at = execution.get("updated_at")
+    if (
+        not isinstance(task_ref, str)
+        or not task_ref
+        or task_ref in prepared_refs
+        or isinstance(updated_at, bool)
+        or not isinstance(updated_at, int)
+        or updated_at > cutoff
+    ):
+        return False
+    if execution.get("spawn_retry_count") != 0 or execution.get("recovery_count") != 0:
+        return False
+    if any(
+        field_name in execution
+        for field_name in (
+            "pending_action",
+            "last_lifecycle_operation",
+            "initial_preparation_rollback",
+        )
+    ):
+        return False
+    if execution.get("dispatch_record") != {
+        "dispatch_state": "prepared",
+        "dispatch_target": None,
+        "tool_use_id": None,
+    }:
+        return False
+    if execution.get("observation_record") != {
+        "observed_at": None,
+        "observed_state": "not_observed",
+        "source": None,
+        "terminal_status": None,
+    }:
+        return False
+    if execution.get("closure_record") != {
+        "closed_at": None,
+        "parent_action": None,
+        "reason": None,
+    }:
+        return False
+    parsed_name = parse_task_name(execution.get("task_name"))
+    return bool(parsed_name is not None and parsed_name[2] == task_ref)
+
+
+def _close_expired_unclaimed_initials_without_credentials(
+    session_id: str,
+    *,
+    state_store: StateStore,
+    prepared_store: PreparedContractStore,
+    now: int,
+) -> int:
+    prepared_refs = prepared_store.refs(session_id)
+    cutoff = now - int(RETENTION_SECONDS["prepared_unclaimed"])
+    state = state_store.read(
+        session_id,
+        required_fields=("tasks", "tombstones"),
+    )
+    tasks = state.get("tasks")
+    if not isinstance(tasks, dict):
+        raise StateValidationError("治理状态缺少 tasks 对象")
+    candidates = [
+        (str(task_id), copy.deepcopy(task))
+        for task_id, task in tasks.items()
+        if _expired_unclaimed_initial_without_credential(
+            task,
+            prepared_refs=prepared_refs,
+            cutoff=cutoff,
+        )
+    ]
+    closed = 0
+    reason = "automatic_close:expired_unclaimed_dispatch"
+    for task_id, expected_task in sorted(candidates):
+        def predicate(current: dict[str, Any]) -> bool:
+            return current.get("tasks", {}).get(task_id) == expected_task
+
+        def close(current: dict[str, Any]) -> None:
+            task = current["tasks"][task_id]
+            execution = task["executions"]["1"]
+            _close_attempt_record(
+                current,
+                task_id,
+                1,
+                execution,
+                reason,
+                now,
+            )
+            task["work_item"]["lifecycle"] = "tombstoned"
+
+        try:
+            state_store.compare_and_set(
+                session_id,
+                predicate,
+                close,
+                required_fields=("tasks", "tombstones"),
+            )
+        except StateConflictError:
+            continue
+        closed += 1
+    return closed
+
+
 def reconcile_prepared_dispatches(
     session_id: str,
     *,
@@ -4001,6 +4123,12 @@ def reconcile_prepared_dispatches(
                 lambda value: value.update({"post_observed_at": current_time}),
             )
             reconciled += 1
+    expired += _close_expired_unclaimed_initials_without_credentials(
+        session_id,
+        state_store=state_store,
+        prepared_store=prepared_store,
+        now=current_time,
+    )
     return {"expired": expired, "reconciled": reconciled}
 
 

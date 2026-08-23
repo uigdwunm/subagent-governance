@@ -12,6 +12,8 @@ For handoffs outside native `spawn_agent`, pipe the manifest to `python3 scripts
 
 Version 5 StateStore reads, updates, and CAS callbacks expose only `dispatch_record`, `observation_record`, and `closure_record`. Legacy v1-v4 execution fields are accepted only as one-way migration input: reads convert them in memory, and the next successful write persists v5 without recreating a compatibility projection or maintaining a second state model.
 
+When an initial PreparedContract has been missing for more than five minutes and canonical state still proves the dispatch was never claimed, targeted, observed, or started, SessionStart/SessionEnd closes that unstarted work item into a seven-day tombstone. This does not synthesize completion or a terminal notification; claimed, unknown, concurrently changed, or possibly created Agents remain open for reconciliation.
+
 ## Capabilities
 
 - `light`, `standard`, `strict`, and structured `auto` governance modes

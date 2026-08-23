@@ -77,6 +77,8 @@ description: 治理 Codex 原生子 Agent 的派发、通信、等待、恢复�
 
 initial 和 retry 在 preparation 与 PreToolUse claim 两处都要求 work item open 且来源 execution 未关闭。
 
+initial credential 已缺失且超过5分钟时，只有 canonical state 仍精确等于“未 claim、无 target、无观察、无父动作、零 retry”的单一初始 attempt，SessionStart/SessionEnd 才自动写 `automatic_close:expired_unclaimed_dispatch` tombstone。该关闭只表示原生 Agent 从未创建，不生成 terminal notification 或 completed；claimed、unknown、并发变化及其他不确定状态必须保留 reconcile。
+
 ## 批量派发与 Group
 
 并行派发前用一张表格说明每个 Agent 的目标、治理等级、模型、强度、上下文、范围和完成条件。每个 Agent 仍对应一次独立原生 `spawn_agent`。
@@ -170,6 +172,7 @@ StateStore 还保存有限 identity、恢复计数、pending operation 和 tombs
 ## Session 与诊断
 
 - SessionStart 复用 prepared/claimed reconcile，清理到期 tombstone，并显示 action-required 和 recent activity。
+- SessionStart/SessionEnd 会收口凭证已缺失的过期未启动 initial dispatch；完整凭证仍存在时继续使用现有 exact rollback，任何可能已调用原生 Agent 的状态都不自动关闭。
 - Stop 最多读取 StateStore 三次，当前只给 advisory 且固定 fail-open，不替父 Agent 判断业务结果。
 - SessionEnd 仅在 action-required 为空且没有保留期 tombstone 时删除 Session JSON；稳定 `.lock` 永不删除。
 - tombstone 保留7天。v5 不读取或删除旧 `results/` 文件；历史文件由用户自行清理。

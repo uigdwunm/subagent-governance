@@ -11,6 +11,7 @@
 ## 派发与身份
 
 - PreparedContract 是 governed spawn 的前置凭证；PreToolUse 只按 task ref、StateStore 和可观察原生参数认领，不读取业务正文。
+- initial PreparedContract 已缺失且超过5分钟时，只有单一 initial execution 仍为精确 prepared、无 claim/target/观察/父动作且零 retry，SessionStart/SessionEnd 才自动关闭为 `automatic_close:expired_unclaimed_dispatch` tombstone；这不建立 completed 或 terminal notification。
 - TaskContract 的每个输入方向都必须显式出现；`context_manifest.mode=none` 表示明确无材料依赖，`declared` 只验证声明工作区、基线、路径、类型和摘要等机械事实。
 - declared context 在 prepare 与 claim 两处验证。确定性缺失或变化拒绝 governed 操作；内部 Hook 异常仍遵守既有 fail-open 边界并保留诊断。
 - `relevant_files[]` 是非权威定位提示，不替代 context manifest；插件不扫描未声明路径或业务正文推断潜在依赖。
@@ -41,6 +42,7 @@
 - `--parent-disposition` 只接受 `close_task`。
 - close 不自动中断明确 running 的 attempt，只返回精确 targets。
 - 关闭生成7天 tombstone。v5 不读取、创建或删除旧 `results/` 文件。
+- 自动关闭只适用于能够证明原生 Agent 从未创建的过期 initial dispatch；claimed、unknown、target 已绑定、并发变化或其他不确定状态绝不按时间关闭。
 
 ## Session 与诊断
 

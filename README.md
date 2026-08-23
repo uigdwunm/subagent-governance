@@ -38,6 +38,8 @@ flowchart LR
 
 当前 v5 StateStore 的读取、更新和 CAS callback 都只暴露 `dispatch_record`、`observation_record`、`closure_record`。v1-v4 旧 execution 字段仅用于一次性迁移输入：读取时在内存中转换，下一次成功写入时落为 v5，不会再生成兼容投影或维护第二份状态。
 
+如果 initial PreparedContract 已缺失且超过5分钟，同时 canonical state 仍精确证明派发从未被 claim、没有 target、没有平台观察或终态，SessionStart/SessionEnd 会把这条未启动工作项自动关闭并保留7天 tombstone。它不会伪造 completed 或终态通知；claimed、unknown、并发变化和任何可能已创建 Agent 的状态都会保留给 reconcile。
+
 ## 适用范围
 
 - Codex CLI 或 ChatGPT 桌面版中的 Codex
