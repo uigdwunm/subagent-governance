@@ -498,7 +498,7 @@
 
 ### 6.2 当前事实
 
-- `assets/agents-governance.md` 已收敛为 732 字节、单一标记区间内的四条短规则：普通任务不加载、涉及派发/通信/等待/恢复/中断/验收时先使用 `$subagent-governance`、完整协议只在 Skill 中维护，以及 Skill/Hook 不替代平台安全边界。
+- `assets/agents-governance.md` 已收敛为单一标记区间内的一段短入口：普通任务不加载；涉及规划、派发、通信、等待、恢复、中断或验收时先使用 `$subagent-governance`；Skill/Hook 不替代平台权限或安全边界。完整协议只在 Skill 中维护，不再由入口重复声明。
 - 原全局资产中的治理等级、用户可见派发说明、通信字段、等待巡检、有限恢复和终态格式已经迁入 `skills/subagent-governance/SKILL.md`；相关运行时一致性测试改为验证 Skill，不再要求全局资产复制完整协议。
 - Skill frontmatter 触发范围已经补充 `spawn_agent`、`send_message`、`followup_task`、`interrupt_agent` 以及等待、恢复、中断和终态验收，使按需加载边界不只覆盖“创建 Agent”。
 - 本机用户真实全局 `AGENTS.md` 仍与当前 `rc.9` 稳定资产哈希一致；它与开发仓库的新最小入口不同。这是尚未发布的预期版本差异，本轮没有写入全局文件。

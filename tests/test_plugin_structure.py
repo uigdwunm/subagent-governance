@@ -192,7 +192,7 @@ class PluginStructureTests(unittest.TestCase):
             self.assertIn(expected, default_prompt)
             self.assertIn(expected, agent_text)
 
-    def test_skill_frontmatter_has_exact_entrypoint_and_trigger_boundary(self):
+    def test_skill_frontmatter_has_discriminating_trigger_boundary(self):
         manifest = json.loads((ROOT / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
         skill_text = (ROOT / "skills/subagent-governance/SKILL.md").read_text(encoding="utf-8")
         self.assertTrue(skill_text.startswith("---\n"))
@@ -208,7 +208,18 @@ class PluginStructureTests(unittest.TestCase):
         self.assertEqual(fields["name"], manifest["name"])
         self.assertTrue(fields["description"])
         self.assertIn("子 Agent", fields["description"])
-        self.assertIn("不要因为普通任务碰巧包含子 Agent 字样", fields["description"])
+        self.assertIn("普通任务不使用", fields["description"])
+        for operation in ("派发", "通信", "等待", "恢复", "中断", "验收"):
+            self.assertIn(operation, fields["description"])
+        for tool in (
+            "spawn_agent",
+            "send_message",
+            "followup_task",
+            "wait_agent",
+            "list_agents",
+            "interrupt_agent",
+        ):
+            self.assertIn(tool, fields["description"])
 
     def test_skill_ui_metadata_has_expected_shape(self):
         manifest = json.loads((ROOT / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
@@ -258,10 +269,11 @@ class PluginStructureTests(unittest.TestCase):
         text = (ROOT / "assets/agents-governance.md").read_text(encoding="utf-8")
         self.assertEqual(text.count("<!-- subagent-governance:start -->"), 1)
         self.assertEqual(text.count("<!-- subagent-governance:end -->"), 1)
-        self.assertLessEqual(len(text.encode("utf-8")), 1200)
+        self.assertLessEqual(len(text.encode("utf-8")), 512)
         self.assertIn("$subagent-governance", text)
         self.assertIn("先使用", text)
-        self.assertIn("普通任务", text)
+        self.assertIn("普通任务不加载", text)
+        self.assertIn("平台权限或安全边界", text)
         self.assertNotIn("timeout_ms", text)
         self.assertNotIn("【子 Agent 终态】", text)
         self.assertNotIn("sg_<mode>_<semantic_name>", text)

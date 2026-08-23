@@ -287,7 +287,7 @@ FAILED (failures=6)
 - release process增加活动记录按当前操作所需字段预检、无版本门禁/迁移矩阵，以及“本地准备不授权外部写入”边界；旧独立Hook挂载检查继续作为发布安全门禁，不属于任务legacy状态机。
 - optimization plan记录WP-01～WP-08本地实施完成，稳定发布/安装/真实平台验收未执行。
 - 主盘点不改产品裁决，更新盘点状态、暂不删除项结果、52文件覆盖、运行时最终区段和WP-08后当前实现/完成结论；旧阶段方案和function inventory继续作为历史证据。
-- `assets/agents-governance.md` 保持8行最小按需入口，没有复制完整协议；Schema、Hook和发布脚本无需为制造差异而修改。
+- `assets/agents-governance.md` 保持单段最小按需入口，没有复制完整协议；Schema、Hook和发布脚本无需为制造差异而修改。
 
 ### 13.5 文件覆盖复盘
 

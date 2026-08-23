@@ -1,6 +1,6 @@
 ---
 name: subagent-governance
-description: 为 Codex 原生子 Agent 选择 light、standard、strict 或 auto 治理方式，并规范任务派发、通信、等待、恢复、中断、终态通知和生命周期关闭。用于用户要求规划、派发、加强、诊断或治理子 Agent，准备调用 spawn_agent、send_message、followup_task 或 interrupt_agent，任务需要上下文隔离、完成确认、失败恢复或并发协调时。不要因为普通任务碰巧包含子 Agent 字样就主动引入重型流程。
+description: 治理 Codex 原生子 Agent 的派发、通信、等待、恢复、中断与验收。准备调用 spawn_agent、send_message、followup_task、wait_agent、list_agents 或 interrupt_agent，或协调并发 Agent 时使用；普通任务不使用。
 ---
 
 # 子 Agent 治理

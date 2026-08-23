@@ -178,7 +178,8 @@ class GovernanceTests(unittest.TestCase):
             PLUGIN_ROOT / "skills/subagent-governance/references/runtime-boundaries.md"
         ).read_text(encoding="utf-8")
         self.assertIn("$subagent-governance", asset)
-        self.assertIn("完整协作契约", asset)
+        self.assertIn("普通任务不加载", asset)
+        self.assertIn("平台权限或安全边界", asset)
         self.assertIn("`requested_mode`", skill)
         for mode in governance.REQUESTED_MODES:
             self.assertIn(f"`{mode}`", skill)
