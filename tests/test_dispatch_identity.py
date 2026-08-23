@@ -54,6 +54,7 @@ class DispatchIdentityTests(unittest.TestCase):
             "completion_conditions": ["确定性派发和身份绑定测试通过"],
             "evidence_requirements": ["运行定向测试"],
             "relevant_files": ["scripts/subagent_governance.py"],
+            "context_manifest": {"mode": "none"},
             "current_state": None,
             "model": None,
             "reasoning_effort": None,

@@ -31,6 +31,14 @@ class CommunicationLifecycleTests(unittest.TestCase):
         return {
             "semantic_name": "communication_task",
             "requested_mode": "standard",
+            "task_features": {
+                "risk": "medium",
+                "read_only": False,
+                "writes_files": True,
+                "destructive": False,
+                "production": False,
+                "concurrent_write": False,
+            },
             "objective": "完成通信与生命周期状态机验证",
             "background": "notification-only lifecycle test",
             "work_scope": ["当前测试工作区"],
@@ -38,6 +46,7 @@ class CommunicationLifecycleTests(unittest.TestCase):
             "completion_conditions": ["相关状态转换通过测试"],
             "evidence_requirements": ["单元测试结果"],
             "relevant_files": ["scripts/subagent_governance.py"],
+            "context_manifest": {"mode": "none"},
             "current_state": current_state,
             "model": None,
             "reasoning_effort": None,
@@ -398,6 +407,54 @@ class CommunicationLifecycleTests(unittest.TestCase):
         self.assertNotIn("resume_task_ref", task["executions"]["2"]["pending_action"])
         self.assertNotIn("task_id", task["executions"]["2"]["pending_action"])
         self.assertNotIn("reason", task["executions"]["2"]["pending_action"])
+
+    def test_business_resume_rechecks_working_tree_context_before_claim(self):
+        task_id, target = self.add_managed()
+        self.notify(task_id, target)
+        workspace = Path(self.temporary.name) / "resume-workspace"
+        workspace.mkdir()
+        context_file = workspace / "context.md"
+        context_file.write_text("prepared\n", encoding="utf-8")
+        contract = self.contract("继续执行")
+        contract["context_manifest"] = {
+            "mode": "declared",
+            "workspace_root": str(workspace),
+            "baseline": {"kind": "working_tree", "revision": None},
+            "required_paths": [{"path": "context.md", "type": "file"}],
+        }
+        prepared = governance.prepare_communication(
+            self.communication(
+                "business_resume",
+                target,
+                task_contract=contract,
+            ),
+            self.session_id,
+            state_store=self.store,
+            now=160,
+        )
+        context_file.write_text("changed\n", encoding="utf-8")
+
+        result = governance.handle(
+            {
+                "session_id": self.session_id,
+                "hook_event_name": "PreToolUse",
+                "tool_name": "followup_task",
+                "tool_use_id": "resume-context-drift",
+                "tool_input": prepared["native_args"],
+                "now": 161,
+            },
+            self.store,
+        )
+
+        self.assertEqual(
+            result["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        self.assertIn(
+            "必需上下文",
+            result["hookSpecificOutput"]["permissionDecisionReason"],
+        )
+        task = self.store.read(self.session_id)["tasks"][task_id]
+        self.assertEqual(task["work_item"]["current_attempt"], 1)
 
     def test_business_resume_claim_persist_then_raise_is_confirmed(self):
         task_id, target = self.add_managed()

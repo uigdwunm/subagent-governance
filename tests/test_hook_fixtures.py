@@ -31,6 +31,14 @@ class HookFixtureTests(unittest.TestCase):
         value = {
             "semantic_name": "fixture_task",
             "requested_mode": "standard",
+            "task_features": {
+                "risk": "medium",
+                "read_only": True,
+                "writes_files": False,
+                "destructive": False,
+                "production": False,
+                "concurrent_write": False,
+            },
             "objective": "检查 fixture 派发状态",
             "background": "WP-03 fixture。",
             "work_scope": ["只读检查 fixture"],
@@ -38,6 +46,7 @@ class HookFixtureTests(unittest.TestCase):
             "completion_conditions": ["给出检查结果"],
             "evidence_requirements": ["记录 Hook 转换"],
             "relevant_files": [],
+            "context_manifest": {"mode": "none"},
             "current_state": None,
             "model": None,
             "reasoning_effort": None,

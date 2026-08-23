@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import stat
+import subprocess
 import sys
 import tempfile
 import time
@@ -111,6 +112,7 @@ class TaskContract:
     completion_conditions: list[str]
     evidence_requirements: list[str]
     relevant_files: list[str]
+    context_manifest: dict[str, Any]
     current_state: str | None
     model: str | None
     reasoning_effort: str | None
@@ -132,6 +134,7 @@ class TaskContract:
             "completion_conditions": list(self.completion_conditions),
             "evidence_requirements": list(self.evidence_requirements),
             "relevant_files": list(self.relevant_files),
+            "context_manifest": copy.deepcopy(self.context_manifest),
             "current_state": self.current_state,
             "model": self.model,
             "reasoning_effort": self.reasoning_effort,
@@ -1074,9 +1077,325 @@ def _validate_text_list(
     return errors
 
 
+def _validate_context_manifest(value: Any) -> list[str]:
+    if not isinstance(value, dict):
+        return ["字段 context_manifest 必须是对象"]
+    mode = value.get("mode")
+    if mode not in {"none", "declared"}:
+        return ["字段 context_manifest.mode 必须是 none 或 declared"]
+    if mode == "none":
+        extras = sorted(set(value) - {"mode"})
+        return (
+            ["context_manifest.mode=none 时不能包含字段 " + "、".join(extras)]
+            if extras
+            else []
+        )
+
+    errors = _required_fields(
+        value,
+        ("mode", "workspace_root", "baseline", "required_paths"),
+    )
+    extras = sorted(
+        set(value) - {"mode", "workspace_root", "baseline", "required_paths"}
+    )
+    if extras:
+        errors.append("context_manifest 包含未知字段 " + "、".join(extras))
+    workspace_root = value.get("workspace_root")
+    if not isinstance(workspace_root, str) or not workspace_root.strip():
+        errors.append("字段 context_manifest.workspace_root 必须是非空绝对路径")
+    elif workspace_root != workspace_root.strip() or len(workspace_root) > 4000:
+        errors.append(
+            "字段 context_manifest.workspace_root 不能包含首尾空白且长度不能超过 4000"
+        )
+    elif not Path(workspace_root).is_absolute():
+        errors.append("字段 context_manifest.workspace_root 必须是绝对路径")
+
+    baseline = value.get("baseline")
+    if not isinstance(baseline, dict):
+        errors.append("字段 context_manifest.baseline 必须是对象")
+    else:
+        baseline_extras = sorted(set(baseline) - {"kind", "revision"})
+        if baseline_extras:
+            errors.append(
+                "context_manifest.baseline 包含未知字段 "
+                + "、".join(baseline_extras)
+            )
+        missing = sorted({"kind", "revision"} - set(baseline))
+        if missing:
+            errors.append(
+                "context_manifest.baseline 缺少字段 " + "、".join(missing)
+            )
+        kind = baseline.get("kind")
+        revision = baseline.get("revision")
+        if kind == "working_tree":
+            if revision is not None:
+                errors.append("baseline.kind=working_tree 时 revision 必须是 null")
+        elif kind == "git_commit":
+            if not isinstance(revision, str) or re.fullmatch(
+                r"(?:[a-f0-9]{40}|[a-f0-9]{64})", revision
+            ) is None:
+                errors.append("baseline.kind=git_commit 时 revision 必须是完整 commit OID")
+        elif len(path_value) > 1000:
+            errors.append(f"字段 {field_name}.path 长度不能超过 1000")
+        else:
+            errors.append("字段 context_manifest.baseline.kind 必须是 working_tree 或 git_commit")
+
+    required_paths = value.get("required_paths")
+    if not isinstance(required_paths, list):
+        errors.append("字段 context_manifest.required_paths 必须是数组")
+        return errors
+    if not required_paths:
+        errors.append("context_manifest.mode=declared 时 required_paths 至少需要 1 项")
+    if len(required_paths) > 64:
+        errors.append("字段 context_manifest.required_paths 不能超过 64 项")
+    seen: set[str] = set()
+    for index, item in enumerate(required_paths):
+        field_name = f"context_manifest.required_paths[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"字段 {field_name} 必须是对象")
+            continue
+        missing = sorted({"path", "type"} - set(item))
+        extras = sorted(set(item) - {"path", "type"})
+        if missing:
+            errors.append(f"字段 {field_name} 缺少 " + "、".join(missing))
+        if extras:
+            errors.append(f"字段 {field_name} 包含未知字段 " + "、".join(extras))
+        path_value = item.get("path")
+        if not isinstance(path_value, str) or not path_value.strip():
+            errors.append(f"字段 {field_name}.path 必须是非空字符串")
+        else:
+            path = path_value.strip()
+            parts = path.split("/")
+            if (
+                path != path_value
+                or path.startswith("/")
+                or "\\" in path
+                or any(part in {"", ".", ".."} for part in parts)
+                or any(ord(character) < 32 for character in path)
+            ):
+                errors.append(
+                    f"字段 {field_name}.path 必须是规范的 POSIX 相对路径，不能包含空段、.、.. 或控制字符"
+                )
+            elif path in seen:
+                errors.append(f"字段 {field_name}.path 不能重复：{path}")
+            else:
+                seen.add(path)
+        if item.get("type") not in {"file", "directory"}:
+            errors.append(f"字段 {field_name}.type 必须是 file 或 directory")
+    return errors
+
+
+def _validate_context_verification_record(
+    manifest: Any,
+    verification: Any,
+) -> list[str]:
+    if not isinstance(manifest, dict) or not isinstance(verification, dict):
+        return ["context manifest/verification 必须是对象"]
+    mode = manifest.get("mode")
+    if verification.get("mode") != mode:
+        return ["context manifest/verification 模式不一致"]
+    if mode == "none":
+        return [] if verification == {"mode": "none"} else [
+            "none context verification 不能包含其他字段"
+        ]
+    required = {"mode", "workspace_root", "baseline", "required_paths"}
+    if set(verification) != required:
+        return ["declared context verification 字段集合无效"]
+    root = verification.get("workspace_root")
+    if not isinstance(root, str) or not root or not Path(root).is_absolute():
+        return ["declared context verification workspace_root 无效"]
+    baseline = manifest.get("baseline")
+    verified_baseline = verification.get("baseline")
+    if not isinstance(baseline, dict) or verified_baseline != baseline:
+        return ["declared context verification baseline 与契约不一致"]
+    declared_paths = manifest.get("required_paths")
+    verified_paths = verification.get("required_paths")
+    if not isinstance(declared_paths, list) or not isinstance(verified_paths, list):
+        return ["declared context verification required_paths 无效"]
+    if len(declared_paths) != len(verified_paths):
+        return ["declared context verification required_paths 数量不一致"]
+    errors: list[str] = []
+    baseline_kind = baseline.get("kind")
+    for index, (declared, verified) in enumerate(zip(declared_paths, verified_paths)):
+        if not isinstance(declared, dict) or not isinstance(verified, dict):
+            errors.append(f"context verification required_paths[{index}] 必须是对象")
+            continue
+        if verified.get("path") != declared.get("path") or verified.get("type") != declared.get("type"):
+            errors.append(
+                f"context verification required_paths[{index}] 路径或类型与契约不一致"
+            )
+            continue
+        if baseline_kind == "git_commit":
+            if set(verified) != {"path", "type", "object_id"} or not isinstance(
+                verified.get("object_id"), str
+            ) or re.fullmatch(r"(?:[a-f0-9]{40}|[a-f0-9]{64})", verified["object_id"]) is None:
+                errors.append(
+                    f"context verification required_paths[{index}] Git object ID 无效"
+                )
+        elif declared.get("type") == "file":
+            if set(verified) != {"path", "type", "sha256"} or not isinstance(
+                verified.get("sha256"), str
+            ) or re.fullmatch(r"[a-f0-9]{64}", verified["sha256"]) is None:
+                errors.append(
+                    f"context verification required_paths[{index}] SHA-256 无效"
+                )
+        else:
+            mtime_ns = verified.get("mtime_ns")
+            if set(verified) != {"path", "type", "mtime_ns"} or isinstance(
+                mtime_ns, bool
+            ) or not isinstance(mtime_ns, int) or mtime_ns < 0:
+                errors.append(
+                    f"context verification required_paths[{index}] directory fingerprint 无效"
+                )
+    return errors
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _run_git(workspace_root: Path, *arguments: str) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(workspace_root), *arguments],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        detail = ""
+        if isinstance(exc, subprocess.CalledProcessError):
+            detail = (exc.stderr or exc.stdout or "").strip()
+        suffix = f"：{detail[:600]}" if detail else ""
+        raise ContextVerificationError(
+            f"Git 上下文校验失败（{' '.join(arguments)}）{suffix}"
+        ) from exc
+    return result.stdout.strip()
+
+
+def verify_context_manifest(value: Any) -> dict[str, Any]:
+    errors = _validate_context_manifest(value)
+    if errors:
+        raise ContextVerificationError("；".join(errors))
+    assert isinstance(value, dict)
+    if value["mode"] == "none":
+        return {"mode": "none"}
+
+    workspace_root = Path(str(value["workspace_root"])).resolve()
+    if not workspace_root.is_dir():
+        raise ContextVerificationError(
+            f"必需上下文工作区不存在或不是目录：{workspace_root}"
+        )
+    baseline = value["baseline"]
+    assert isinstance(baseline, dict)
+    baseline_kind = str(baseline["kind"])
+    verified_paths: list[dict[str, Any]] = []
+
+    if baseline_kind == "git_commit":
+        repository_root = Path(
+            _run_git(workspace_root, "rev-parse", "--show-toplevel")
+        ).resolve()
+        if repository_root != workspace_root:
+            raise ContextVerificationError(
+                "context_manifest.workspace_root 必须是 Git 仓库根目录："
+                f"声明 {workspace_root}，实际 {repository_root}"
+            )
+        revision = str(baseline["revision"])
+        _run_git(workspace_root, "cat-file", "-e", f"{revision}^{{commit}}")
+        current_head = _run_git(workspace_root, "rev-parse", "--verify", "HEAD")
+        if current_head != revision:
+            raise ContextVerificationError(
+                f"Git 工作区 HEAD 与声明 baseline 不一致：HEAD={current_head}，baseline={revision}"
+            )
+        for item in value["required_paths"]:
+            path_value = str(item["path"])
+            expected_type = str(item["type"])
+            object_spec = f"{revision}:{path_value}"
+            try:
+                object_type = _run_git(workspace_root, "cat-file", "-t", object_spec)
+                object_id = _run_git(workspace_root, "rev-parse", "--verify", object_spec)
+            except ContextVerificationError as exc:
+                raise ContextVerificationError(
+                    f"Git baseline {revision} 缺少必需上下文 {path_value}"
+                ) from exc
+            expected_object_type = "blob" if expected_type == "file" else "tree"
+            if object_type != expected_object_type:
+                raise ContextVerificationError(
+                    f"必需上下文类型不匹配：{path_value} 声明为 {expected_type}，"
+                    f"Git 对象类型为 {object_type}"
+                )
+            dirty = _run_git(
+                workspace_root,
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+                "--",
+                path_value,
+            )
+            if dirty:
+                raise ContextVerificationError(
+                    f"必需上下文工作区内容与 Git baseline 不一致：{path_value}"
+                )
+            verified_paths.append(
+                {
+                    "path": path_value,
+                    "type": expected_type,
+                    "object_id": object_id,
+                }
+            )
+        verified_baseline = {"kind": "git_commit", "revision": revision}
+    else:
+        for item in value["required_paths"]:
+            path_value = str(item["path"])
+            expected_type = str(item["type"])
+            candidate = (workspace_root / Path(path_value)).resolve()
+            try:
+                candidate.relative_to(workspace_root)
+            except ValueError as exc:
+                raise ContextVerificationError(
+                    f"必需上下文路径逃出工作区：{path_value}"
+                ) from exc
+            if not candidate.exists():
+                raise ContextVerificationError(f"必需上下文不存在：{path_value}")
+            if expected_type == "file" and not candidate.is_file():
+                raise ContextVerificationError(f"必需上下文不是文件：{path_value}")
+            if expected_type == "directory" and not candidate.is_dir():
+                raise ContextVerificationError(f"必需上下文不是目录：{path_value}")
+            verified: dict[str, Any] = {
+                "path": path_value,
+                "type": expected_type,
+            }
+            if expected_type == "file":
+                verified["sha256"] = _sha256_file(candidate)
+            else:
+                metadata = candidate.stat()
+                verified["mtime_ns"] = metadata.st_mtime_ns
+            verified_paths.append(verified)
+        verified_baseline = {"kind": "working_tree", "revision": None}
+
+    result = {
+        "mode": "declared",
+        "workspace_root": str(workspace_root),
+        "baseline": verified_baseline,
+        "required_paths": verified_paths,
+    }
+    verification_errors = _validate_context_verification_record(value, result)
+    if verification_errors:
+        raise ContextVerificationError("；".join(verification_errors))
+    return result
+
+
 def _validate_task_features(value: Any, *, required: bool) -> list[str]:
     if value is None:
-        return ["requested_mode=auto 时缺少字段 task_features"] if required else []
+        return ["缺少字段 task_features"] if required else []
     if isinstance(value, TaskFeatures):
         value = value.to_record()
     if not isinstance(value, dict):
@@ -1151,7 +1470,7 @@ def validate_task_contract(value: Any) -> list[str]:
         errors.append("字段 resolution_reason 枚举无效")
 
     features = value.get("task_features")
-    errors.extend(_validate_task_features(features, required=requested_mode == "auto"))
+    errors.extend(_validate_task_features(features, required=True))
     if requested_mode in RESOLVED_MODES:
         if resolved_mode != requested_mode:
             errors.append("显式 requested_mode 的 resolved_mode 必须与请求值相同")
@@ -1192,6 +1511,7 @@ def validate_task_contract(value: Any) -> list[str]:
         )
     )
     errors.extend(_validate_text_list(value.get("relevant_files"), "relevant_files"))
+    errors.extend(_validate_context_manifest(value.get("context_manifest")))
     errors.extend(
         _validate_text(
             value.get("current_state"),
@@ -1313,9 +1633,6 @@ def _contract_from_input(value: Any) -> TaskContract:
         raise ValueError(f"resolution_reason 必须由生成器解析为 {resolution_reason}")
     raw["resolved_mode"] = resolved_mode
     raw["resolution_reason"] = resolution_reason
-    raw.setdefault("task_features", None)
-    raw.setdefault("model", None)
-    raw.setdefault("reasoning_effort", None)
     errors = validate_task_contract(raw)
     if errors:
         raise ValueError("；".join(errors))
@@ -1338,7 +1655,36 @@ def _render_list(values: list[str]) -> str:
     return "\n".join(f"- {value}" for value in values)
 
 
-def render_dispatch_prompt(contract: TaskContract) -> str:
+def _render_verified_context(verification: dict[str, Any]) -> str:
+    if verification.get("mode") == "none":
+        return "- 无"
+    baseline = verification.get("baseline")
+    if not isinstance(baseline, dict):
+        raise ContextVerificationError("context verification 缺少 baseline")
+    kind = baseline.get("kind")
+    if kind == "git_commit":
+        baseline_line = f"- 基线：git_commit {baseline.get('revision')}"
+    else:
+        baseline_line = "- 基线：working_tree（prepare 与 spawn 双重校验）"
+    lines = [
+        f"- 工作区：{verification.get('workspace_root')}",
+        baseline_line,
+    ]
+    paths = verification.get("required_paths")
+    if not isinstance(paths, list):
+        raise ContextVerificationError("context verification 缺少 required_paths")
+    lines.extend(
+        f"- {item['path']}（{item['type']}，已验证）"
+        for item in paths
+        if isinstance(item, dict)
+    )
+    return "\n".join(lines)
+
+
+def render_dispatch_prompt(
+    contract: TaskContract,
+    context_verification: dict[str, Any],
+) -> str:
     current_state = contract.current_state or "无额外未落盘状态"
     context_reason = contract.context_reason or "默认隔离；任务背景已写入本首句"
     lines = [
@@ -1357,6 +1703,9 @@ def render_dispatch_prompt(contract: TaskContract) -> str:
             "",
             "【相关文件】",
             _render_list(contract.relevant_files),
+            "",
+            "【必需上下文】",
+            _render_verified_context(context_verification),
             "",
             "【当前状态】",
             current_state,
@@ -1378,7 +1727,10 @@ def render_dispatch_prompt(contract: TaskContract) -> str:
     return "\n".join(lines)
 
 
-def render_dispatch_user_message(contract: TaskContract) -> str:
+def render_dispatch_user_message(
+    contract: TaskContract,
+    context_verification: dict[str, Any],
+) -> str:
     _native_context, context_display = _context_projection(contract)
     model_display = contract.model or "继承主 Agent（未显式覆盖）"
     effort_display = contract.reasoning_effort or "继承主 Agent 当前强度（未显式覆盖）"
@@ -1396,6 +1748,12 @@ def render_dispatch_user_message(contract: TaskContract) -> str:
             f"模型：{model_display}",
             f"强度：{effort_display}",
             f"是否继承主线程全部上下文：{context_display}",
+            "必需上下文："
+            + (
+                "明确无材料依赖"
+                if context_verification.get("mode") == "none"
+                else f"已验证 {len(context_verification.get('required_paths', []))} 项"
+            ),
             "工作范围：" + "；".join(contract.work_scope),
             "完成条件：" + "；".join(contract.completion_conditions),
             "回传要求：完成、阻塞或需要决策时，向父 Agent发送明确终态通知",
@@ -1406,11 +1764,12 @@ def render_dispatch_user_message(contract: TaskContract) -> str:
 def _spawn_args(
     contract: TaskContract,
     task_name: str,
+    context_verification: dict[str, Any],
 ) -> dict[str, Any]:
     fork_turns, _context_display = _context_projection(contract)
     result: dict[str, Any] = {
         "task_name": task_name,
-        "message": render_dispatch_prompt(contract),
+        "message": render_dispatch_prompt(contract, context_verification),
         "fork_turns": fork_turns,
     }
     if contract.model is not None:
@@ -2028,6 +2387,7 @@ class PreparedContractStore:
             "resolved_mode",
             "contract",
             "contract_digest",
+            "context_verification",
             "native_parameters",
             "created_at",
             "consumed",
@@ -2060,6 +2420,16 @@ class PreparedContractStore:
             )
         if value.get("contract_digest") != contract_digest(_contract_from_input(contract)):
             raise PreparedContractValidationError(f"PreparedContract contract_digest 无效：{path}")
+        context_verification_errors = _validate_context_verification_record(
+            contract.get("context_manifest"),
+            value.get("context_verification"),
+        )
+        if context_verification_errors:
+            raise PreparedContractValidationError(
+                "PreparedContract context_verification 无效："
+                + "；".join(context_verification_errors)
+                + f"：{path}"
+            )
         if not isinstance(value.get("native_parameters"), dict):
             raise PreparedContractValidationError(f"PreparedContract native_parameters 无效：{path}")
         if isinstance(value.get("created_at"), bool) or not isinstance(value.get("created_at"), int):
@@ -2761,6 +3131,7 @@ def _prepared_record(
     task_ref: str,
     task_name: str,
     contract: TaskContract,
+    context_verification: dict[str, Any],
     spawn_args: dict[str, Any],
     *,
     created_at: int,
@@ -2782,6 +3153,7 @@ def _prepared_record(
         "resolved_mode": contract.resolved_mode,
         "contract": contract.to_record(),
         "contract_digest": contract_digest(contract),
+        "context_verification": copy.deepcopy(context_verification),
         "native_parameters": native_parameters,
         "created_at": created_at,
         "consumed": False,
@@ -3256,6 +3628,10 @@ def prepare_dispatch(
         _prepared_root_for_store(active_state_store)
     )
     contract = _contract_from_input(contract_value)
+    try:
+        context_verification = verify_context_manifest(contract.context_manifest)
+    except ContextVerificationError as exc:
+        raise DispatchPreparationError(f"必需上下文验证失败：{exc}") from exc
     factory = task_id_factory or _new_task_id
     created_at = _now() if now is None else now
     occupied = _occupied_task_refs(session_id, active_state_store, active_prepared_store)
@@ -3272,7 +3648,7 @@ def prepare_dispatch(
         raise DispatchPreparationError("两个新 task_id 均无法在32位内取得唯一 task_ref")
     task_id, task_ref = selected
     task_name = build_task_name(contract.resolved_mode, contract.semantic_name, task_ref)
-    spawn_args = _spawn_args(contract, task_name)
+    spawn_args = _spawn_args(contract, task_name, context_verification)
     prepared = _prepared_record(
         session_id,
         task_id,
@@ -3280,6 +3656,7 @@ def prepare_dispatch(
         task_ref,
         task_name,
         contract,
+        context_verification,
         spawn_args,
         created_at=created_at,
         spawn_retry_count=0,
@@ -3373,7 +3750,8 @@ def prepare_dispatch(
         "task_name": task_name,
         "contract": contract.to_record(),
         "contract_digest": contract_digest(contract),
-        "user_message": render_dispatch_user_message(contract),
+        "context_verification": copy.deepcopy(context_verification),
+        "user_message": render_dispatch_user_message(contract, context_verification),
         "dispatch_prompt": spawn_args["message"],
         "spawn_args": spawn_args,
     }
@@ -3427,13 +3805,17 @@ def prepare_spawn_retry(
     contract = _contract_from_input(contract_value)
     if contract_digest(contract) != record.get("contract_digest"):
         raise DispatchPreparationError("重派 TaskContract 与原 attempt 的完整契约不一致")
+    try:
+        context_verification = verify_context_manifest(contract.context_manifest)
+    except ContextVerificationError as exc:
+        raise DispatchPreparationError(f"重派必需上下文验证失败：{exc}") from exc
     task_ref = str(record.get("task_ref") or "")
     task_name = str(record.get("task_name") or "")
     if parse_task_name(task_name) is None:
         raise DispatchPreparationError("原 attempt 缺少合法 task_name/task_ref")
     prepared_at = _now() if now is None else now
     retry_attempt = int(current_attempt)
-    spawn_args = _spawn_args(contract, task_name)
+    spawn_args = _spawn_args(contract, task_name, context_verification)
     prepared = _prepared_record(
         session_id,
         task_id,
@@ -3441,6 +3823,7 @@ def prepare_spawn_retry(
         task_ref,
         task_name,
         contract,
+        context_verification,
         spawn_args,
         created_at=prepared_at,
         spawn_retry_count=desired_count,
@@ -3503,7 +3886,8 @@ def prepare_spawn_retry(
         "task_name": task_name,
         "contract": contract.to_record(),
         "contract_digest": contract_digest(contract),
-        "user_message": render_dispatch_user_message(contract),
+        "context_verification": copy.deepcopy(context_verification),
+        "user_message": render_dispatch_user_message(contract, context_verification),
         "dispatch_prompt": spawn_args["message"],
         "spawn_args": spawn_args,
     }
@@ -3683,6 +4067,7 @@ def render_communication_message(
     operation_type: str,
     *,
     resume_contract: TaskContract | None = None,
+    resume_context_verification: dict[str, Any] | None = None,
 ) -> str:
     lines = [
         f"【通信目的】{fields['purpose']}",
@@ -3692,6 +4077,8 @@ def render_communication_message(
     if operation_type == "business_resume":
         if resume_contract is None:
             raise CommunicationPreparationError("business_resume 缺少重新验证的 TaskContract")
+        if resume_context_verification is None:
+            raise CommunicationPreparationError("business_resume 缺少必需上下文验证")
         lines.extend(
             (
                 "【继续执行目标】",
@@ -3704,6 +4091,8 @@ def render_communication_message(
                 _render_list(resume_contract.completion_conditions),
                 "【验收证据】",
                 _render_list(resume_contract.evidence_requirements),
+                "【必需上下文】",
+                _render_verified_context(resume_context_verification),
             )
         )
     lines.append(f"【期望结果】{fields['expected_result']}")
@@ -3770,6 +4159,7 @@ def _pending_action_record(
     created_at: int,
     authorized_recovery: bool = False,
     resume_contract: TaskContract | None = None,
+    resume_context_verification: dict[str, Any] | None = None,
     prepared_on_attempt: int | None = None,
 ) -> dict[str, Any]:
     pending: dict[str, Any] = {
@@ -3786,6 +4176,9 @@ def _pending_action_record(
         pending["authorized_recovery"] = True
     if resume_contract is not None:
         pending["resume_contract"] = resume_contract.to_record()
+        pending["resume_context_verification"] = copy.deepcopy(
+            resume_context_verification
+        )
         pending["prepared_on_attempt"] = prepared_on_attempt
     return pending
 
@@ -3999,6 +4392,16 @@ def _persist_managed_action(
     authorized_second_recovery: bool,
     now: int,
 ) -> dict[str, Any]:
+    resume_context_verification = None
+    if resume_contract is not None:
+        try:
+            resume_context_verification = verify_context_manifest(
+                resume_contract.context_manifest
+            )
+        except ContextVerificationError as exc:
+            raise CommunicationPreparationError(
+                f"business_resume 必需上下文验证失败：{exc}"
+            ) from exc
     pending = _pending_action_record(
         target=target,
         attempt=desired_attempt,
@@ -4007,6 +4410,7 @@ def _persist_managed_action(
         created_at=now,
         authorized_recovery=authorized_second_recovery,
         resume_contract=resume_contract,
+        resume_context_verification=resume_context_verification,
         prepared_on_attempt=attempt if resume_contract else None,
     )
     def predicate(current: dict[str, Any]) -> bool:
@@ -4075,6 +4479,7 @@ def _persist_managed_action(
         fields,
         operation_type,
         resume_contract=resume_contract,
+        resume_context_verification=resume_context_verification,
     )
     return {
         "managed": True,
@@ -4142,10 +4547,14 @@ def _prepare_managed_action(
         )
     if admission.disposition != "managed" or admission.candidate is None:
         resume_contract = None
+        resume_context_verification = None
         if operation_type == "business_resume":
             try:
                 resume_contract = _contract_from_input(value.get("task_contract"))
-            except (TypeError, ValueError) as exc:
+                resume_context_verification = verify_context_manifest(
+                    resume_contract.context_manifest
+                )
+            except (ContextVerificationError, TypeError, ValueError) as exc:
                 raise CommunicationPreparationError(
                     f"business_resume TaskContract 无效：{exc}"
                 ) from exc
@@ -4153,6 +4562,7 @@ def _prepare_managed_action(
             fields,
             operation_type,
             resume_contract=resume_contract,
+            resume_context_verification=resume_context_verification,
         )
         native_args = (
             {"target": target}
@@ -4654,6 +5064,18 @@ def _handle_spawn(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
             "子 Agent 派发被阻止：原生可观察参数与 PreparedContract 不一致："
             + "、".join(mismatches)
         )
+    try:
+        prepared_contract = _contract_from_input(prepared["contract"])
+        current_context_verification = verify_context_manifest(
+            prepared_contract.context_manifest
+        )
+    except (ContextVerificationError, TypeError, ValueError) as exc:
+        return _deny(f"子 Agent 派发被阻止：必需上下文二次验证失败：{exc}")
+    if current_context_verification != prepared.get("context_verification"):
+        return _deny(
+            "子 Agent 派发被阻止：必需上下文在 prepare 与 spawn 之间发生变化，"
+            "请重新生成派发。"
+        )
     task_id = str(prepared["task_id"])
     attempt = int(prepared["attempt"])
     desired_retry_count = int(prepared["spawn_retry_count"])
@@ -4823,6 +5245,18 @@ def _create_resume_attempt(
     # This runs inside the PreToolUse StateStore CAS callback.  Check the
     # current locked state before moving the pending action or writing A(N+1).
     contract = _contract_from_input(pending.get("resume_contract"))
+    try:
+        current_context_verification = verify_context_manifest(
+            contract.context_manifest
+        )
+    except ContextVerificationError as exc:
+        raise StateConflictError(
+            f"business_resume 必需上下文二次验证失败：{exc}"
+        ) from exc
+    if current_context_verification != pending.get("resume_context_verification"):
+        raise StateConflictError(
+            "business_resume 必需上下文在 prepare 与 followup 之间发生变化"
+        )
     new_attempt = int(pending["attempt"])
     task_ref = str(pending["task_ref"])
     pending_owner.pop("pending_action", None)
@@ -7434,6 +7868,22 @@ def _run_preparation_cli(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_context_verification_cli() -> int:
+    try:
+        raw_input = sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1)
+        if len(raw_input.encode("utf-8")) > MAX_HOOK_INPUT_BYTES:
+            raise ValueError(
+                f"context manifest input exceeds {MAX_HOOK_INPUT_BYTES} bytes"
+            )
+        raw_manifest = json.loads(raw_input)
+        result = verify_context_manifest(raw_manifest)
+    except Exception as exc:
+        print(f"context verification failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def _run_reconciliation_cli(args: argparse.Namespace) -> int:
     if not args.session:
         print("interrupted attempt reconciliation requires --session", file=sys.stderr)
@@ -7539,6 +7989,7 @@ def main() -> int:
     parser = _NonExitingArgumentParser(add_help=False)
     parser.add_argument("--diagnose", action="store_true")
     parser.add_argument("--prepare-dispatch", action="store_true")
+    parser.add_argument("--verify-context-manifest", action="store_true")
     parser.add_argument("--prepare-spawn-retry")
     parser.add_argument("--authorize-final-retry", action="store_true")
     parser.add_argument("--prepare-communication", action="store_true")
@@ -7568,6 +8019,7 @@ def main() -> int:
         return 2
     operation_modes = {
         "prepare_dispatch": args.prepare_dispatch,
+        "verify_context_manifest": args.verify_context_manifest,
         "prepare_spawn_retry": args.prepare_spawn_retry is not None,
         "prepare_communication": args.prepare_communication,
         "prepare_interrupt": args.prepare_interrupt,
@@ -7639,6 +8091,14 @@ def main() -> int:
             _emit_diagnostic_cli_error(message, raw_arguments)
         print(message, file=sys.stderr)
         return 2
+    if args.verify_context_manifest and (
+        args.session is not None or args.data_root is not None
+    ):
+        print(
+            "--verify-context-manifest does not accept --session or --data-root",
+            file=sys.stderr,
+        )
+        return 2
     if not args.diagnose and not any(operation_modes.values()) and (
         args.session is not None or args.data_root is not None or args.group_id is not None
     ):
@@ -7646,15 +8106,8 @@ def main() -> int:
         return 2
     if args.diagnose:
         return _diagnose(args.session, args.data_root)
-    if preparation_mode:
-        return _run_preparation_cli(args)
-    if reconciliation_mode:
-        return _run_reconciliation_cli(args)
-    if lifecycle_mode:
-        return _run_lifecycle_cli(args)
-    if group_mode:
-        return _run_group_cli(args)
-    return _run_hook_cli()
+    if args.verify_context_manifest:
+        return _run_context_verification_cli()
     if preparation_mode:
         return _run_preparation_cli(args)
     if reconciliation_mode:

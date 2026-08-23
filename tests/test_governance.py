@@ -50,6 +50,14 @@ class GovernanceTests(unittest.TestCase):
         value = {
             "semantic_name": "sample_task",
             "requested_mode": "standard",
+            "task_features": {
+                "risk": "medium",
+                "read_only": False,
+                "writes_files": True,
+                "destructive": False,
+                "production": False,
+                "concurrent_write": False,
+            },
             "objective": "实现一个明确功能并运行相关测试",
             "background": "用于运行时回归测试。",
             "work_scope": ["当前测试工作区"],
@@ -57,6 +65,7 @@ class GovernanceTests(unittest.TestCase):
             "completion_conditions": ["相关测试通过"],
             "evidence_requirements": ["测试结果"],
             "relevant_files": ["scripts/subagent_governance.py"],
+            "context_manifest": {"mode": "none"},
             "current_state": None,
             "model": None,
             "reasoning_effort": None,

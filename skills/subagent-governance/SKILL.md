@@ -28,6 +28,7 @@ description: 治理 Codex 原生子 Agent 的派发、通信、等待、恢复�
 - `completion_conditions[]`
 - `evidence_requirements[]`
 - `relevant_files[]`
+- `context_manifest`
 - `current_state`
 - `model`
 - `reasoning_effort`
@@ -35,7 +36,14 @@ description: 治理 Codex 原生子 Agent 的派发、通信、等待、恢复�
 - `context_turns`
 - `context_reason`
 
-生成器补充 `resolved_mode` 和 `resolution_reason`。`task_features` 只在 auto 时必填；`model`、`reasoning_effort` 和允许为空的文本可为 JSON `null`。空值不伪造继承参数。
+模型必须显式提供以上全部字段；允许为空的数组使用 `[]`，允许为空的文本以及 `model`、`reasoning_effort` 使用 JSON `null`。`task_features` 在所有治理等级下都必须是完整对象。生成器补充 `resolved_mode` 和 `resolution_reason`，空值不伪造继承参数。
+
+`relevant_files[]` 只是便于定位的提示，不建立可达性事实。必需材料使用 `context_manifest`：
+
+- `{"mode":"none"}`：派发方明确声明没有工作区材料依赖。
+- `mode=declared`：必须提供绝对 `workspace_root`、`working_tree|git_commit` baseline 和非空 `required_paths[]`。
+- `git_commit` 必须使用完整 commit OID，当前 HEAD 必须等于该 commit，且声明路径不能有 tracked/untracked 差异；模型只声明路径和基线，Git object ID 由生成器计算。
+- 插件只读取声明路径，不扫描工作区寻找潜在依赖，也不评价自然语言是否充分。
 
 ## 治理等级
 
@@ -53,6 +61,9 @@ description: 治理 Codex 原生子 Agent 的派发、通信、等待、恢复�
 - `isolated`：默认，不继承上下文，`context_turns=null`。
 - `limited`：继承最近 1 至 100 轮，必须提供 `context_turns` 和理由。
 - `full`：完整继承，`context_turns=null`，理由必填。
+- 对话继承与材料交接相互独立；任何策略都不能替代 `context_manifest` 的明确 `none|declared`。
+- declared manifest 在 prepare 和原生调用 claim 前各验证一次；工作区文件变化、路径缺失、类型错误或文件不在声明 commit 时拒绝 governed 操作。
+- 其他运输方式可在派发前把 manifest 通过标准输入交给 `--verify-context-manifest` 做只读预检；该命令不创建 Session、PreparedContract 或生命周期状态，也不把外部任务纳入本插件治理。
 
 ## 派发
 
@@ -60,7 +71,7 @@ description: 治理 Codex 原生子 Agent 的派发、通信、等待、恢复�
 2. 生成器先原子保存 PreparedContract，再创建 StateStore 初始 task；任一门禁失败都不调用原生 `spawn_agent`。
 3. task name 固定为 `sg_<resolved_mode>_<semantic_name>_t_<task_ref>`。PreToolUse 只从未加密 task name 解析 ref，不读取业务正文。
 4. 先向用户展示生成的 `user_message`，再把 `spawn_args` 原样交给原生 `spawn_agent`。
-5. dispatch prompt 包含唯一目标、背景、范围、禁止事项、完成条件、证据要求和终态通知义务，不包含结果存储协议。
+5. dispatch prompt 包含唯一目标、背景、范围、禁止事项、已验证必需上下文、完成条件、证据要求和终态通知义务，不包含结果存储协议。
 
 明确 failed 后使用 `--prepare-spawn-retry <task_id>`；第二次也是最后一次 retry 需 `--authorize-final-retry`。任何一次 observation 为 unknown 都禁止复用同一 attempt 重派。
 
@@ -92,7 +103,7 @@ initial 和 retry 在 preparation 与 PreToolUse claim 两处都要求 work item
 - PostToolUse 只按 `tool_use_id` 对账 success、failed 或 unknown。claimed 后20分钟仍无 PostToolUse，才在后续显式读取中记 unknown。
 - normal message 只补充上下文，不改变生命周期。
 - platform recovery 只适用于精确 observation error，同一 attempt 最多一次自动恢复和一次用户授权恢复。
-- business resume 只在精确终态通知已到且父动作是 `decide_disposition`，或前一次 resume delivery failed 时创建新 attempt。它必须提供重新校验的 TaskContract。
+- business resume 只在精确终态通知已到且父动作是 `decide_disposition`，或前一次 resume delivery failed 时创建新 attempt。它必须提供重新校验的 TaskContract，并在 preparation 与 follow-up claim 两处复核 context manifest。
 - business resume success/unknown 不通过 SubagentStart 猜测 running；unknown 后不得向同一 Agent 重发。需要继续业务时必须按 business resume 的新 attempt 流程派发。
 - normal message 在 StateStore unavailable 时可告警 fail-open；受治理的 recovery 和 resume 前置事实不可可靠写入时拒绝。
 

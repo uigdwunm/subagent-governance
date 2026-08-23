@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The project follows semantic versioning for public releases; Codex cachebuster metadata may be appended to the Manifest version without changing the public feature version.
 
+## Unreleased
+
+- Required every TaskContract input direction, including complete `task_features` and explicit nullable model/reasoning overrides.
+- Added `context_manifest` with explicit `none` or declared working-tree/Git-commit dependencies.
+- Added prepare/claim context verification for initial spawn, spawn retry, and business resume without scanning or scoring natural-language task content.
+
 ## 0.4.0-rc.13
 
 - Replaced the four-plane outcome model with StateStore format 5 and three canonical execution planes: dispatch, observation, and closure.

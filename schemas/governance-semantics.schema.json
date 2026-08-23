@@ -181,6 +181,91 @@
       },
       "additionalProperties": true
     },
+    "context_manifest_mode": {
+      "type": "string",
+      "enum": ["none", "declared"]
+    },
+    "context_baseline_kind": {
+      "type": "string",
+      "enum": ["working_tree", "git_commit"]
+    },
+    "context_path_type": {
+      "type": "string",
+      "enum": ["file", "directory"]
+    },
+    "context_baseline": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "revision"],
+          "properties": {
+            "kind": {"const": "working_tree"},
+            "revision": {"type": "null"}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "revision"],
+          "properties": {
+            "kind": {"const": "git_commit"},
+            "revision": {
+              "type": "string",
+              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "context_required_path": {
+      "type": "object",
+      "required": ["path", "type"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "pattern": "\\S"
+        },
+        "type": {"$ref": "#/$defs/context_path_type"}
+      },
+      "additionalProperties": false
+    },
+    "context_manifest": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["mode"],
+          "properties": {
+            "mode": {"const": "none"}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["mode", "workspace_root", "baseline", "required_paths"],
+          "properties": {
+            "mode": {"const": "declared"},
+            "workspace_root": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000,
+              "pattern": "\\S"
+            },
+            "baseline": {"$ref": "#/$defs/context_baseline"},
+            "required_paths": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 64,
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/context_required_path"}
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "work_item_lifecycle": {
       "type": "string",
       "enum": ["open", "tombstoned"]
@@ -640,6 +725,7 @@
       "completion_conditions",
       "evidence_requirements",
       "relevant_files",
+      "context_manifest",
       "current_state",
       "model",
       "reasoning_effort",
@@ -647,11 +733,7 @@
       "context_turns",
       "context_reason"
     ],
-    "task_contract_optional_fields": [
-      "task_features",
-      "model",
-      "reasoning_effort"
-    ],
+    "task_contract_optional_fields": [],
     "terminal_notification_channel": {
       "record_entrypoint": "record_terminal_notification_stdin_only",
       "authority": "parent_with_current_native_child_notification",

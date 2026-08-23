@@ -29,6 +29,14 @@ class ConcurrencyTests(unittest.TestCase):
                 contract = {
                     "semantic_name": f"task_{index}",
                     "requested_mode": "light",
+                    "task_features": {
+                        "risk": "low",
+                        "read_only": True,
+                        "writes_files": False,
+                        "destructive": False,
+                        "production": False,
+                        "concurrent_write": False,
+                    },
                     "objective": f"只读检查并总结第 {index} 个并发任务",
                     "background": "并发 PreparedContract 和 StateStore 验证。",
                     "work_scope": ["当前测试目录"],
@@ -36,6 +44,7 @@ class ConcurrencyTests(unittest.TestCase):
                     "completion_conditions": ["返回检查结果"],
                     "evidence_requirements": ["记录生成结果"],
                     "relevant_files": [],
+                    "context_manifest": {"mode": "none"},
                     "current_state": None,
                     "model": None,
                     "reasoning_effort": None,

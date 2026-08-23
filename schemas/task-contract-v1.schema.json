@@ -7,6 +7,7 @@
     "requested_mode",
     "resolved_mode",
     "resolution_reason",
+    "task_features",
     "objective",
     "background",
     "work_scope",
@@ -14,7 +15,10 @@
     "completion_conditions",
     "evidence_requirements",
     "relevant_files",
+    "context_manifest",
     "current_state",
+    "model",
+    "reasoning_effort",
     "context_strategy",
     "context_turns",
     "context_reason"
@@ -24,12 +28,7 @@
     "requested_mode": {"$ref": "governance-semantics.schema.json#/$defs/requested_mode"},
     "resolved_mode": {"$ref": "governance-semantics.schema.json#/$defs/resolved_mode"},
     "resolution_reason": {"$ref": "governance-semantics.schema.json#/$defs/resolution_reason"},
-    "task_features": {
-      "anyOf": [
-        {"$ref": "governance-semantics.schema.json#/$defs/task_features"},
-        {"type": "null"}
-      ]
-    },
+    "task_features": {"$ref": "governance-semantics.schema.json#/$defs/task_features"},
     "objective": {"$ref": "governance-semantics.schema.json#/$defs/business_text"},
     "background": {"$ref": "governance-semantics.schema.json#/$defs/business_text"},
     "work_scope": {"$ref": "governance-semantics.schema.json#/$defs/text_list", "minItems": 1},
@@ -37,6 +36,7 @@
     "completion_conditions": {"$ref": "governance-semantics.schema.json#/$defs/text_list", "minItems": 1},
     "evidence_requirements": {"$ref": "governance-semantics.schema.json#/$defs/text_list"},
     "relevant_files": {"$ref": "governance-semantics.schema.json#/$defs/text_list"},
+    "context_manifest": {"$ref": "governance-semantics.schema.json#/$defs/context_manifest"},
     "current_state": {"$ref": "governance-semantics.schema.json#/$defs/nullable_business_text"},
     "model": {"$ref": "governance-semantics.schema.json#/$defs/model"},
     "reasoning_effort": {"$ref": "governance-semantics.schema.json#/$defs/nullable_reasoning_effort"},
@@ -45,10 +45,6 @@
     "context_reason": {"$ref": "governance-semantics.schema.json#/$defs/nullable_business_text"}
   },
   "allOf": [
-    {
-      "if": {"properties": {"requested_mode": {"const": "auto"}}},
-      "then": {"required": ["task_features"], "properties": {"task_features": {"type": "object"}}}
-    },
     {
       "if": {"properties": {"requested_mode": {"const": "light"}}},
       "then": {

@@ -11,6 +11,10 @@
 ## 派发与身份
 
 - PreparedContract 是 governed spawn 的前置凭证；PreToolUse 只按 task ref、StateStore 和可观察原生参数认领，不读取业务正文。
+- TaskContract 的每个输入方向都必须显式出现；`context_manifest.mode=none` 表示明确无材料依赖，`declared` 只验证声明工作区、基线、路径、类型和摘要等机械事实。
+- declared context 在 prepare 与 claim 两处验证。确定性缺失或变化拒绝 governed 操作；内部 Hook 异常仍遵守既有 fail-open 边界并保留诊断。
+- `relevant_files[]` 是非权威定位提示，不替代 context manifest；插件不扫描未声明路径或业务正文推断潜在依赖。
+- `--verify-context-manifest` 是无 Session、无状态写入的运输中立预检，可用于独立任务交接；它不拦截 `create_thread`，也不将该任务纳入原生子 Agent生命周期。
 - `agents[target]` 是 active index，canonical execution 中的精确 dispatch target 是 retained provenance。
 - 唯一未关闭 retained candidate 可恢复失效索引；多个 candidate 或索引冲突必须 reconcile。
 - historical closed target 不复活；完全没有 provenance 才按 unmanaged 兼容。

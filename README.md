@@ -11,7 +11,8 @@
 | 能力 | 说明 |
 | --- | --- |
 | 分级治理 | 使用 `light`、`standard`、`strict` 或 `auto` 匹配任务风险。 |
-| 统一任务契约 | 明确目标、范围、禁止事项、完成条件、模型、强度和上下文策略。 |
+| 统一任务契约 | 强制显式声明目标、范围、禁止事项、完成条件、任务特征、模型、强度和上下文策略。 |
+| 可验证上下文 | 使用 `context_manifest` 明确无依赖或验证工作区/Git 基线中的必需路径，并在实际调用前复核变化。 |
 | 确定性派发 | PreparedContract 和 task ref 在发送前约束 governed spawn。 |
 | 有序等待与有限恢复 | 区分正常长耗时、平台错误、未知调用和真实终态，限制重试。 |
 | 显式通信与中断 | 区分普通消息、平台恢复、业务继续和主动中断。 |
@@ -30,6 +31,10 @@ flowchart LR
 ```
 
 插件不规定结构化业务结果格式，不创建独立结果文件，不维护 acceptance、SHA 或结果补交流程。父 Agent 直接阅读子 Agent 的原生最终回复，插件只保证通知关联和状态维护正确。
+
+任务契约不会扫描或评分自然语言。模型必须逐项提供契约字段；可以用 `[]` 或 `null` 明确表示无内容。必需文件不使用自然语言猜测，而由 `context_manifest` 声明为 `none` 或 `declared`。declared 模式只读取明确列出的路径，并机械验证工作区、Git commit、文件类型和内容摘要。
+
+对于不经过原生 `spawn_agent` 的独立任务交接，可以在派发前将 manifest 通过标准输入交给 `python3 scripts/subagent_governance.py --verify-context-manifest`。该命令只返回验证事实，不创建治理状态，也不能硬拦截 `create_thread`。
 
 当前 v5 StateStore 的读取、更新和 CAS callback 都只暴露 `dispatch_record`、`observation_record`、`closure_record`。v1-v4 旧 execution 字段仅用于一次性迁移输入：读取时在内存中转换，下一次成功写入时落为 v5，不会再生成兼容投影或维护第二份状态。
 

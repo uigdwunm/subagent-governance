@@ -60,6 +60,10 @@ class DispatchPreparationError(RuntimeError):
     """The deterministic dispatch package could not pass both hard gates."""
 
 
+class ContextVerificationError(RuntimeError):
+    """Declared context dependencies are invalid, unavailable, or changed."""
+
+
 class CommunicationPreparationError(RuntimeError):
     """A communication or interrupt package could not pass mechanical gates."""
 
