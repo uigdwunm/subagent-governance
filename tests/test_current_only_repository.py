@@ -3,14 +3,19 @@ import unittest
 from tests.support import ROOT
 
 
+VALIDATION_DOCUMENTS = {
+    "docs/validation/current-only-local-acceptance.md",
+    "docs/validation/current-only-real-platform-validation.md",
+}
+
+
 CURRENT_DOCUMENTS = {
     "docs/architecture.md",
     "docs/context-completeness-contract.md",
     "docs/interruption-reconciliation.md",
     "docs/platform-validation.md",
     "docs/release-process.md",
-    "docs/validation/current-only-local-acceptance.md",
-}
+} | VALIDATION_DOCUMENTS
 
 
 def _shipped_documents():
@@ -35,6 +40,15 @@ class CurrentOnlyRepositoryTests(unittest.TestCase):
                 self.assertEqual(_shipped_documents(), CURRENT_DOCUMENTS)
         finally:
             unknown_document.unlink(missing_ok=True)
+
+    def test_third_validation_document_is_not_shipped(self):
+        third_document = ROOT / "docs/validation/third-arbitrary-validation.md"
+        try:
+            third_document.write_text("fixture\n", encoding="utf-8")
+            with self.assertRaises(AssertionError):
+                self.assertEqual(_shipped_documents(), CURRENT_DOCUMENTS)
+        finally:
+            third_document.unlink(missing_ok=True)
 
     def test_runtime_has_no_state_conversion_path(self):
         source = "\n".join(
