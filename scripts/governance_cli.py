@@ -8,6 +8,7 @@ import json
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any, BinaryIO
 
 try:
     from scripts.governance_semantics import MAX_HOOK_INPUT_BYTES
@@ -46,8 +47,16 @@ def _emit_diagnostic_cli_error(
     sys.stdout.buffer.write(runtime._diagnostic_output_bytes(document))
 
 
-def _read_json(runtime: ModuleType) -> object:
-    return json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
+def _read_json(
+    stream: BinaryIO, *, limit: int = MAX_HOOK_INPUT_BYTES
+) -> dict[str, Any]:
+    raw_input = stream.read(limit + 1)
+    if len(raw_input) > limit:
+        raise ValueError(f"JSON input exceeds {limit} bytes")
+    value = json.loads(raw_input.decode("utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("JSON input must be a JSON object")
+    return value
 
 
 def _print_result(result: object) -> None:
@@ -59,7 +68,7 @@ def _run_preparation(runtime: ModuleType, args: argparse.Namespace) -> int:
         print("dispatch preparation requires --session", file=sys.stderr)
         return 2
     try:
-        value = _read_json(runtime)
+        value = _read_json(sys.stdin.buffer)
         base = _base(runtime, args.data_root)
         state_store = runtime.StateStore(base / "sessions")
         prepared_store = runtime.PreparedContractStore(base / "prepared")
@@ -101,12 +110,7 @@ def _run_preparation(runtime: ModuleType, args: argparse.Namespace) -> int:
 
 def _run_context_verification(runtime: ModuleType) -> int:
     try:
-        raw_input = sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1)
-        if len(raw_input.encode("utf-8")) > MAX_HOOK_INPUT_BYTES:
-            raise ValueError(
-                f"context manifest input exceeds {MAX_HOOK_INPUT_BYTES} bytes"
-            )
-        result = runtime.verify_context_manifest(json.loads(raw_input))
+        result = runtime.verify_context_manifest(_read_json(sys.stdin.buffer))
     except Exception as exc:
         print(f"context verification failed: {exc}", file=sys.stderr)
         return 1
@@ -119,8 +123,9 @@ def _run_reconciliation(runtime: ModuleType, args: argparse.Namespace) -> int:
         print("interrupted attempt reconciliation requires --session", file=sys.stderr)
         return 2
     try:
+        value = _read_json(sys.stdin.buffer)
         result = runtime.reconcile_interrupted_attempt(
-            _read_json(runtime),
+            value,
             args.session,
             state_store=runtime.StateStore(_base(runtime, args.data_root) / "sessions"),
         )
@@ -136,14 +141,15 @@ def _run_lifecycle(runtime: ModuleType, args: argparse.Namespace) -> int:
         print("lifecycle operations require --session", file=sys.stderr)
         return 2
     try:
+        value = _read_json(sys.stdin.buffer)
         state_store = runtime.StateStore(_base(runtime, args.data_root) / "sessions")
         if args.record_terminal_notification:
             result = runtime.record_terminal_notification(
-                _read_json(runtime), args.session, state_store=state_store
+                value, args.session, state_store=state_store
             )
         else:
             result = runtime.apply_parent_disposition(
-                _read_json(runtime), args.session, state_store=state_store
+                value, args.session, state_store=state_store
             )
     except Exception as exc:
         print(f"lifecycle operation failed: {exc}", file=sys.stderr)
@@ -160,10 +166,11 @@ def _run_group(runtime: ModuleType, args: argparse.Namespace) -> int:
         print("--read-group requires --group-id", file=sys.stderr)
         return 2
     try:
+        value = _read_json(sys.stdin.buffer) if args.upsert_group else None
         state_store = runtime.StateStore(_base(runtime, args.data_root) / "sessions")
         if args.upsert_group:
             result = runtime.upsert_group(
-                _read_json(runtime), args.session, state_store=state_store
+                value, args.session, state_store=state_store
             )
         else:
             result = runtime.read_group(
@@ -178,12 +185,7 @@ def _run_group(runtime: ModuleType, args: argparse.Namespace) -> int:
 
 def _run_hook(runtime: ModuleType) -> int:
     try:
-        raw_input = sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1)
-        if len(raw_input.encode("utf-8")) > MAX_HOOK_INPUT_BYTES:
-            raise ValueError(f"hook input exceeds {MAX_HOOK_INPUT_BYTES} bytes")
-        payload = json.loads(raw_input)
-        if not isinstance(payload, dict):
-            raise ValueError("hook input must be a JSON object")
+        payload = _read_json(sys.stdin.buffer)
         result = runtime.handle(payload)
     except Exception as exc:
         event = (
