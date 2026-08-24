@@ -14,7 +14,7 @@ from typing import Any
 try:
     from scripts.governance_context import verify_context_manifest
     from scripts.governance_contracts import contract_from_input
-    from scripts.governance_dispatch import claim_spawn
+    from scripts.governance_dispatch import claim_spawn, observe_spawn_post_tool
     from scripts.governance_dispatch_identity import parse_task_name
     from scripts.governance_lifecycle import (
         _claim_pending_action, claimed_post_index_lookup, observe_agent_status_post_tool,
@@ -22,7 +22,7 @@ try:
     )
     from scripts.governance_platform import (
         adapt_list_agents_response_result,
-        spawn_response_shape,
+        adapt_spawn_response, spawn_response_shape,
     )
     from scripts.governance_prepared_store import PreparedContractStore, prepared_root_for_store
     from scripts.governance_spawn_post_probe import SpawnPostProbeStore, marker_record, probe_root_for_store, receipt_record
@@ -33,10 +33,10 @@ try:
 except ModuleNotFoundError:
     from governance_context import verify_context_manifest
     from governance_contracts import contract_from_input
-    from governance_dispatch import claim_spawn
+    from governance_dispatch import claim_spawn, observe_spawn_post_tool
     from governance_dispatch_identity import parse_task_name
     from governance_lifecycle import _claim_pending_action, claimed_post_index_lookup, observe_agent_status_post_tool, observe_lifecycle_post_tool
-    from governance_platform import adapt_list_agents_response_result, spawn_response_shape
+    from governance_platform import adapt_list_agents_response_result, adapt_spawn_response, spawn_response_shape
     from governance_prepared_store import PreparedContractStore, prepared_root_for_store
     from governance_spawn_post_probe import SpawnPostProbeStore, marker_record, probe_root_for_store, receipt_record
     from governance_execution import canonical_execution_for_attempt, spawn_observation
@@ -153,7 +153,7 @@ def _probe_marker_from_prepared(prepared: dict[str, Any]) -> dict[str, Any]:
 def _record_spawn_probe_post(
     payload: dict[str, Any], state_store: Any | None, *, marker: dict[str, Any],
     tool_name_classification: str, admission_source: str,
-) -> dict[str, Any] | None:
+) -> str | None:
     """Persist only P12-A mechanical diagnostics; canonical execution is read-only."""
     session_id, tool_use_id = str(payload.get("session_id") or ""), str(payload.get("tool_use_id") or "")
     now = int(payload.get("now") or time.time())
@@ -162,7 +162,7 @@ def _record_spawn_probe_post(
         receipt = receipt_record(marker, tool_name_classification, admission_source, recorded_at=now)
         probe_store.record_receipt(receipt, now=now, tool_use_id=tool_use_id)
     except Exception:
-        return _continue("spawn_post_probe_handler_failed")
+        return "spawn_post_probe_handler_failed"
 
     def advance(**changes: Any) -> bool:
         receipt.update(changes)
@@ -177,22 +177,19 @@ def _record_spawn_probe_post(
         prepared = PreparedContractStore(prepared_root_for_store(state_store)).find_claimed(session_id, tool_use_id)
         if prepared is None:
             if not advance(claim_check="prepared_missing", handler_stage="claim_checked"):
-                return _continue("spawn_post_probe_handler_failed")
-            advance(handler_stage="completed")
-            return None
+                return "spawn_post_probe_handler_failed"
+            return None if advance(handler_stage="completed") else "spawn_post_probe_handler_failed"
         expected = _probe_marker_from_prepared(prepared)
         marker_fields = ("session_id", "tool_use_id", "task_id", "attempt", "task_ref", "dispatch_operation", "spawn_retry_count", "claimed_at")
         if any(marker.get(field) != expected.get(field) for field in marker_fields):
             if not advance(claim_check="validation_failed", handler_stage="claim_checked"):
-                return _continue("spawn_post_probe_handler_failed")
-            advance(handler_stage="completed")
-            return None
+                return "spawn_post_probe_handler_failed"
+            return None if advance(handler_stage="completed") else "spawn_post_probe_handler_failed"
         store = state_store if state_store is not None else _store_or_unavailable()
         if isinstance(store, UnavailableStateStore):
             if not advance(claim_check="validation_failed", handler_stage="claim_checked"):
-                return _continue("spawn_post_probe_handler_failed")
-            advance(handler_stage="completed")
-            return None
+                return "spawn_post_probe_handler_failed"
+            return None if advance(handler_stage="completed") else "spawn_post_probe_handler_failed"
         state = store.read(session_id, required_fields=("tasks", "tombstones"))
         execution = canonical_execution_for_attempt(state.get("tasks", {}).get(marker["task_id"]), marker["attempt"])
         exact = bool(
@@ -204,19 +201,18 @@ def _record_spawn_probe_post(
         )
         if not exact:
             if not advance(claim_check="state_mismatch", handler_stage="claim_checked"):
-                return _continue("spawn_post_probe_handler_failed")
-            advance(handler_stage="completed")
-            return None
+                return "spawn_post_probe_handler_failed"
+            return None if advance(handler_stage="completed") else "spawn_post_probe_handler_failed"
         if not advance(claim_check="matched", handler_stage="claim_checked"):
-            return _continue("spawn_post_probe_handler_failed")
+            return "spawn_post_probe_handler_failed"
         if not advance(response_shape=spawn_response_shape(payload.get("tool_response")), handler_stage="shape_classified"):
-            return _continue("spawn_post_probe_handler_failed")
-        return None if advance(handler_stage="completed") else _continue("spawn_post_probe_handler_failed")
+            return "spawn_post_probe_handler_failed"
+        return None if advance(handler_stage="completed") else "spawn_post_probe_handler_failed"
     except Exception:
         # Retain no exception text; the last successful receipt stage is the
         # sole persisted fact.  The raw native call has already completed.
         advance(claim_check="validation_failed", handler_stage="handler_failed")
-        return _continue("spawn_post_probe_handler_failed")
+        return "spawn_post_probe_handler_failed"
 
 
 def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | None:
@@ -251,10 +247,11 @@ def _post(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | 
     if kind is None:
         marker = _spawn_probe_marker(payload, state_store)
         if marker is not None:
-            return _record_spawn_probe_post(
+            warning = _record_spawn_probe_post(
                 payload, state_store, marker=marker, tool_name_classification="unrecognized",
                 admission_source="exact_probe_marker",
             )
+            return _continue(warning) if warning else None
         # The catch-all first reads only the bounded claimed-ID index.  A miss
         # remains completely inert: no StateStore construction, output, or
         # state write.  A hit is only an admission hint and is rechecked by the
@@ -274,21 +271,32 @@ def _post(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | 
             # First admission is a private same-ID marker.  A recognized-name
             # miss may only use the one exact current PreparedContract fallback;
             # both paths enter the same diagnostic-only handler.
-            marker = _spawn_probe_marker(payload, state_store)
+            store = state_store if state_store is not None else _store_or_unavailable()
+            if isinstance(store, UnavailableStateStore):
+                return _continue("Subagent Governance 无法记录派发生命周期，原生调用已发生，已降级放行。")
+            prepared_store = PreparedContractStore(prepared_root_for_store(store))
+            tool_use_id = str(payload.get("tool_use_id") or "")
+            prepared = prepared_store.find_claimed(session_id, tool_use_id) if tool_use_id else None
+            marker = _spawn_probe_marker(payload, store)
             admission_source = "exact_probe_marker"
             if marker is None:
-                tool_use_id = str(payload.get("tool_use_id") or "")
-                if not tool_use_id:
-                    return None
-                prepared = PreparedContractStore(prepared_root_for_store(state_store)).find_claimed(session_id, tool_use_id)
-                if prepared is None:
-                    return None
-                marker = _probe_marker_from_prepared(prepared)
-                admission_source = "recognized_prepared"
-            return _record_spawn_probe_post(
-                payload, state_store, marker=marker, tool_name_classification="recognized",
+                if prepared is not None:
+                    marker = _probe_marker_from_prepared(prepared)
+                    admission_source = "recognized_prepared"
+            probe_warning = _record_spawn_probe_post(
+                payload, store, marker=marker, tool_name_classification="recognized",
                 admission_source=admission_source,
+            ) if marker is not None else None
+            # P12-A is a sidecar only: recognized spawn retains the established
+            # PreparedContract exact lookup, adapter, and canonical transition.
+            if prepared is None:
+                return _continue(probe_warning) if probe_warning else None
+            warning = observe_spawn_post_tool(
+                session_id, prepared, adapt_spawn_response(payload.get("tool_response")).to_record(),
+                int(payload.get("now") or time.time()), store, prepared_store,
             )
+            combined = probe_warning or warning or getattr(store, "last_warning", None)
+            return _continue(combined) if combined else None
         if kind == "agent_status":
             store = state_store if state_store is not None else _store_or_unavailable()
             adaptation = adapt_list_agents_response_result(

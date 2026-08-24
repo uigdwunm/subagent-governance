@@ -4,7 +4,6 @@ import copy
 import json
 import stat
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -76,16 +75,6 @@ class DispatchIdentityTests(unittest.TestCase):
 
     def prepared_store(self):
         return prepared_store_module.PreparedContractStore(self.root / "prepared")
-
-    def observe_spawn_in_dispatch_domain(self, prepared, response, *, session_id="session-1", store=None, prepared_store=None):
-        """Keep the legacy dispatch-domain transition tests off the P12-A Hook route."""
-        target_store = self.store if store is None else store
-        target_prepared = self.prepared_store() if prepared_store is None else prepared_store
-        return dispatch.observe_spawn_post_tool(
-            session_id, target_prepared.read(session_id, prepared["task_ref"]),
-            platform.adapt_spawn_response(response).to_record(), int(time.time()),
-            target_store, target_prepared,
-        )
 
     def prepare(self, **contract_overrides):
         return protocol.prepare_dispatch(
@@ -163,7 +152,6 @@ class DispatchIdentityTests(unittest.TestCase):
             },
             self.store,
         )
-        self.observe_spawn_in_dispatch_domain(prepared, {"isError": True})
 
         with self.assertRaisesRegex(
             errors.DispatchPreparationError,
@@ -190,7 +178,6 @@ class DispatchIdentityTests(unittest.TestCase):
             },
             self.store,
         )
-        self.observe_spawn_in_dispatch_domain(prepared, {"isError": True})
         workspace = self.root / "retry-workspace"
         (workspace / "docs").mkdir(parents=True)
         invalid_contract = self.contract(
@@ -312,7 +299,6 @@ class DispatchIdentityTests(unittest.TestCase):
                 "tool_response": {"isError": True},
             }, self.store,
         )
-        self.observe_spawn_in_dispatch_domain(initial, {"isError": True})
         retry = protocol.prepare_spawn_retry(
             self.contract(), "session-1", initial["task_id"],
             state_store=self.store, prepared_store=self.prepared_store(),
@@ -496,7 +482,6 @@ class DispatchIdentityTests(unittest.TestCase):
                 "tool_response": {"isError": True},
             }, self.store,
         )
-        self.observe_spawn_in_dispatch_domain(initial, {"isError": True})
         retry = protocol.prepare_spawn_retry(
             self.contract(), "session-1", initial["task_id"],
             state_store=self.store, prepared_store=self.prepared_store(),
@@ -565,7 +550,6 @@ class DispatchIdentityTests(unittest.TestCase):
                 "tool_response": {"isError": True},
             }, self.store,
         )
-        self.observe_spawn_in_dispatch_domain(initial, {"isError": True})
         retry = protocol.prepare_spawn_retry(
             self.contract(), "session-1", initial["task_id"],
             state_store=self.store, prepared_store=self.prepared_store(),
@@ -1552,7 +1536,7 @@ class DispatchIdentityTests(unittest.TestCase):
         self.assertEqual(execution_module.parent_action(record), "reconcile")
         self.assertTrue(self.prepared_store().read("session-1", prepared["task_ref"])["consumed"])
 
-    def test_post_tool_spawn_success_is_probe_only_and_remains_claimed(self):
+    def test_post_tool_spawn_success_remains_unbound(self):
         prepared = self.prepare()
         hook.handle_hook(self.pre_payload(prepared), self.store)
         result = hook.handle_hook(
@@ -1571,12 +1555,12 @@ class DispatchIdentityTests(unittest.TestCase):
         self.assertIsNone(result)
         state = self.store.read("session-1")
         record = self.current_execution(state, prepared["task_id"])
-        self.assertIsNone(execution_module.spawn_observation(record))
+        self.assertEqual(execution_module.spawn_observation(record), "success")
         self.assertEqual(execution_module.identity_status(record), "unconfirmed")
         self.assertEqual(execution_module.execution_status(record), "not_started")
-        self.assertIsNone(execution_module.parent_action(record))
+        self.assertEqual(execution_module.parent_action(record), "reconcile")
         self.assertTrue(self.prepared_store().list_records("session-1"))
-    def test_post_tool_success_without_identity_is_probe_only(self):
+    def test_post_tool_success_without_identity_stays_not_started_and_reconcile(self):
         prepared = self.prepare()
         hook.handle_hook(self.pre_payload(prepared), self.store)
         hook.handle_hook(
@@ -1591,12 +1575,12 @@ class DispatchIdentityTests(unittest.TestCase):
         )
         state = self.store.read("session-1")
         record = self.current_execution(state, prepared["task_id"])
-        self.assertIsNone(execution_module.spawn_observation(record))
+        self.assertEqual(execution_module.spawn_observation(record), "success")
         self.assertEqual(execution_module.identity_status(record), "unconfirmed")
         self.assertEqual(execution_module.execution_status(record), "not_started")
-        self.assertIsNone(execution_module.parent_action(record))
+        self.assertEqual(execution_module.parent_action(record), "reconcile")
 
-    def test_post_tool_failed_and_unknown_are_probe_only(self):
+    def test_post_tool_failed_and_unknown_have_distinct_transitions(self):
         failed = self.prepare()
         hook.handle_hook(self.pre_payload(failed), self.store)
         hook.handle_hook(
@@ -1611,8 +1595,8 @@ class DispatchIdentityTests(unittest.TestCase):
         )
         state = self.store.read("session-1")
         failed_record = self.current_execution(state, failed["task_id"])
-        self.assertIsNone(execution_module.spawn_observation(failed_record))
-        self.assertIsNone(execution_module.parent_action(failed_record))
+        self.assertEqual(execution_module.spawn_observation(failed_record), "failed")
+        self.assertEqual(execution_module.parent_action(failed_record), "retry_spawn")
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1640,8 +1624,8 @@ class DispatchIdentityTests(unittest.TestCase):
             )
             state = store.read("session-unknown")
             record = self.current_execution(state, unknown["task_id"])
-            self.assertIsNone(execution_module.spawn_observation(record))
-            self.assertIsNone(execution_module.parent_action(record))
+            self.assertEqual(execution_module.spawn_observation(record), "unknown")
+            self.assertEqual(execution_module.parent_action(record), "reconcile")
             self.assertEqual(store.read("session-unknown")["agents"], {})
 
     def test_spawn_retry_counts_are_claimed_before_call_and_bounded(self):
@@ -1657,7 +1641,6 @@ class DispatchIdentityTests(unittest.TestCase):
             },
             self.store,
         )
-        self.observe_spawn_in_dispatch_domain(prepared, {"isError": True})
 
         retry = protocol.prepare_spawn_retry(
             self.contract(),
@@ -1685,7 +1668,6 @@ class DispatchIdentityTests(unittest.TestCase):
             },
             self.store,
         )
-        self.observe_spawn_in_dispatch_domain(retry, {"status": "failed"})
         state = self.store.read("session-1")
         failed_once = self.current_execution(state, prepared["task_id"])
         self.assertEqual(failed_once["spawn_retry_count"], 1)
@@ -1725,7 +1707,6 @@ class DispatchIdentityTests(unittest.TestCase):
             },
             self.store,
         )
-        self.observe_spawn_in_dispatch_domain(final_retry, {"is_error": True})
         state = self.store.read("session-1")
         exhausted = self.current_execution(state, prepared["task_id"])
         self.assertEqual(execution_module.execution_status(exhausted), "stopped")
@@ -1774,7 +1755,6 @@ class DispatchIdentityTests(unittest.TestCase):
             },
             self.store,
         )
-        self.observe_spawn_in_dispatch_domain(prepared, {"isError": True})
         retry = protocol.prepare_spawn_retry(
             self.contract(),
             "session-1",
@@ -1795,7 +1775,6 @@ class DispatchIdentityTests(unittest.TestCase):
             },
             self.store,
         )
-        self.observe_spawn_in_dispatch_domain(retry, {"unexpected": "shape"})
 
         state = self.store.read("session-1")
         record = self.current_execution(state, prepared["task_id"])

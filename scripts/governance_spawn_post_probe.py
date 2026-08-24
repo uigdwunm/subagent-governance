@@ -37,7 +37,7 @@ RECEIPT_TTL_SECONDS = 24 * 60 * 60
 MAX_PROBE_RECORDS = 256
 _TASK_REF = re.compile(r"[a-f0-9]{12}(?:[a-f0-9]{4}){0,5}")
 _OPERATIONS = {"initial_spawn", "spawn_retry"}
-_CLAIM_CHECKS = {"matched", "prepared_missing", "state_mismatch", "validation_failed"}
+_CLAIM_CHECKS = {"not_checked", "matched", "prepared_missing", "state_mismatch", "validation_failed"}
 _SHAPES = {"not_checked", "empty", "top_level_object", "non_object", "json_decode_failed", "explicit_error"}
 _STAGES = {"received", "claim_checked", "shape_classified", "completed", "handler_failed"}
 
@@ -115,7 +115,7 @@ def receipt_record(marker: dict[str, Any], tool_name_classification: str, admiss
         "task_id": marker["task_id"], "attempt": marker["attempt"], "task_ref": marker["task_ref"],
         "dispatch_operation": marker["dispatch_operation"], "spawn_retry_count": marker["spawn_retry_count"],
         "tool_name_classification": tool_name_classification, "admission_source": admission_source,
-        "claim_check": "validation_failed", "response_shape": "not_checked", "handler_stage": "received",
+        "claim_check": "not_checked", "response_shape": "not_checked", "handler_stage": "received",
         "recorded_at": recorded_at, "updated_at": recorded_at,
     }
 
@@ -149,7 +149,11 @@ class SpawnPostProbeStore:
                 session_id = value.get("session_id") if isinstance(value, dict) else None
                 tool_use_id = value.get("tool_use_id") if expiry == "expires_at" and isinstance(value, dict) else "receipt-locator"
                 valid = validator(value, session_id=session_id, tool_use_id=tool_use_id, now=0) if isinstance(session_id, str) else None
-                if valid is not None and valid[expiry] < now:
+                if valid is not None:
+                    expired_at = valid[expiry] + RECEIPT_TTL_SECONDS if expiry == "updated_at" else valid[expiry]
+                else:
+                    expired_at = None
+                if expired_at is not None and expired_at < now:
                     path.unlink()
                     removed += 1
             except (FileNotFoundError, PrivateStorageError, UnicodeDecodeError, json.JSONDecodeError, OSError, AttributeError):
@@ -185,6 +189,17 @@ class SpawnPostProbeStore:
         destination = self.markers_root / _filename(session_id, tool_use_id)
         if not destination.exists() and sum(1 for path in self.markers_root.glob("*.json") if path.is_file()) >= MAX_PROBE_RECORDS:
             raise PrivateStorageError("spawn PostToolUse probe marker capacity reached")
+        if destination.exists():
+            try:
+                existing = _valid_marker(
+                    self._read(destination, "spawn PostToolUse probe marker"),
+                    session_id=session_id, tool_use_id=tool_use_id, now=0,
+                )
+            except (PrivateStorageError, UnicodeDecodeError, json.JSONDecodeError):
+                existing = None
+            owner_fields = ("task_id", "attempt", "task_ref", "dispatch_operation", "spawn_retry_count", "claimed_at")
+            if existing is None or any(existing[field] != valid[field] for field in owner_fields):
+                raise PrivateStorageError("spawn PostToolUse probe marker owner mismatch")
         self._write(self.markers_root, destination, valid, "spawn PostToolUse probe marker")
 
     def record_receipt(self, record: dict[str, Any], *, now: int | None = None, tool_use_id: str | None = None) -> None:

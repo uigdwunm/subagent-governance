@@ -91,7 +91,7 @@ P12-A 明确不包含：
   "spawn_retry_count": 0,
   "tool_name_classification": "recognized | unrecognized",
   "admission_source": "recognized_prepared | exact_probe_marker",
-  "claim_check": "matched | prepared_missing | state_mismatch | validation_failed",
+  "claim_check": "not_checked | matched | prepared_missing | state_mismatch | validation_failed",
   "response_shape": "not_checked | empty | top_level_object | non_object | json_decode_failed | explicit_error",
   "handler_stage": "received | claim_checked | shape_classified | completed | handler_failed",
   "recorded_at": 0,
@@ -111,7 +111,7 @@ P12-A 明确不包含：
 1. recognized spawn Post：优先查 exact probe marker；marker hit 后可以写 probe 并把后续 PreparedContract miss 记录为 `prepared_missing`。marker miss 时，只有 `PreparedContract.find_claimed(session_id, tool_use_id)` 返回唯一 current claim 才能 fallback 写 probe，并标记 `admission_source=recognized_prepared`。
 2. unknown-name catch-all：只有 exact probe marker hit 才能构造后续 store，并必须再次精确核对 current PreparedContract 与 StateStore；不得使用 recognized-only Prepared fallback。
 3. marker miss、missing ID、different ID、过期 marker、无关 catch-all：完全 inert，不写 receipt、不建 StateStore、不输出。
-4. exact recheck 失败时，可以写入属于该 marker 的 bounded `claim_check` 结果，但不得更新 canonical execution；different ID 因 marker miss 仍完全 inert。
+4. exact recheck 失败时，可以写入属于该 marker 的 bounded `claim_check` 结果，但不得由 probe 增加 canonical execution 写入；recognized spawn 随后仍执行既有 canonical Post 路径，unknown-name diagnostic 路径保持不变。different ID 因 marker miss 仍完全 inert。
 5. P12-A 只调用纯 `spawn_response_shape()`；不得调用或扩大 success/identity adapter。
 
 ## 文件级实施清单
@@ -144,7 +144,7 @@ P12-A 明确不包含：
 1. 新任务完整阅读 `AGENTS.md`、P10/P11/P12-A/P12-B、最新 V2 报告、当前 Hook/dispatch/prepared/index/diagnostic 代码和测试。
 2. 先补 failing tests，证明现有实现对 governed spawn 没有可复盘 probe。
 3. 实现独立 marker/receipt store，再接入 claim 和 Post router。
-4. 以 Pre claim 完成后的 snapshot 为基线，验证每次 Post probe handler 前后 canonical state 逐字段相等，确保 P12-A 没有暗中修状态机；Pre claim 自身仍保留既有 canonical 变化。
+4. 以 Pre claim 完成后的 snapshot 为基线，验证 probe sidecar 不增加额外 canonical 变化：recognized spawn 保留既有 canonical Post transition；unknown-name exact-marker diagnostic 路径前后 canonical state 逐字段相等。Pre claim 自身仍保留既有 canonical 变化。
 5. 更新 P12-A 文档状态，跑完整本地门禁并提交；不得安装或宣称平台通过。
 6. 用户明确授权后，使用受支持 installer 安装测试版并等待重启。
 7. 创建全新的 Terra/high 真实验证任务，按下列门槛执行；不得复用实现任务充当真实验证。

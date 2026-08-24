@@ -71,10 +71,24 @@ class SpawnPostProbeTests(unittest.TestCase):
             "session", "id", "task", 1, "0123456789ab", "initial_spawn", 0, claimed_at=100,
         )
         storage.record_marker(marker, now=100)
+        storage.record_marker(marker, now=101)
+        conflicting_owners = [
+            probe.marker_record("session", "id", "other-task", 1, "0123456789ab", "initial_spawn", 0, claimed_at=100),
+            probe.marker_record("session", "id", "task", 2, "0123456789ab", "initial_spawn", 0, claimed_at=100),
+            probe.marker_record("session", "id", "task", 1, "0123456789ac", "initial_spawn", 0, claimed_at=100),
+            probe.marker_record("session", "id", "task", 1, "0123456789ab", "spawn_retry", 1, claimed_at=100),
+            probe.marker_record("session", "id", "task", 1, "0123456789ab", "initial_spawn", 1, claimed_at=100),
+            probe.marker_record("session", "id", "task", 1, "0123456789ab", "initial_spawn", 0, claimed_at=101),
+        ]
+        for conflicting in conflicting_owners:
+            with self.subTest(conflicting=conflicting):
+                with self.assertRaises(Exception):
+                    storage.record_marker(conflicting, now=101)
         self.assertEqual(storage.lookup_marker("session", "id", now=101), marker)
         self.assertIsNone(storage.lookup_marker("session", "different", now=101))
         self.assertIsNone(storage.lookup_marker("session", "id", now=marker["expires_at"] + 1))
         receipt = probe.receipt_record(marker, "recognized", "exact_probe_marker", recorded_at=101)
+        self.assertEqual(receipt["claim_check"], "not_checked")
         storage.record_receipt(receipt, now=101, tool_use_id="id")
         stored = next((storage.receipts_root).glob("*.json")).read_text(encoding="utf-8")
         for forbidden in ("target", "message", "summary", "final", "transcript", "spawn_agent"):
@@ -96,17 +110,20 @@ class SpawnPostProbeTests(unittest.TestCase):
             storage.record_marker(second, now=100)
         receipt = probe.receipt_record(second, "recognized", "exact_probe_marker", recorded_at=100)
         storage.record_receipt(receipt, now=100, tool_use_id="two")
+        self.assertEqual(storage.cleanup_expired_receipts(now=receipt["recorded_at"] + probe.RECEIPT_TTL_SECONDS), 0)
         self.assertEqual(storage.cleanup_expired_receipts(now=receipt["recorded_at"] + probe.RECEIPT_TTL_SECONDS + 1), 1)
 
-    def test_same_id_recognized_spawn_records_shape_without_canonical_mutation(self):
-        self.assertIsNone(self._post(response={"content": {"target": "/root/secret"}}))
+    def test_same_id_recognized_spawn_records_shape_and_keeps_legacy_canonical_transition(self):
+        self.assertIsNone(self._post(response={"success": True}))
         receipt = self._receipt()
         self.assertEqual(receipt["tool_name_classification"], "recognized")
         self.assertEqual(receipt["admission_source"], "exact_probe_marker")
         self.assertEqual(receipt["claim_check"], "matched")
         self.assertEqual(receipt["response_shape"], "top_level_object")
         self.assertEqual(receipt["handler_stage"], "completed")
-        self.assertEqual(self.store.read(self.session_id), self.pre_post_state)
+        execution = self.store.read(self.session_id)["tasks"]["p12-a-task"]["executions"]["1"]
+        self.assertEqual(execution["dispatch_record"]["dispatch_state"], "acknowledged")
+        self.assertEqual(execution["closure_record"]["parent_action"], "reconcile")
 
     def test_unknown_name_only_enters_on_exact_marker_and_preserves_state(self):
         self.assertIsNone(self._post(tool_name="future.renamed_spawn", response="not-json"))
@@ -123,7 +140,19 @@ class SpawnPostProbeTests(unittest.TestCase):
         receipt = self._receipt()
         self.assertEqual(receipt["admission_source"], "recognized_prepared")
         self.assertEqual(receipt["claim_check"], "matched")
-        self.assertEqual(self.store.read(self.session_id), self.pre_post_state)
+        execution = self.store.read(self.session_id)["tasks"]["p12-a-task"]["executions"]["1"]
+        self.assertEqual(execution["dispatch_record"]["dispatch_state"], "indeterminate")
+
+    def test_recognized_probe_stage_failure_warns_but_keeps_legacy_transition(self):
+        with mock.patch.object(
+            probe.SpawnPostProbeStore, "record_receipt",
+            side_effect=[None, None, OSError("stage write failed")],
+        ):
+            result = self._post(response={"success": True})
+        self.assertTrue(result["continue"])
+        self.assertEqual(result["systemMessage"], "spawn_post_probe_handler_failed")
+        execution = self.store.read(self.session_id)["tasks"]["p12-a-task"]["executions"]["1"]
+        self.assertEqual(execution["dispatch_record"]["dispatch_state"], "acknowledged")
 
     def test_missing_or_different_id_and_unknown_marker_miss_are_fully_inert(self):
         with mock.patch.object(governance_hook, "_store_or_unavailable") as constructor:
@@ -148,7 +177,8 @@ class SpawnPostProbeTests(unittest.TestCase):
             state["tasks"]["p12-a-task"]["executions"]["1"]["task_ref"] = "0123456789ac"
         self.store.update(self.session_id, mismatch)
         before = copy.deepcopy(self.store.read(self.session_id))
-        self.assertIsNone(self._post(response={"success": True}))
+        result = self._post(response={"success": True})
+        self.assertTrue(result["continue"])
         self.assertEqual(self._receipt()["claim_check"], "state_mismatch")
         self.assertEqual(self.store.read(self.session_id), before)
 
