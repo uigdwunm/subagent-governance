@@ -6,10 +6,10 @@
 
 ### P9 local acceptance（2026-08-24）
 
-- 精确目标 `f6a72aed07554c2473b502f1d6ad19613005bd02`（`codex/current-only-improvements`，父提交 `37774b12269124076a8297f08e7803a1b3903b9d`）的三套完整 unittest（Python 3.9、3.11、3.12，各 280 tests）、三套编译、development/精确 archive preflight、Plugin/Skill validator、`git diff --check` 和 208-test P9 A–F focused suite 均通过。
-- P9 本地综合结论为 `failed`：P10 installer 对 target 只计算、却不校验预期 digest；Manifest/version 正确但内容不同的 target 会以 `install_succeeded` 收敛，并删除完整 pre-install cache 集合而不回滚。详见 `docs/validation/current-only-local-acceptance.md`。
-- `ruff` 与 `coverage` 不在验收环境 PATH，未安装、未运行，未记为通过。发现正确性问题后验收停止，报告更新后没有再次复跑完整门禁。
-- 这仍是本地验证。真实 native spawn/wait/notification、Hook trust、事件顺序、桌面 UI、restart/compact 恢复及真实 business-resume 都是 `not_checked`；P10 安装与真实平台验证均不得在本失败结论下进行。
+- 精确目标 `937edbd75404dacca4439e03012245acc7bc8193`（`codex/current-only-improvements`，父提交 `424a2ff042df177b6c4119ff9228673d1dc6e53e`）的三套完整 unittest（Python 3.9、3.11、3.12，各 284 tests）、三套编译、development/精确 archive preflight、Plugin/Skill validator、`git diff --check` 和 212-test P9 A–F focused suite 均通过。
+- P10 installer 的空/单/多 cache、明确 previous/current、完整 cache 快照/恢复、遗留 transaction、lock、same-filesystem 与所有安全边界已在本地 suite 覆盖。对正确 Manifest/version 但 target 缺文件、额外文件、模式变化的三次直接重放全部在 `post_install_verification` 失败并完整恢复；稳定源命令期间变化同样失败并恢复。事务报告有界保留 expected/actual stable/target digest 与失败阶段。
+- `ruff` 与 `coverage` 不在验收环境 PATH，未安装、未运行，未记为通过。精确 archive preflight 的通过只证明提交 archive gate；没有安装、发布或真实平台验证，故不作 release-ready 结论。
+- 这仍是本地验证。真实 native spawn/wait/notification、Hook trust、事件顺序、桌面 UI、restart/compact 恢复及真实 business-resume 都是 `not_checked`；P10 安装与真实平台验证尚未启动。
 
 ## 已由本地测试覆盖
 
@@ -41,4 +41,4 @@
 - restart/compact 后 mailbox 与 retained target 的恢复表现。
 - business resume 在真实 follow-up 工具响应中的状态转换。
 
-真实测试必须遵循项目 `AGENTS.md`：先修复并重新完成开发仓库验收，取得安装授权并更新用于测试的本地插件，然后新建独立任务。未完成上述步骤时只能报告本地可验证边界。
+真实测试必须遵循项目 `AGENTS.md`：先完成开发仓库验收，取得安装授权并更新用于测试的本地插件，然后新建独立任务。未完成上述步骤时只能报告本地可验证边界。
