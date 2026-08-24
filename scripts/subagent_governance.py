@@ -1111,6 +1111,7 @@ def _validate_context_manifest(value: Any) -> list[str]:
         errors.append("字段 context_manifest.workspace_root 必须是绝对路径")
 
     baseline = value.get("baseline")
+    baseline_kind = baseline.get("kind") if isinstance(baseline, dict) else None
     if not isinstance(baseline, dict):
         errors.append("字段 context_manifest.baseline 必须是对象")
     else:
@@ -1125,7 +1126,7 @@ def _validate_context_manifest(value: Any) -> list[str]:
             errors.append(
                 "context_manifest.baseline 缺少字段 " + "、".join(missing)
             )
-        kind = baseline.get("kind")
+        kind = baseline_kind
         revision = baseline.get("revision")
         if kind == "working_tree":
             if revision is not None:
@@ -1180,8 +1181,14 @@ def _validate_context_manifest(value: Any) -> list[str]:
                 errors.append(f"字段 {field_name}.path 不能重复：{path}")
             else:
                 seen.add(path)
-        if item.get("type") not in {"file", "directory"}:
+        path_type = item.get("type")
+        if path_type not in {"file", "directory"}:
             errors.append(f"字段 {field_name}.type 必须是 file 或 directory")
+        elif baseline_kind == "working_tree" and path_type == "directory":
+            errors.append(
+                f"working_tree 不支持字段 {field_name}.type=directory；"
+                "请逐文件声明，或改用 git_commit baseline"
+            )
     return errors
 
 
@@ -1232,21 +1239,14 @@ def _validate_context_verification_record(
                 errors.append(
                     f"context verification required_paths[{index}] Git object ID 无效"
                 )
-        elif declared.get("type") == "file":
-            if set(verified) != {"path", "type", "sha256"} or not isinstance(
-                verified.get("sha256"), str
-            ) or re.fullmatch(r"[a-f0-9]{64}", verified["sha256"]) is None:
-                errors.append(
-                    f"context verification required_paths[{index}] SHA-256 无效"
-                )
-        else:
-            mtime_ns = verified.get("mtime_ns")
-            if set(verified) != {"path", "type", "mtime_ns"} or isinstance(
-                mtime_ns, bool
-            ) or not isinstance(mtime_ns, int) or mtime_ns < 0:
-                errors.append(
-                    f"context verification required_paths[{index}] directory fingerprint 无效"
-                )
+        elif baseline_kind == "working_tree" and (
+            set(verified) != {"path", "type", "sha256"}
+            or not isinstance(verified.get("sha256"), str)
+            or re.fullmatch(r"[a-f0-9]{64}", verified["sha256"]) is None
+        ):
+            errors.append(
+                f"context verification required_paths[{index}] SHA-256 无效"
+            )
     return errors
 
 
@@ -1365,19 +1365,13 @@ def verify_context_manifest(value: Any) -> dict[str, Any]:
                 ) from exc
             if not candidate.exists():
                 raise ContextVerificationError(f"必需上下文不存在：{path_value}")
-            if expected_type == "file" and not candidate.is_file():
+            if not candidate.is_file():
                 raise ContextVerificationError(f"必需上下文不是文件：{path_value}")
-            if expected_type == "directory" and not candidate.is_dir():
-                raise ContextVerificationError(f"必需上下文不是目录：{path_value}")
             verified: dict[str, Any] = {
                 "path": path_value,
                 "type": expected_type,
             }
-            if expected_type == "file":
-                verified["sha256"] = _sha256_file(candidate)
-            else:
-                metadata = candidate.stat()
-                verified["mtime_ns"] = metadata.st_mtime_ns
+            verified["sha256"] = _sha256_file(candidate)
             verified_paths.append(verified)
         verified_baseline = {"kind": "working_tree", "revision": None}
 

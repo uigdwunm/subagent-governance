@@ -53,8 +53,8 @@ class ReleasePreflightTests(unittest.TestCase):
     def test_current_development_tree_passes_with_supported_ref(self):
         report = preflight.run_preflight(ROOT, "development")
         self.assertEqual(report["status"], "passed")
-        self.assertIn(report["marketplace_ref"], {"main", "v0.4.0-rc.13"})
-        self.assertEqual(report["expected_tag"], "v0.4.0-rc.13")
+        self.assertIn(report["marketplace_ref"], {"main", "v0.4.0-rc.14"})
+        self.assertEqual(report["expected_tag"], "v0.4.0-rc.14")
 
     def test_release_requires_manifest_tag_and_marketplace_ref_to_match(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -64,10 +64,10 @@ class ReleasePreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 preflight.PreflightFailure, "release marketplace ref"
             ):
-                preflight.run_preflight(root, "release", "v0.4.0-rc.13")
-            self.set_marketplace_ref(root, "v0.4.0-rc.13")
+                preflight.run_preflight(root, "release", "v0.4.0-rc.14")
+            self.set_marketplace_ref(root, "v0.4.0-rc.14")
             report = preflight.run_preflight(
-                root, "release", "v0.4.0-rc.13"
+                root, "release", "v0.4.0-rc.14"
             )
             self.assertEqual(report["status"], "passed")
 
@@ -77,7 +77,7 @@ class ReleasePreflightTests(unittest.TestCase):
             self.copy_public_tree(root)
             self.set_marketplace_ref(root, "v0.4.0-rc.12")
             with self.assertRaisesRegex(preflight.PreflightFailure, "release tag"):
-                preflight.run_preflight(root, "release", "v0.4.0-rc.13")
+                preflight.run_preflight(root, "release", "v0.4.0-rc.14")
 
     def test_archive_rejects_private_platform_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:

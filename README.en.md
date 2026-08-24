@@ -6,7 +6,7 @@ A Codex-first lifecycle governance plugin for native subagents. It keeps the nat
 
 It does not introduce a second orchestrator, define a business-result JSON format, persist result bodies, or replace the parent agent's judgment.
 
-The contract does not scan or score natural-language content. Every input direction must be present, with `[]` or `null` used explicitly where allowed. Required workspace materials are declared through `context_manifest`; only declared paths, baselines, types, and digests are checked.
+The contract does not scan or score natural-language content. Every input direction must be present, with `[]` or `null` used explicitly where allowed. Required workspace materials are declared through `context_manifest`; only declared paths, baselines, types, and digests are checked. A `working_tree` baseline accepts file declarations only; directory dependencies use Git tree object IDs under a `git_commit` baseline.
 
 For handoffs outside native `spawn_agent`, pipe the manifest to `python3 scripts/subagent_governance.py --verify-context-manifest` before dispatch. This read-only preflight returns verification facts without creating governance state and cannot hard-intercept `create_thread`.
 

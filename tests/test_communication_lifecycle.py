@@ -456,6 +456,37 @@ class CommunicationLifecycleTests(unittest.TestCase):
         task = self.store.read(self.session_id)["tasks"][task_id]
         self.assertEqual(task["work_item"]["current_attempt"], 1)
 
+    def test_business_resume_rejects_working_tree_directory_before_pending_action(self):
+        task_id, target = self.add_managed()
+        self.notify(task_id, target)
+        workspace = Path(self.temporary.name) / "resume-directory-workspace"
+        (workspace / "docs").mkdir(parents=True)
+        contract = self.contract("继续执行")
+        contract["context_manifest"] = {
+            "mode": "declared",
+            "workspace_root": str(workspace),
+            "baseline": {"kind": "working_tree", "revision": None},
+            "required_paths": [{"path": "docs", "type": "directory"}],
+        }
+
+        with self.assertRaisesRegex(
+            governance.CommunicationPreparationError,
+            "working_tree.*directory.*逐文件.*git_commit",
+        ):
+            governance.prepare_communication(
+                self.communication(
+                    "business_resume",
+                    target,
+                    task_contract=contract,
+                ),
+                self.session_id,
+                state_store=self.store,
+                now=160,
+            )
+
+        task = self.store.read(self.session_id)["tasks"][task_id]
+        self.assertNotIn("pending_action", task["executions"]["1"])
+
     def test_business_resume_claim_persist_then_raise_is_confirmed(self):
         task_id, target = self.add_managed()
         self.notify(task_id, target)

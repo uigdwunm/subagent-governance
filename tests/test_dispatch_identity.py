@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
-import importlib.util
 import copy
+import importlib.util
+import json
 import stat
 import sys
 import tempfile
@@ -162,6 +163,93 @@ class DispatchIdentityTests(unittest.TestCase):
                 state_store=self.store,
                 prepared_store=self.prepared_store(),
             )
+
+    def test_spawn_retry_rejects_working_tree_directory_before_replacement(self):
+        prepared = self.prepare()
+        governance.handle(self.pre_payload(prepared), self.store)
+        governance.handle(
+            {
+                "session_id": "session-1",
+                "hook_event_name": "PostToolUse",
+                "tool_name": "spawn_agent",
+                "tool_use_id": "spawn-call-1",
+                "tool_response": {"isError": True},
+            },
+            self.store,
+        )
+        workspace = self.root / "retry-workspace"
+        (workspace / "docs").mkdir(parents=True)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "working_tree.*directory.*逐文件.*git_commit",
+        ):
+            governance.prepare_spawn_retry(
+                self.contract(
+                    context_manifest={
+                        "mode": "declared",
+                        "workspace_root": str(workspace),
+                        "baseline": {"kind": "working_tree", "revision": None},
+                        "required_paths": [
+                            {"path": "docs", "type": "directory"}
+                        ],
+                    }
+                ),
+                "session-1",
+                prepared["task_id"],
+                state_store=self.store,
+                prepared_store=self.prepared_store(),
+            )
+
+        execution = self.current_execution(
+            self.store.read("session-1"),
+            prepared["task_id"],
+        )
+        self.assertEqual(execution["spawn_retry_count"], 0)
+        self.assertEqual(governance._spawn_observation(execution), "failed")
+
+    def test_pre_tool_use_denies_legacy_working_tree_directory_contract(self):
+        prepared = self.prepare()
+        prepared_store = self.prepared_store()
+        record = prepared_store.read("session-1", prepared["task_ref"])
+        workspace = self.root / "legacy-workspace"
+        (workspace / "docs").mkdir(parents=True)
+        record["contract"]["context_manifest"] = {
+            "mode": "declared",
+            "workspace_root": str(workspace),
+            "baseline": {"kind": "working_tree", "revision": None},
+            "required_paths": [{"path": "docs", "type": "directory"}],
+        }
+        record["context_verification"] = {
+            "mode": "declared",
+            "workspace_root": str(workspace),
+            "baseline": {"kind": "working_tree", "revision": None},
+            "required_paths": [
+                {"path": "docs", "type": "directory", "mtime_ns": 1}
+            ],
+        }
+        record_path, _lock_path = prepared_store._paths(
+            "session-1",
+            prepared["task_ref"],
+        )
+        record_path.write_text(
+            json.dumps(record, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        denied = governance.handle(self.pre_payload(prepared), self.store)
+
+        output = denied["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertRegex(
+            output["permissionDecisionReason"],
+            "PreparedContract.*working_tree.*directory",
+        )
+        execution = self.current_execution(
+            self.store.read("session-1"),
+            prepared["task_id"],
+        )
+        self.assertIsNone(governance._dispatch_tool_use_id(execution))
 
     def test_initial_spawn_claim_uses_only_derived_action_required(self):
         prepared = self.prepare()

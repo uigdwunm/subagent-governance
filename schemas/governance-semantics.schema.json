@@ -262,6 +262,26 @@
               "items": {"$ref": "#/$defs/context_required_path"}
             }
           },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "baseline": {
+                    "properties": {"kind": {"const": "working_tree"}}
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "required_paths": {
+                    "items": {
+                      "properties": {"type": {"const": "file"}}
+                    }
+                  }
+                }
+              }
+            }
+          ],
           "additionalProperties": false
         }
       ]

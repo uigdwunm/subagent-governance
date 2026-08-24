@@ -12,7 +12,7 @@
 
 - PreparedContract 是 governed spawn 的前置凭证；PreToolUse 只按 task ref、StateStore 和可观察原生参数认领，不读取业务正文。
 - initial PreparedContract 已缺失且超过5分钟时，只有单一 initial execution 仍为精确 prepared、无 claim/target/观察/父动作且零 retry，SessionStart/SessionEnd 才自动关闭为 `automatic_close:expired_unclaimed_dispatch` tombstone；这不建立 completed 或 terminal notification。
-- TaskContract 的每个输入方向都必须显式出现；`context_manifest.mode=none` 表示明确无材料依赖，`declared` 只验证声明工作区、基线、路径、类型和摘要等机械事实。
+- TaskContract 的每个输入方向都必须显式出现；`context_manifest.mode=none` 表示明确无材料依赖，`declared` 只验证声明工作区、基线、路径、类型和摘要等机械事实。`working_tree` 只接受逐文件 SHA-256，目录声明必须使用逐文件依赖或 `git_commit` tree object ID。
 - declared context 在 prepare 与 claim 两处验证。确定性缺失或变化拒绝 governed 操作；内部 Hook 异常仍遵守既有 fail-open 边界并保留诊断。
 - `relevant_files[]` 是非权威定位提示，不替代 context manifest；插件不扫描未声明路径或业务正文推断潜在依赖。
 - `--verify-context-manifest` 是无 Session、无状态写入的运输中立预检，可用于独立任务交接；它不拦截 `create_thread`，也不将该任务纳入原生子 Agent生命周期。

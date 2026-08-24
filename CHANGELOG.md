@@ -4,10 +4,13 @@ All notable changes to this project are documented here. The project follows sem
 
 ## Unreleased
 
+## 0.4.0-rc.14
+
 - Required every TaskContract input direction, including complete `task_features` and explicit nullable model/reasoning overrides.
 - Added `context_manifest` with explicit `none` or declared working-tree/Git-commit dependencies.
 - Added prepare/claim context verification for initial spawn, spawn retry, and business resume without scanning or scoring natural-language task content.
 - Automatically tombstone an expired initial dispatch only when its PreparedContract is missing and canonical state proves no native Agent was ever claimed, targeted, observed, or started.
+- Rejected `working_tree` directory declarations because a directory's own mtime does not fingerprint existing nested file contents; callers must declare individual files or use a `git_commit` tree object ID.
 
 ## 0.4.0-rc.13
 

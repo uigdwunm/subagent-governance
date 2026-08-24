@@ -42,6 +42,7 @@ description: 治理 Codex 原生子 Agent 的派发、通信、等待、恢复�
 
 - `{"mode":"none"}`：派发方明确声明没有工作区材料依赖。
 - `mode=declared`：必须提供绝对 `workspace_root`、`working_tree|git_commit` baseline 和非空 `required_paths[]`。
+- `working_tree` 只支持逐文件声明并生成 SHA-256；目录声明必须改为逐文件，或使用 `git_commit` baseline 的递归 tree object ID。
 - `git_commit` 必须使用完整 commit OID，当前 HEAD 必须等于该 commit，且声明路径不能有 tracked/untracked 差异；模型只声明路径和基线，Git object ID 由生成器计算。
 - 插件只读取声明路径，不扫描工作区寻找潜在依赖，也不评价自然语言是否充分。
 

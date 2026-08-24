@@ -32,7 +32,7 @@ flowchart LR
 
 插件不规定结构化业务结果格式，不创建独立结果文件，不维护 acceptance、SHA 或结果补交流程。父 Agent 直接阅读子 Agent 的原生最终回复，插件只保证通知关联和状态维护正确。
 
-任务契约不会扫描或评分自然语言。模型必须逐项提供契约字段；可以用 `[]` 或 `null` 明确表示无内容。必需文件不使用自然语言猜测，而由 `context_manifest` 声明为 `none` 或 `declared`。declared 模式只读取明确列出的路径，并机械验证工作区、Git commit、文件类型和内容摘要。
+任务契约不会扫描或评分自然语言。模型必须逐项提供契约字段；可以用 `[]` 或 `null` 明确表示无内容。必需文件不使用自然语言猜测，而由 `context_manifest` 声明为 `none` 或 `declared`。declared 模式只读取明确列出的路径，并机械验证工作区、Git commit、文件类型和内容摘要；`working_tree` 只接受逐文件声明，目录依赖使用 `git_commit` tree object ID。
 
 对于不经过原生 `spawn_agent` 的独立任务交接，可以在派发前将 manifest 通过标准输入交给 `python3 scripts/subagent_governance.py --verify-context-manifest`。该命令只返回验证事实，不创建治理状态，也不能硬拦截 `create_thread`。
 
