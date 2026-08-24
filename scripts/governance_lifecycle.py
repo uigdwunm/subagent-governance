@@ -1886,6 +1886,7 @@ def _handle_post_tool_agent_status(
 
 
 def _handle_post_tool_lifecycle(
+    payload: dict[str, Any], store: StateStore, session_id: str
 ) -> dict[str, Any] | None:
     tool_use_id = str(payload.get("tool_use_id") or "")
     response = payload.get("tool_response")
