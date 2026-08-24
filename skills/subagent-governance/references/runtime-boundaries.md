@@ -2,7 +2,7 @@
 
 - 插件保留 Codex 原生 `spawn_agent`、`send_message`、`followup_task`、`wait_agent` 和 `interrupt_agent`，不替代平台调度、沙箱或批准机制。
 - 任务正文、证据质量和父 Agent 的业务判断不由 Hook 解析或评分。
-- 当前状态格式为严格 v7，默认命名空间为 `state-v7`；旧 namespace/format 不读取或迁移。每个 execution 的 canonical authority 只有 `dispatch_record`、`observation_record` 和 `closure_record`，并可保留一条不含正文的机械 PostToolUse receipt。
+- 当前状态格式为严格 v8，默认命名空间为 `state-v8`；旧 namespace/format 不读取或迁移。每个 execution 的 canonical authority 只有 `dispatch_record`、`observation_record` 和 `closure_record`，并可保留一条不含正文的机械 PostToolUse receipt。
 - `StateStore.read()`、`update()` 和 CAS callback 只暴露这三个 canonical plane；所有运行路径也只通过三平面读取和写入状态。
 - 缺少版本、版本不匹配或 managed record 不符合当前结构时直接拒绝，不转换、不修复、不写回。
 
@@ -25,7 +25,7 @@
 - normal message 只传递信息；platform recovery 只处理精确 observation error；business resume 需要精确 terminal notification 和父方 disposition gate。
 - 同一 attempt 最多两次平台恢复，第二次必须用户授权。没有结果补交操作或计数。
 - PostToolUse unknown 不自动重发，不伪造 running、failed、interrupted 或 closed。
-- 测试版 PostToolUse catch-all 只为已 claim lifecycle pending 的精确 `tool_use_id` 写入一条 receipt；无关工具不构造 StateStore、不输出消息。receipt 仅投影固定 response-shape/result 码、时间和 ID-match，不保存正文或 response value。
+- 测试版 PostToolUse catch-all 使用当前 namespace 的私有、短期 claimed-ID 索引（每条20分钟、最多512条），只在 `session_id + tool_use_id` 精确命中后构造 StateStore，并重验 canonical claimed pending。索引仅在 claim 写入或 SessionStart 维护时清理/重建，catch-all miss 保持只读 inert。未知工具名命中只写 `unrecognized` 分类，不保存工具名；无 ID、未命中或无关工具完全 inert。receipt 必须先于 lifecycle transition 持久化；transition 失败保留 receipt、claimed pending 和 reconcile，重复 Post 可恢复第二阶段，只有已完成 transition 的重复事件 inert。
 
 ## 观察与通知
 

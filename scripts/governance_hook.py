@@ -17,7 +17,7 @@ try:
     from scripts.governance_dispatch import claim_spawn, observe_spawn_post_tool
     from scripts.governance_dispatch_identity import parse_task_name
     from scripts.governance_lifecycle import (
-        _claim_pending_action, observe_agent_status_post_tool,
+        _claim_pending_action, claimed_post_index_lookup, observe_agent_status_post_tool,
         observe_lifecycle_post_tool,
     )
     from scripts.governance_platform import (
@@ -33,7 +33,7 @@ except ModuleNotFoundError:
     from governance_contracts import contract_from_input
     from governance_dispatch import claim_spawn, observe_spawn_post_tool
     from governance_dispatch_identity import parse_task_name
-    from governance_lifecycle import _claim_pending_action, observe_agent_status_post_tool, observe_lifecycle_post_tool
+    from governance_lifecycle import _claim_pending_action, claimed_post_index_lookup, observe_agent_status_post_tool, observe_lifecycle_post_tool
     from governance_platform import adapt_list_agents_response_result, adapt_spawn_response
     from governance_prepared_store import PreparedContractStore, prepared_root_for_store
     from governance_semantics import RETENTION_SECONDS
@@ -154,9 +154,19 @@ def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | N
 def _post(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | None:
     kind = tool_kind(str(payload.get("tool_name") or ""))
     if kind is None:
-        # PostToolUse is catch-all for transport observability.  Unknown tools
-        # are still entirely inert: do not construct StateStore or emit output.
-        return None
+        # The catch-all first reads only the bounded claimed-ID index.  A miss
+        # remains completely inert: no StateStore construction, output, or
+        # state write.  A hit is only an admission hint and is rechecked by the
+        # lifecycle domain against canonical claimed pending state.
+        if claimed_post_index_lookup(payload, state_store) is None:
+            return None
+        store = state_store if state_store is not None else _store_or_unavailable()
+        return _post_result(
+            observe_lifecycle_post_tool(
+                payload, store, _session_id(payload),
+                tool_name_classification="unrecognized",
+            )
+        )
     store = state_store if state_store is not None else _store_or_unavailable()
     session_id = _session_id(payload)
     try:
@@ -186,7 +196,7 @@ def _post(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | 
         if kind in {"communication", "followup", "interrupt"}:
             return _post_result(
                 observe_lifecycle_post_tool(
-                    payload, store, session_id, report_unmatched=kind == "followup"
+                    payload, store, session_id, tool_name_classification="recognized"
                 )
             )
     except Exception as exc:

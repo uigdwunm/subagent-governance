@@ -10,14 +10,16 @@ try:
         reconcile_claimed_spawn,
     )
     from scripts.governance_errors import PreparedContractConflictError
-    from scripts.governance_lifecycle import reconcile_pending_actions
+    from scripts.governance_lifecycle import rebuild_claimed_post_index, reconcile_pending_actions
+    from scripts.governance_post_index import ClaimedPostIndex, index_root_for_store
     from scripts.governance_prepared_store import PreparedContractStore, prepared_root_for_store
     from scripts.governance_semantics import RETENTION_SECONDS, STOP_READ_ATTEMPTS, STOP_READ_RETRY_DELAY_SECONDS, SESSION_SUMMARY_CONTEXT_LIMIT, SESSION_SUMMARY_FIELD_LIMIT, SESSION_SUMMARY_RECORD_LIMIT
     from scripts.governance_views import action_required_records, recent_activity_records, work_item_views
 except ModuleNotFoundError:
     from governance_dispatch import cleanup_initial_attempt, close_expired_unclaimed_initials_without_credentials, reconcile_claimed_spawn
     from governance_errors import PreparedContractConflictError
-    from governance_lifecycle import reconcile_pending_actions
+    from governance_lifecycle import rebuild_claimed_post_index, reconcile_pending_actions
+    from governance_post_index import ClaimedPostIndex, index_root_for_store
     from governance_prepared_store import PreparedContractStore, prepared_root_for_store
     from governance_semantics import RETENTION_SECONDS, STOP_READ_ATTEMPTS, STOP_READ_RETRY_DELAY_SECONDS, SESSION_SUMMARY_CONTEXT_LIMIT, SESSION_SUMMARY_FIELD_LIMIT, SESSION_SUMMARY_RECORD_LIMIT
     from governance_views import action_required_records, recent_activity_records, work_item_views
@@ -124,6 +126,8 @@ def _maintenance(session_id: str, store: Any) -> list[str]:
     for label, action in (
         ("prepared reconcile", lambda: reconcile_prepared_dispatches(session_id, state_store=store, prepared_store=PreparedContractStore(prepared_root_for_store(store)))),
         ("pending reconcile", lambda: reconcile_pending_actions(session_id, state_store=store)),
+        ("claimed PostToolUse index cleanup", lambda: ClaimedPostIndex(index_root_for_store(store)).cleanup_expired()),
+        ("claimed PostToolUse index rebuild", lambda: rebuild_claimed_post_index(session_id, store)),
         ("tombstone cleanup", lambda: store.cleanup_expired_tombstones(session_id)),
     ):
         try: action()

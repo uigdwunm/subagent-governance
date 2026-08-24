@@ -104,7 +104,7 @@ initial credential 已缺失且超过5分钟时，只有 canonical state 仍精�
 
 - `pending_action` 初始为 prepared，5分钟内由匹配 target 的 PreToolUse 原子认领为 claimed 并绑定 `tool_use_id`。
 - PostToolUse 只按 `tool_use_id` 对账 success、failed 或 unknown。claimed 后20分钟仍无 PostToolUse，才在后续显式读取中记 unknown。
-- 测试版 PostToolUse catch-all 对无关工具完全 inert：不构造 StateStore、不输出消息。只有能精确关联 claimed pending 的事件才保存一条 receipt；receipt 仅保存 ID-match、工具族、固定 response-shape/result 码和时间，不保存 message、contract、response values、child final 或 transcript。
+- 测试版 PostToolUse catch-all 先以私有、当前 namespace 的有界 claimed-ID 索引检查 `session_id + tool_use_id`；索引每条20分钟有效、最多512条，并仅在 claim 发布或 SessionStart 维护时清理/重建。只有命中后才构造 StateStore，并再次精确验证 canonical claimed pending。未知工具名的精确命中只记录 `tool_name_classification=unrecognized`，不保存原始工具名。无 ID、未命中或无关工具完全 inert：不构造 StateStore、不写状态、不输出消息。receipt 先持久化为 `receipt_recorded`，随后以同一 receipt 和 pending 完成可重入 transition；失败保留 receipt/claimed/reconcile，重复 Post 只在已完成 transition 后 inert。receipt 仅保存 ID-match、工具族、固定 response-shape/result/transition 码和时间，不保存 message、contract、response values、child final 或 transcript。
 - normal message 只补充上下文，不改变生命周期。
 - platform recovery 只适用于精确 observation error，同一 attempt 最多一次自动恢复和一次用户授权恢复。
 - business resume 只在精确终态通知已到且父动作是 `decide_disposition`，或前一次 resume delivery failed 时创建新 attempt。它必须提供重新校验的 TaskContract，并在 preparation 与 follow-up claim 两处复核 context manifest。
@@ -170,7 +170,7 @@ stdin：
 
 StateStore 还保存有限 identity、恢复计数、pending operation 和 tombstone。它不保存业务结果正文、验收状态、结果文件引用或结果冲突。
 
-StateStore 只接受严格的 `state_format_version=7`，默认命名空间是 `state-v7`。每个 attempt 最多保存一条不含正文的 PostToolUse receipt；缺少版本、版本不匹配、`managed=false` 或任何持久化未知字段都会直接拒绝；旧 `state-v1` 或 `state-v6` 不读取、不迁移、不修复、不写回或删除。
+StateStore 只接受严格的 `state_format_version=8`，默认命名空间是 `state-v8`。每个 attempt 最多保存一条不含正文的 PostToolUse receipt；缺少版本、版本不匹配、`managed=false` 或任何持久化未知字段都会直接拒绝；旧 `state-v1`、`state-v6` 或 `state-v7` 不读取、不迁移、不修复、不写回或删除。
 
 `parent_action` 只表达生命周期下一步：`wait|reconcile|retry_spawn|recover|decide_disposition|ask_user` 或 JSON `null`。
 

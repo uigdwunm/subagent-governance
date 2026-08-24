@@ -589,8 +589,8 @@
       "required": [
         "session_id", "task_id", "attempt", "task_ref", "target",
         "expected_tool_use_id", "received_tool_use_id", "id_match",
-        "tool_family", "operation_type", "response_shape",
-        "processing_result", "recorded_at"
+        "tool_family", "tool_name_classification", "operation_type", "response_shape",
+        "processing_result", "target_observation", "transition_state", "recorded_at"
       ],
       "properties": {
         "session_id": {"type": "string", "minLength": 1, "maxLength": 4000},
@@ -602,10 +602,29 @@
         "received_tool_use_id": {"type": "string", "minLength": 1, "maxLength": 1024},
         "id_match": {"const": true},
         "tool_family": {"type": "string", "enum": ["followup", "communication", "interrupt"]},
+        "tool_name_classification": {"type": "string", "enum": ["recognized", "unrecognized"]},
         "operation_type": {"$ref": "#/$defs/pending_operation_type"},
         "response_shape": {"type": "string", "enum": ["empty", "top_level_object", "non_object", "json_decode_failed", "explicit_error"]},
         "processing_result": {"$ref": "#/$defs/call_observation"},
+        "target_observation": {"type": ["string", "null"], "enum": [null, "previously_running", "not_found", "stopped", "completed", "interrupted", "cancelled", "canceled"]},
+        "transition_state": {"type": "string", "enum": ["receipt_recorded", "transition_failed", "transition_applied"]},
         "recorded_at": {"$ref": "#/$defs/timestamp"}
+      },
+      "additionalProperties": false
+    },
+    "claimed_post_index_record": {
+      "type": "object",
+      "required": ["index_format_version", "session_id", "tool_use_id", "task_id", "attempt", "task_ref", "operation_type", "claimed_at", "expires_at"],
+      "properties": {
+        "index_format_version": {"const": 1},
+        "session_id": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "tool_use_id": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "task_id": {"$ref": "#/$defs/task_id"},
+        "attempt": {"$ref": "#/$defs/attempt"},
+        "task_ref": {"$ref": "#/$defs/task_ref"},
+        "operation_type": {"$ref": "#/$defs/pending_operation_type"},
+        "claimed_at": {"$ref": "#/$defs/timestamp"},
+        "expires_at": {"$ref": "#/$defs/timestamp"}
       },
       "additionalProperties": false
     },
@@ -766,7 +785,7 @@
         "tombstones", "groups"
       ],
       "properties": {
-        "state_format_version": {"const": 7},
+        "state_format_version": {"const": 8},
         "session_id": {"type": "string", "minLength": 1},
         "tasks": {
           "type": "object",
@@ -831,14 +850,17 @@
     },
     "decision_post_receipt": {
       "type": "object",
-      "required": ["recorded_at", "id_match", "tool_family", "operation_type", "response_shape", "processing_result"],
+      "required": ["recorded_at", "id_match", "tool_family", "tool_name_classification", "operation_type", "response_shape", "processing_result", "target_observation", "transition_state"],
       "properties": {
         "recorded_at": {"$ref": "#/$defs/timestamp"},
         "id_match": {"type": "boolean"},
         "tool_family": {"type": "string", "enum": ["followup", "communication", "interrupt"]},
+        "tool_name_classification": {"type": "string", "enum": ["recognized", "unrecognized"]},
         "operation_type": {"$ref": "#/$defs/pending_operation_type"},
         "response_shape": {"type": "string", "enum": ["empty", "top_level_object", "non_object", "json_decode_failed", "explicit_error"]},
-        "processing_result": {"$ref": "#/$defs/call_observation"}
+        "processing_result": {"$ref": "#/$defs/call_observation"},
+        "target_observation": {"type": ["string", "null"], "enum": [null, "previously_running", "not_found", "stopped", "completed", "interrupted", "cancelled", "canceled"]},
+        "transition_state": {"type": "string", "enum": ["receipt_recorded", "transition_failed", "transition_applied"]}
       },
       "additionalProperties": false
     },
@@ -1027,12 +1049,19 @@
       "post_matcher": "catch_all_testing_only",
       "unrelated_post_behavior": "inert_without_state_store_or_output",
       "association": "claimed_pending_tool_use_id_only",
+      "claimed_id_index": "private_current_namespace_exact_session_and_tool_use_id",
+      "claimed_id_index_capacity": 512,
+      "claimed_id_index_expiry_seconds": 1200,
+      "tool_name_classification_codes": ["recognized", "unrecognized"],
       "per_attempt_retention": "latest_only",
       "response_shape_codes": ["empty", "top_level_object", "non_object", "json_decode_failed", "explicit_error"],
       "processing_result_codes": ["success", "failed", "unknown"],
+      "transition_state_codes": ["receipt_recorded", "transition_failed", "transition_applied"],
       "forbidden_payload_fields": ["message", "contract", "response_values", "child_final", "transcript", "summary"],
-      "write_order": "receipt_before_lifecycle_transition",
+      "write_order": "receipt_persisted_before_reentrant_lifecycle_transition",
       "write_failure": "fail_open_with_bounded_degraded_reason",
+      "transition_failure": "retain_receipt_claimed_pending_and_reconcile",
+      "duplicate_after_transition": "inert",
       "operation_type_source": "claimed_pending_only"
     },
     "late_event_routing": {
@@ -1187,7 +1216,7 @@
       "schedules_or_cancels_members": false
     },
     "canonical_record": {
-      "state_format_version": 7,
+      "state_format_version": 8,
       "task_key": "task_id",
       "work_item_field": "work_item",
       "executions_field": "executions",

@@ -172,8 +172,8 @@ def _validate_post_receipt(issues: list[StateFormatIssue], value: Any, path: str
     required = {
         "session_id", "task_id", "attempt", "task_ref", "target",
         "expected_tool_use_id", "received_tool_use_id", "id_match",
-        "tool_family", "operation_type", "response_shape", "processing_result",
-        "recorded_at",
+        "tool_family", "tool_name_classification", "operation_type", "response_shape",
+        "processing_result", "target_observation", "transition_state", "recorded_at",
     }
     receipt = _fields(issues, value, path, required)
     if receipt is None:
@@ -193,12 +193,18 @@ def _validate_post_receipt(issues: list[StateFormatIssue], value: Any, path: str
         issues.append(StateFormatIssue(f"{path}.id_match", "必须为 true"))
     if receipt.get("tool_family") not in {"followup", "communication", "interrupt"}:
         issues.append(StateFormatIssue(f"{path}.tool_family", "无效"))
+    if receipt.get("tool_name_classification") not in {"recognized", "unrecognized"}:
+        issues.append(StateFormatIssue(f"{path}.tool_name_classification", "无效"))
     if receipt.get("operation_type") not in {"normal_message", "platform_recovery", "business_resume", "interrupt"}:
         issues.append(StateFormatIssue(f"{path}.operation_type", "无效"))
     if receipt.get("response_shape") not in {"empty", "top_level_object", "non_object", "json_decode_failed", "explicit_error"}:
         issues.append(StateFormatIssue(f"{path}.response_shape", "无效"))
     if receipt.get("processing_result") not in {"success", "failed", "unknown"}:
         issues.append(StateFormatIssue(f"{path}.processing_result", "无效"))
+    if receipt.get("target_observation") not in {None, "previously_running", "not_found", "stopped", "completed", "interrupted", "cancelled", "canceled"}:
+        issues.append(StateFormatIssue(f"{path}.target_observation", "无效"))
+    if receipt.get("transition_state") not in {"receipt_recorded", "transition_failed", "transition_applied"}:
+        issues.append(StateFormatIssue(f"{path}.transition_state", "无效"))
     if not _timestamp(receipt.get("recorded_at")):
         issues.append(StateFormatIssue(f"{path}.recorded_at", "无效"))
 
@@ -287,6 +293,28 @@ def validate_current_state_format(value: Any) -> list[StateFormatIssue]:
                             issues.append(StateFormatIssue(f"{execution_path}.post_receipt.attempt", "必须匹配 execution key"))
                         if receipt.get("task_ref") != record.get("task_ref"):
                             issues.append(StateFormatIssue(f"{execution_path}.post_receipt.task_ref", "必须匹配 execution task_ref"))
+                        dispatch = record.get("dispatch_record")
+                        if isinstance(dispatch, dict) and receipt.get("target") != dispatch.get("dispatch_target"):
+                            issues.append(StateFormatIssue(f"{execution_path}.post_receipt.target", "必须匹配 execution dispatch target"))
+                        family_for_operation = {
+                            "normal_message": "communication",
+                            "interrupt": "interrupt",
+                            "platform_recovery": "followup",
+                            "business_resume": "followup",
+                        }.get(receipt.get("operation_type"))
+                        if family_for_operation is not None and receipt.get("tool_family") != family_for_operation:
+                            issues.append(StateFormatIssue(f"{execution_path}.post_receipt.tool_family", "必须由 operation_type 决定"))
+                        pending = record.get("pending_action")
+                        if receipt.get("transition_state") in {"receipt_recorded", "transition_failed"}:
+                            if not (
+                                isinstance(pending, dict)
+                                and pending.get("phase") == "claimed"
+                                and pending.get("tool_use_id") == receipt.get("received_tool_use_id")
+                                and pending.get("tool_use_id") == receipt.get("expected_tool_use_id")
+                                and pending.get("operation_type") == receipt.get("operation_type")
+                                and pending.get("target") == receipt.get("target")
+                            ):
+                                issues.append(StateFormatIssue(f"{execution_path}.post_receipt", "未完成 transition 必须精确绑定 claimed pending"))
                 if "last_lifecycle_operation" in record:
                     lifecycle = _fields(issues, record["last_lifecycle_operation"], f"{execution_path}.last_lifecycle_operation", {"operation_type", "tool_use_id", "call_observation"}, {"operation_type", "tool_use_id", "call_observation", "target_observation"})
                     if lifecycle is not None and lifecycle.get("operation_type") not in {"platform_recovery", "business_resume", "interrupt"}:

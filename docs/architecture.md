@@ -41,7 +41,7 @@ declared manifest 在 prepare 和原生调用 claim 前分别验证。插件只�
 - `observation_record`：精确 target 的平台观察或终态通知。
 - `closure_record`：等待、对账、父处置或关闭事实。
 
-StateStore 只接受严格的 `state_format_version=7`，默认数据命名空间为 `state-v7`。缺少版本、其他版本、`managed=false`、非 canonical record 或未知持久化字段都会以结构错误拒绝；旧 `state-v1` 或 `state-v6` 不读取、不迁移、不修复、不写回或删除。
+StateStore 只接受严格的 `state_format_version=8`，默认数据命名空间为 `state-v8`。缺少版本、其他版本、`managed=false`、非 canonical record 或未知持久化字段都会以结构错误拒绝；旧 `state-v1`、`state-v6` 或 `state-v7` 不读取、不迁移、不修复、不写回或删除。
 
 未知根级扩展字段可以原样保留，但不能改变 canonical execution 语义。
 

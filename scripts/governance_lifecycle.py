@@ -22,6 +22,7 @@ try:
     from scripts.governance_dispatch_identity import select_task_ref
     from scripts.governance_dispatch_rendering import render_list as _render_list, render_verified_context as _render_verified_context
     from scripts.governance_platform import adapt_lifecycle_response, lifecycle_response_shape
+    from scripts.governance_post_index import ClaimedPostIndex, claim_index_record, index_root_for_store
     from scripts.governance_errors import (
         CommunicationPreparationError, ContextVerificationError,
         NotificationObservationError, ParentDispositionConflict,
@@ -60,6 +61,7 @@ except ModuleNotFoundError:
     from governance_dispatch_identity import select_task_ref
     from governance_dispatch_rendering import render_list as _render_list, render_verified_context as _render_verified_context
     from governance_platform import adapt_lifecycle_response, lifecycle_response_shape
+    from governance_post_index import ClaimedPostIndex, claim_index_record, index_root_for_store
     from governance_errors import CommunicationPreparationError, ContextVerificationError, NotificationObservationError, ParentDispositionConflict, ParentDispositionError, ReconciliationError, StateConflictError, StateValidationError, _state_store_exception_category
     from governance_execution import apply_canonical_execution_update as _apply_canonical_execution_update, canonical_execution_for_attempt as _canonical_execution_for_attempt, close_attempt_record as _close_attempt_record, dispatch_target as _dispatch_target, execution_close_reason as _execution_close_reason, execution_is_closed as _execution_is_closed, execution_status as _execution_status, identity_status as _identity_status, iter_task_attempts as _iter_task_attempts, managed_target_admission as _managed_target_admission, observation_is_bound as _observation_is_bound, observation_checked_at as _observation_checked_at, observation_source as _observation_source, parent_action as _parent_action, record_has_target_provenance as _record_has_target_provenance, repair_managed_target_index as _repair_managed_target_index, task_attempt_records as _task_attempt_records, task_record_for_attempt as _task_record_for_attempt, ensure_canonical_task_record as _ensure_canonical_task_record, platform_observation as _platform_observation, spawn_observation as _spawn_observation
     from governance_semantics import CALL_OBSERVATIONS, LIFECYCLE_OPERATION_TYPES, LIST_AGENTS_TERMINAL_STATUSES, MAX_CONTRACT_TEXT, OPERATION_NATIVE_TOOLS, OPERATION_TYPES, PARENT_DISPOSITION_REASON_MAX_LENGTH, PARENT_DISPOSITIONS, RETENTION_SECONDS, RETRY_LIMITS, SEMANTIC_DEFINITIONS
@@ -1568,9 +1570,24 @@ def _claim_pending_action(
         "target": target,
         "message": str(tool_input.get("message") or ""),
     }
+    index_warning = ""
+    try:
+        claimed_state = store.read(session_id)
+        claimed = _claimed_action_for_tool_use(claimed_state, tool_use_id)
+        if claimed is None:
+            raise StateConflictError("canonical claimed pending 在索引发布前消失")
+        indexed_task_id, indexed_attempt, _indexed_record, indexed_pending = claimed
+        ClaimedPostIndex(index_root_for_store(store)).record_claim(
+            claim_index_record(session_id, indexed_task_id, indexed_attempt, indexed_pending)
+        )
+    except Exception:
+        # The canonical claim is already durable.  Do not deny a native call
+        # after consuming it; known tool routing remains exact and SessionStart
+        # can republish the bounded index from canonical claimed pending state.
+        index_warning = "；PostToolUse claimed-ID 索引暂不可用，未知工具名事件将保持 inert，待会话恢复后重建。"
     return _admission_allowed(
         projected,
-        f"Subagent Governance 已认领 {operation_type} pending_action 并绑定 tool_use_id。",
+        f"Subagent Governance 已认领 {operation_type} pending_action 并绑定 tool_use_id。{index_warning}",
     )
 
 
@@ -1809,6 +1826,7 @@ def _receipt_from_claim(
     observation: dict[str, str | None],
     response_shape: str,
     observed_at: int,
+    tool_name_classification: str,
 ) -> dict[str, Any]:
     operation_type = str(pending["operation_type"])
     family = "interrupt" if operation_type == "interrupt" else "communication" if operation_type == "normal_message" else "followup"
@@ -1822,26 +1840,115 @@ def _receipt_from_claim(
         "received_tool_use_id": tool_use_id,
         "id_match": True,
         "tool_family": family,
+        "tool_name_classification": tool_name_classification,
         "operation_type": operation_type,
         "response_shape": response_shape,
         "processing_result": observation["call_observation"],
+        "target_observation": observation.get("target_observation"),
+        "transition_state": "receipt_recorded",
         "recorded_at": observed_at,
     }
 
 
-def observe_lifecycle_post_tool(
-    payload: dict[str, Any], store: StateStore, session_id: str, *, report_unmatched: bool = False
+def claimed_post_index_lookup(
+    payload: dict[str, Any], store: Any | None = None
 ) -> dict[str, Any] | None:
-    """Receipt and reconcile a claimed lifecycle PostToolUse exactly once.
+    """Read only the bounded claimed-ID index; never construct StateStore."""
+    session_id = str(payload.get("session_id") or "")
+    tool_use_id = str(payload.get("tool_use_id") or "")
+    if not session_id or not tool_use_id:
+        return None
+    return ClaimedPostIndex(index_root_for_store(store)).lookup(
+        session_id, tool_use_id, now=_event_now(payload)
+    )
 
-    The receipt is written in the same CAS mutation before the lifecycle
-    transition, so it contains no body or response values and cannot be
-    detached from the current pending owner.
+
+def rebuild_claimed_post_index(session_id: str, store: StateStore) -> int:
+    """Republish exact, unexpired claimed IDs after a recoverable index loss.
+
+    Canonical state remains the authority.  This creates no StateStore and is
+    called only from lifecycle maintenance after it has already read the
+    current state.  A failed individual publication deliberately leaves that
+    ID inert for the catch-all until a later maintenance pass.
     """
+    state = store.read(session_id)
+    index = ClaimedPostIndex(index_root_for_store(store))
+    published = 0
+    for task_id, attempt, record in _iter_task_attempts(state):
+        pending = record.get("pending_action") if isinstance(record, dict) else None
+        if not (
+            isinstance(pending, dict)
+            and pending.get("phase") == "claimed"
+            and isinstance(pending.get("tool_use_id"), str)
+        ):
+            continue
+        index.record_claim(claim_index_record(session_id, task_id, attempt, pending))
+        published += 1
+    return published
+
+
+def _receipt_observation(receipt: dict[str, Any]) -> dict[str, str | None]:
+    return {
+        "call_observation": str(receipt["processing_result"]),
+        "target_observation": receipt.get("target_observation"),
+    }
+
+
+def _exact_claim_and_receipt(
+    state: dict[str, Any], task_id: str, attempt: int, tool_use_id: str
+) -> tuple[dict[str, Any], dict[str, Any] | None] | None:
+    record = _task_record_for_attempt(state, task_id, attempt)
+    pending = record.get("pending_action") if isinstance(record, dict) else None
+    if not (
+        isinstance(record, dict)
+        and isinstance(pending, dict)
+        and pending.get("phase") == "claimed"
+        and pending.get("tool_use_id") == tool_use_id
+    ):
+        return None
+    receipt = record.get("post_receipt")
+    if receipt is not None and (
+        not isinstance(receipt, dict)
+        or receipt.get("received_tool_use_id") != tool_use_id
+    ):
+        return None
+    return pending, receipt if isinstance(receipt, dict) else None
+
+
+def _mark_receipt_transition_failed(
+    store: StateStore, session_id: str, task_id: str, attempt: int,
+    tool_use_id: str, observed_at: int,
+) -> None:
+    def predicate(current: dict[str, Any]) -> bool:
+        exact = _exact_claim_and_receipt(current, task_id, attempt, tool_use_id)
+        return bool(exact and exact[1] and exact[1].get("transition_state") == "receipt_recorded")
+
+    def apply(current: dict[str, Any]) -> None:
+        record = _task_record_for_attempt(current, task_id, attempt)
+        assert isinstance(record, dict)
+        record["post_receipt"]["transition_state"] = "transition_failed"
+        _apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
+        record["updated_at"] = observed_at
+
+    try:
+        store.compare_and_set(session_id, predicate, apply)
+    except Exception:
+        # The receipt_recorded state itself is durable enough to make a retry
+        # re-enter transition; never hide it behind a best-effort marker.
+        return
+
+
+def observe_lifecycle_post_tool(
+    payload: dict[str, Any], store: StateStore, session_id: str,
+    *, tool_name_classification: str = "recognized",
+) -> dict[str, Any] | None:
+    """Persist receipt first, then reentrantly apply the exact transition."""
     tool_use_id = str(payload.get("tool_use_id") or "")
     observed_at = _event_now(payload)
     if not tool_use_id:
-        return {"systemMessage": "Subagent Governance：followup PostToolUse 未提供 tool_use_id（post_tool_use_id_missing），未写入状态。"} if report_unmatched else None
+        return None
+    if tool_name_classification not in {"recognized", "unrecognized"}:
+        return {"systemMessage": "Subagent Governance 收到无效 tool-name classification，已降级放行。"}
     try:
         state = store.read(session_id)
         claimed = _claimed_action_for_tool_use(state, tool_use_id)
@@ -1852,58 +1959,98 @@ def observe_lifecycle_post_tool(
                 f"治理状态进入 degraded 并需人工对账：{exc}"
             )
         }
-    if claimed is not None:
-        task_id, attempt, _record, pending = claimed
+    if claimed is None:
+        # Completed transitions retain a receipt but no pending action.  They
+        # are the only duplicate events that are inert by design.
+        try:
+            duplicate = _receipt_for_tool_use(state, tool_use_id)
+        except Exception as exc:
+            return {"systemMessage": f"Subagent Governance 无法检查 lifecycle receipt，已降级放行：{exc}"}
+        if isinstance(duplicate, dict) and duplicate.get("transition_state") == "transition_applied":
+            try:
+                ClaimedPostIndex(index_root_for_store(store)).remove(session_id, tool_use_id)
+            except OSError:
+                pass
+        elif duplicate is None:
+            # A hint without its canonical claimed owner is stale.  Removing
+            # it after the canonical recheck prevents future unrelated
+            # catch-all events from constructing StateStore repeatedly.
+            try:
+                ClaimedPostIndex(index_root_for_store(store)).remove(session_id, tool_use_id)
+            except OSError:
+                pass
+        return None
+    task_id, attempt, _record, pending = claimed
+    receipt = _receipt_for_tool_use(state, tool_use_id)
+    if receipt is None:
         operation_type = pending.get("operation_type")
         if not isinstance(operation_type, str):
             return {"systemMessage": "Subagent Governance 收到无效 claimed pending operation，已降级放行。"}
-        observation = adapt_lifecycle_response(
-            payload.get("tool_response"), operation_type
-        ).to_record()
+        observation = adapt_lifecycle_response(payload.get("tool_response"), operation_type).to_record()
         if observation.get("call_observation") not in CALL_OBSERVATIONS:
             return {"systemMessage": "Subagent Governance 收到无效 lifecycle adapter 观察，已降级放行。"}
         response_shape = lifecycle_response_shape(payload.get("tool_response"))
 
-        def predicate(current: dict[str, Any]) -> bool:
-            target = _task_record_for_attempt(current, task_id, attempt)
-            action = target.get("pending_action") if isinstance(target, dict) else None
+        def receipt_predicate(current: dict[str, Any]) -> bool:
+            record = _task_record_for_attempt(current, task_id, attempt)
+            pending_current = record.get("pending_action") if isinstance(record, dict) else None
+            prior_receipt = record.get("post_receipt") if isinstance(record, dict) else None
             return bool(
-                isinstance(action, dict)
-                and action.get("phase") == "claimed"
-                and action.get("tool_use_id") == tool_use_id
+                isinstance(record, dict)
+                and isinstance(pending_current, dict)
+                and pending_current.get("phase") == "claimed"
+                and pending_current.get("tool_use_id") == tool_use_id
+                and (
+                    prior_receipt is None
+                    or (
+                        isinstance(prior_receipt, dict)
+                        and prior_receipt.get("transition_state") == "transition_applied"
+                    )
+                )
             )
 
-        def apply(current: dict[str, Any]) -> None:
-            _ensure_canonical_task_record(current, task_id)
-            target = _task_record_for_attempt(current, task_id, attempt)
-            assert target is not None
-            current_pending = copy.deepcopy(target["pending_action"])
-            target["post_receipt"] = _receipt_from_claim(
+        def persist_receipt(current: dict[str, Any]) -> None:
+            record = _task_record_for_attempt(current, task_id, attempt)
+            assert isinstance(record, dict)
+            current_pending = copy.deepcopy(record["pending_action"])
+            record["post_receipt"] = _receipt_from_claim(
                 session_id, task_id, attempt, current_pending, tool_use_id,
-                observation, response_shape, observed_at,
+                observation, response_shape, observed_at, tool_name_classification,
             )
-            _apply_action_observation(
-                target,
-                current_pending,
-                observation,
-                observed_at,
-            )
+            record["updated_at"] = observed_at
 
         try:
-            store.compare_and_set(session_id, predicate, apply)
+            store.compare_and_set(session_id, receipt_predicate, persist_receipt)
         except Exception as exc:
-            return {
-                "systemMessage": (
-                    "Subagent Governance 已观察到原生调用 "
-                    f"{observation['call_observation']}，但状态写入失败；"
-                    f"post_receipt_write_failed，已消耗的预算或 attempt 不回滚，治理状态 degraded：{exc}"
-                )
-            }
+            return {"systemMessage": f"Subagent Governance PostToolUse receipt 写入失败（post_receipt_write_failed），原生调用已发生，已降级放行：{exc}"}
+        state = store.read(session_id)
+        receipt = _receipt_for_tool_use(state, tool_use_id)
+    if not isinstance(receipt, dict):
+        return {"systemMessage": "Subagent Governance receipt 状态无法确认，已降级放行。"}
+    if receipt.get("transition_state") == "transition_applied":
         return None
+    if receipt.get("transition_state") not in {"receipt_recorded", "transition_failed"}:
+        return {"systemMessage": "Subagent Governance receipt transition 状态无效，已降级放行。"}
+
+    def transition_predicate(current: dict[str, Any]) -> bool:
+        exact = _exact_claim_and_receipt(current, task_id, attempt, tool_use_id)
+        return bool(exact and exact[1] and exact[1].get("transition_state") in {"receipt_recorded", "transition_failed"})
+
+    def apply_transition(current: dict[str, Any]) -> None:
+        record = _task_record_for_attempt(current, task_id, attempt)
+        assert isinstance(record, dict)
+        current_pending = copy.deepcopy(record["pending_action"])
+        current_receipt = record["post_receipt"]
+        _apply_action_observation(record, current_pending, _receipt_observation(current_receipt), observed_at)
+        record["post_receipt"]["transition_state"] = "transition_applied"
+
     try:
-        duplicate = _receipt_for_tool_use(state, tool_use_id)
+        store.compare_and_set(session_id, transition_predicate, apply_transition)
     except Exception as exc:
-        return {"systemMessage": f"Subagent Governance 无法检查 lifecycle receipt，已降级放行：{exc}"}
-    if duplicate is not None:
-        return None
-    return {"systemMessage": "Subagent Governance：followup PostToolUse 的 tool_use_id 未关联 claimed pending（post_tool_use_id_unclaimed），未写入状态。"} if report_unmatched else None
+        _mark_receipt_transition_failed(store, session_id, task_id, attempt, tool_use_id, observed_at)
+        return {"systemMessage": f"Subagent Governance receipt 已持久化，但 lifecycle transition 失败（post_receipt_transition_failed），pending 保留并需 reconcile：{exc}"}
+    try:
+        ClaimedPostIndex(index_root_for_store(store)).remove(session_id, tool_use_id)
+    except OSError:
+        pass
+    return None

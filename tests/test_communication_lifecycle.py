@@ -467,8 +467,10 @@ class CommunicationLifecycleTests(unittest.TestCase):
                 "task_ref": resumed["task_ref"], "target": target,
                 "expected_tool_use_id": "resume-post-tool",
                 "received_tool_use_id": "resume-post-tool", "id_match": True,
-                "tool_family": "followup", "operation_type": "business_resume",
-                "response_shape": "empty", "processing_result": "success",
+                "tool_family": "followup", "tool_name_classification": "recognized",
+                "operation_type": "business_resume", "response_shape": "empty",
+                "processing_result": "success", "target_observation": None,
+                "transition_state": "transition_applied",
                 "recorded_at": 162,
             },
         )
@@ -480,6 +482,80 @@ class CommunicationLifecycleTests(unittest.TestCase):
                 "tool_response": "", "now": 163,
             }, self.store,
         ))
+        self.assertEqual(self.store.read(self.session_id), before)
+
+    def test_unknown_post_tool_name_with_exact_claimed_id_records_unrecognized_receipt(self):
+        task_id, target = self.add_managed()
+        self.notify(task_id, target)
+        prepared = governance.prepare_communication(
+            self.communication("business_resume", target, task_contract=self.contract("继续执行")),
+            self.session_id, state_store=self.store, now=160,
+        )
+        governance.handle(
+            {
+                "session_id": self.session_id, "hook_event_name": "PreToolUse",
+                "tool_name": "followup_task", "tool_use_id": "changed-name-post",
+                "tool_input": prepared["native_args"], "now": 161,
+            }, self.store,
+        )
+        unknown_name = "collaboration.future_post_event"
+        payload = {
+            "session_id": self.session_id, "hook_event_name": "PostToolUse",
+            "tool_name": unknown_name, "tool_use_id": "changed-name-post",
+            "tool_response": "", "now": 162,
+        }
+        self.assertIsNotNone(lifecycle_domain.claimed_post_index_lookup(payload, self.store))
+        self.assertIsNone(governance.handle(payload, self.store))
+        receipt = self.execution(task_id, 2)["post_receipt"]
+        self.assertEqual(receipt["tool_name_classification"], "unrecognized")
+        self.assertEqual(receipt["operation_type"], "business_resume")
+        self.assertIsNone(lifecycle_domain.claimed_post_index_lookup(payload, self.store))
+        self.assertNotIn(unknown_name, str(self.store.read(self.session_id)))
+
+    def test_receipt_first_transition_failure_is_recovered_by_duplicate_post(self):
+        task_id, target = self.add_managed()
+        self.notify(task_id, target)
+        prepared = governance.prepare_communication(
+            self.communication("business_resume", target, task_contract=self.contract("继续执行")),
+            self.session_id, state_store=self.store, now=160,
+        )
+        pre = {
+            "session_id": self.session_id, "hook_event_name": "PreToolUse",
+            "tool_name": "followup_task", "tool_use_id": "recover-transition",
+            "tool_input": prepared["native_args"], "now": 161,
+        }
+        governance.handle(pre, self.store)
+        post = {
+            "session_id": self.session_id, "hook_event_name": "PostToolUse",
+            "tool_name": "followup_task", "tool_use_id": "recover-transition",
+            "tool_response": "", "now": 162,
+        }
+        with mock.patch.object(lifecycle_domain, "_apply_action_observation", side_effect=RuntimeError("transition disk failure")):
+            failed = governance.handle(post, self.store)
+        self.assertTrue(failed["continue"])
+        self.assertIn("post_receipt_transition_failed", failed["systemMessage"])
+        recorded = self.execution(task_id, 2)
+        self.assertEqual(recorded["post_receipt"]["transition_state"], "transition_failed")
+        self.assertEqual(recorded["pending_action"]["phase"], "claimed")
+        self.assertEqual(recorded["closure_record"]["parent_action"], "reconcile")
+        self.assertIsNone(governance.handle(post, self.store))
+        recovered = self.execution(task_id, 2)
+        self.assertEqual(recovered["post_receipt"]["transition_state"], "transition_applied")
+        self.assertNotIn("pending_action", recovered)
+
+    def test_completed_post_duplicate_is_inert_after_transition(self):
+        task_id, target = self.add_managed()
+        prepared = governance.prepare_communication(
+            self.communication("normal_message", target), self.session_id,
+            state_store=self.store, now=110,
+        )
+        governance.handle(
+            {"session_id": self.session_id, "hook_event_name": "PreToolUse", "tool_name": "send_message", "tool_use_id": "completed-duplicate", "tool_input": prepared["native_args"], "now": 111}, self.store,
+        )
+        post = {"session_id": self.session_id, "hook_event_name": "PostToolUse", "tool_name": "send_message", "tool_use_id": "completed-duplicate", "tool_response": {"success": True}, "now": 112}
+        self.assertIsNone(governance.handle(post, self.store))
+        before = self.store.read(self.session_id)
+        self.assertIsNone(governance.handle({**post, "now": 113}, self.store))
         self.assertEqual(self.store.read(self.session_id), before)
 
     def test_followup_post_missing_or_different_id_never_guesses_pending(self):
@@ -496,13 +572,12 @@ class CommunicationLifecycleTests(unittest.TestCase):
             )
         }))
         self.store.update(self.session_id, lambda state: state["tasks"][task_id]["executions"]["1"]["pending_action"].update({"phase": "claimed", "tool_use_id": "expected-followup", "claimed_at": 112}))
-        for tool_use_id, code in (("different-followup", "post_tool_use_id_unclaimed"), ("", "post_tool_use_id_missing")):
+        for tool_use_id in ("different-followup", ""):
             with self.subTest(tool_use_id=tool_use_id):
                 result = governance.handle(
                     {"session_id": self.session_id, "hook_event_name": "PostToolUse", "tool_name": "followup_task", "tool_use_id": tool_use_id, "tool_response": "", "now": 113}, self.store,
                 )
-                self.assertTrue(result["continue"])
-                self.assertIn(code, result["systemMessage"])
+                self.assertIsNone(result)
                 pending = self.execution(task_id)["pending_action"]
                 self.assertEqual(pending["tool_use_id"], "expected-followup")
                 self.assertNotIn("post_receipt", self.execution(task_id))

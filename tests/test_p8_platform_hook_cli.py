@@ -79,10 +79,18 @@ class HookRouterTests(unittest.TestCase):
 
     def test_post_catch_all_keeps_unrelated_tools_fully_inert(self):
         with mock.patch.object(governance_hook, "_store_or_unavailable") as constructor:
-            result = governance_hook.handle_hook(
-                {"hook_event_name": "PostToolUse", "tool_name": "filesystem.write_file", "tool_use_id": "irrelevant"}
-            )
-        self.assertIsNone(result)
+            results = [
+                governance_hook.handle_hook(
+                    {"hook_event_name": "PostToolUse", "tool_name": "filesystem.write_file", "tool_use_id": "irrelevant"}
+                ),
+                governance_hook.handle_hook(
+                    {"hook_event_name": "PostToolUse", "tool_name": "future.changed_name", "tool_use_id": "unclaimed"}
+                ),
+                governance_hook.handle_hook(
+                    {"hook_event_name": "PostToolUse", "tool_name": "future.changed_name"}
+                ),
+            ]
+        self.assertEqual(results, [None, None, None])
         constructor.assert_not_called()
 
     def test_unmanaged_spawn_does_not_create_files(self):

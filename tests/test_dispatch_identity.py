@@ -589,7 +589,7 @@ class DispatchIdentityTests(unittest.TestCase):
         )
         expected_root = (
             codex_root
-            / "plugins/data/subagent-governance-personal/state-v7"
+            / "plugins/data/subagent-governance-personal/state-v8"
         ).resolve()
         session_id = "installed-session"
 
