@@ -212,6 +212,45 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
         self.assertFalse(path.exists())
         self.assertTrue(lock_path.exists())
 
+    def test_resume_delivery_failed_remains_action_required_with_close_and_resume(self):
+        task_id, _target = self.add_task()
+        state = self.store.read(self.session_id)
+        execution = state["tasks"][task_id]["executions"]["1"]
+        governance._apply_canonical_execution_update(
+            execution, "observed_execution_status", "stopped"
+        )
+        governance._apply_canonical_execution_update(
+            execution, "closure_reason", "resume_delivery_failed"
+        )
+        governance._apply_canonical_execution_update(execution, "closure_closed_at", 150)
+        governance._apply_canonical_execution_update(
+            execution, "closure_parent_action", "decide_disposition"
+        )
+        self.store.update(self.session_id, lambda current: current.update(state))
+
+        view, issues, incomplete = governance._build_work_item_decision_snapshot(
+            self.store.read(self.session_id), task_id, session_id=self.session_id
+        )
+        self.assertFalse(incomplete, issues)
+        self.assertEqual(view["lifecycle"], "open")
+        self.assertTrue(view["action_required"])
+        self.assertEqual(view["allowed_actions"], ["close_task", "resume_business"])
+
+    def test_session_end_does_not_delete_open_current_closed_resume_failure(self):
+        task_id, _target = self.add_task()
+        state = self.store.read(self.session_id)
+        execution = state["tasks"][task_id]["executions"]["1"]
+        governance._apply_canonical_execution_update(execution, "observed_execution_status", "stopped")
+        governance._apply_canonical_execution_update(execution, "closure_reason", "resume_delivery_failed")
+        governance._apply_canonical_execution_update(execution, "closure_closed_at", 150)
+        governance._apply_canonical_execution_update(execution, "closure_parent_action", "decide_disposition")
+        self.store.update(self.session_id, lambda current: current.update(state))
+        path, _lock = self.store._paths(self.session_id)
+
+        governance.handle({"session_id": self.session_id, "hook_event_name": "SessionEnd"}, self.store)
+
+        self.assertTrue(path.exists())
+
     def test_expired_tombstone_is_removed(self):
         now = governance._now()
         self.store.update(

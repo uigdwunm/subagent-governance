@@ -2389,7 +2389,13 @@ def _handle_post_tool_lifecycle(payload: dict[str, Any], store: StateStore, sess
     return _lifecycle._handle_post_tool_lifecycle(adapted, store, session_id)
 
 
-def _attempt_projection(
+'''
+P7 extraction archive (non-executable source retained only to keep this
+mechanical transition reviewable).  The canonical implementations live in
+governance_views, governance_groups, governance_sessions and
+governance_diagnostics; this runtime no longer defines them.
+
+def _legacy_p7_attempt_projection(
     task_id: str,
     attempt: int,
     record: dict[str, Any],
@@ -2401,7 +2407,7 @@ def _attempt_projection(
     return projected
 
 
-def _view_attempt_records(state: dict[str, Any]) -> list[dict[str, Any]]:
+def _legacy_p7_view_attempt_records(state: dict[str, Any]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     tasks = state.get("tasks")
     if not isinstance(tasks, dict):
@@ -2411,7 +2417,7 @@ def _view_attempt_records(state: dict[str, Any]) -> list[dict[str, Any]]:
     return records
 
 
-def _attempt_closed(state: dict[str, Any], record: dict[str, Any]) -> bool:
+def _legacy_p7_attempt_closed(state: dict[str, Any], record: dict[str, Any]) -> bool:
     if _execution_is_closed(record) is True:
         return True
     tombstones = state.get("tombstones")
@@ -2419,7 +2425,7 @@ def _attempt_closed(state: dict[str, Any], record: dict[str, Any]) -> bool:
     return isinstance(tombstones, dict) and isinstance(tombstones.get(key), dict)
 
 
-def _managed_call_in_progress(record: dict[str, Any]) -> bool:
+def _legacy_p7_managed_call_in_progress(record: dict[str, Any]) -> bool:
     spawn_call = (
         _dispatch_tool_use_id(record) is not None
         and _spawn_observation(record) is None
@@ -2437,7 +2443,7 @@ def _managed_call_in_progress(record: dict[str, Any]) -> bool:
     return spawn_call or pending_call or unresolved_lifecycle
 
 
-def _canonical_action_required_candidate(
+def _legacy_p7_canonical_action_required_candidate(
     state: dict[str, Any], record: dict[str, Any]
 ) -> bool:
     if _attempt_closed(state, record):
@@ -2453,7 +2459,7 @@ def _canonical_action_required_candidate(
     )
 
 
-def _action_priority(record: dict[str, Any]) -> int:
+def _legacy_p7_action_priority(record: dict[str, Any]) -> int:
     parent_action = _parent_action(record)
     priority = {
         "recover": 0,
@@ -2468,7 +2474,7 @@ def _action_priority(record: dict[str, Any]) -> int:
     return 99
 
 
-def _action_required_records(state: dict[str, Any]) -> list[dict[str, Any]]:
+def _legacy_p7_action_required_records(state: dict[str, Any]) -> list[dict[str, Any]]:
     records = []
     for record in _view_attempt_records(state):
         if _canonical_action_required_candidate(state, record):
@@ -2484,7 +2490,7 @@ def _action_required_records(state: dict[str, Any]) -> list[dict[str, Any]]:
     return records
 
 
-def _recent_activity_records(
+def _legacy_p7_recent_activity_records(
     state: dict[str, Any], *, now: int | None = None
 ) -> list[dict[str, Any]]:
     current_time = _now() if now is None else now
@@ -2504,7 +2510,7 @@ def _recent_activity_records(
     return records
 
 
-def _validate_group_value(
+def _legacy_p7_validate_group_value(
     value: Any,
     *,
     expected_group_id: str | None = None,
@@ -2567,7 +2573,7 @@ def _validate_group_value(
     return normalized
 
 
-def upsert_group(
+def _legacy_p7_upsert_group(
     value: Any,
     session_id: str,
     *,
@@ -2606,7 +2612,7 @@ def upsert_group(
     return store.update(session_id, upsert, required_fields=("tasks", "agents"))
 
 
-def _diagnostic_issue(code: str, message: str, **context: Any) -> dict[str, Any]:
+def _legacy_p7_diagnostic_issue(code: str, message: str, **context: Any) -> dict[str, Any]:
     allowed_context = {}
     for key in (
         "session_id",
@@ -2629,7 +2635,7 @@ def _diagnostic_issue(code: str, message: str, **context: Any) -> dict[str, Any]
     }
 
 
-def _diagnostic_issue_sort_key(issue: dict[str, Any]) -> tuple[Any, ...]:
+def _legacy_p7_diagnostic_issue_sort_key(issue: dict[str, Any]) -> tuple[Any, ...]:
     context = issue.get("context") if isinstance(issue.get("context"), dict) else {}
     return (
         str(issue.get("code") or ""),
@@ -2642,7 +2648,7 @@ def _diagnostic_issue_sort_key(issue: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def _attempt_has_reasoned_close(
+def _legacy_p7_attempt_has_reasoned_close(
     state: dict[str, Any], task_id: str, attempt: int, record: dict[str, Any]
 ) -> bool:
     if not _attempt_closed(
@@ -2663,7 +2669,7 @@ def _attempt_has_reasoned_close(
     return any(isinstance(reason, str) and reason.strip() for reason in reasons)
 
 
-def _canonical_work_item_view(
+def _legacy_p7_canonical_work_item_view(
     state: dict[str, Any], task_id: str
 ) -> tuple[dict[str, Any] | None, list[tuple[int, dict[str, Any]]]]:
     tasks = state.get("tasks")
@@ -2683,7 +2689,7 @@ def _canonical_work_item_view(
     return None, []
 
 
-def _decision_candidate_snapshot(
+def _legacy_p7_decision_candidate_snapshot(
     state: dict[str, Any],
     record: dict[str, Any],
     *,
@@ -2745,7 +2751,7 @@ def _decision_candidate_snapshot(
     }
 
 
-def _work_item_allowed_actions(
+def _legacy_p7_work_item_allowed_actions(
     records: list[tuple[int, dict[str, Any]]],
     *,
     current_attempt: int | None,
@@ -2796,7 +2802,7 @@ def _work_item_allowed_actions(
     return sorted(set(actions), key=order.__getitem__)
 
 
-def _build_work_item_decision_snapshot(
+def _legacy_p7_build_work_item_decision_snapshot(
     state: dict[str, Any],
     task_id: str,
     *,
@@ -2938,7 +2944,7 @@ def _build_work_item_decision_snapshot(
     return snapshot, issues, incomplete
 
 
-def _derive_group_snapshot(
+def _legacy_p7_derive_group_snapshot(
     state: dict[str, Any],
     group: dict[str, Any],
     *,
@@ -3024,7 +3030,7 @@ def _derive_group_snapshot(
     return snapshot, issues, incomplete
 
 
-def read_group(
+def _legacy_p7_read_group(
     session_id: str,
     group_id: str,
     *,
@@ -3045,7 +3051,7 @@ def read_group(
     return snapshot
 
 
-def _session_next_action(record: dict[str, Any]) -> str:
+def _legacy_p7_session_next_action(record: dict[str, Any]) -> str:
     parent_action = _parent_action(record)
     if parent_action:
         return str(parent_action)
@@ -3054,7 +3060,7 @@ def _session_next_action(record: dict[str, Any]) -> str:
     return "等待原 Agent并按规则巡检"
 
 
-def _session_summary_line(record: dict[str, Any]) -> str:
+def _legacy_p7_session_summary_line(record: dict[str, Any]) -> str:
     task_id = _bounded(record.get("task_id"), "unknown")[:SESSION_SUMMARY_FIELD_LIMIT]
     attempt = record.get("attempt")
     mode = _bounded(record.get("resolved_mode"), "unknown")[:SESSION_SUMMARY_FIELD_LIMIT]
@@ -3085,7 +3091,7 @@ def _session_summary_line(record: dict[str, Any]) -> str:
     )
 
 
-def _session_start_context(
+def _legacy_p7_session_start_context(
     action_required: list[dict[str, Any]],
     recent_activity: list[dict[str, Any]],
 ) -> str:
@@ -3148,7 +3154,7 @@ def _session_start_context(
     return context
 
 
-def _session_work_item_summary_line(snapshot: dict[str, Any]) -> str:
+def _legacy_p7_session_work_item_summary_line(snapshot: dict[str, Any]) -> str:
     task_id = _bounded(snapshot.get("task_id"), "unknown")[:SESSION_SUMMARY_FIELD_LIMIT]
     current_attempt = snapshot.get("current_attempt")
     lifecycle = _bounded(snapshot.get("lifecycle"), "indeterminate")[:SESSION_SUMMARY_FIELD_LIMIT]
@@ -3174,7 +3180,7 @@ def _session_work_item_summary_line(snapshot: dict[str, Any]) -> str:
     )
 
 
-def _session_start_work_item_context(work_items: list[dict[str, Any]]) -> str:
+def _legacy_p7_session_start_work_item_context(work_items: list[dict[str, Any]]) -> str:
     header = "Subagent Governance 会话恢复摘要（work-item 决策视图）："
     footer = (
         "不要因 compact/resume 重复创建已有 Agent；使用精确 execution/target 继续等待、对账或处置。\n"
@@ -3224,7 +3230,7 @@ def _session_start_work_item_context(work_items: list[dict[str, Any]]) -> str:
     return render(required_lines, recent_lines)
 
 
-def _handle_stop(
+def _legacy_p7_handle_stop(
     payload: dict[str, Any],
     store: StateStore,
     *,
@@ -3275,7 +3281,7 @@ def _handle_stop(
     return {"continue": True, "systemMessage": message}
 
 
-def _handle_session_start(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
+def _legacy_p7_handle_session_start(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
     session_id = str(payload.get("session_id") or "unknown")
     try:
         if callable(getattr(store, "update", None)):
@@ -3329,7 +3335,7 @@ def _handle_session_start(payload: dict[str, Any], store: StateStore) -> dict[st
     }
 
 
-def _handle_session_end(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
+def _legacy_p7_handle_session_end(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
     session_id = str(payload.get("session_id") or "unknown")
     preserved: list[dict[str, Any]] = []
     retained_tombstones = 0
@@ -3408,11 +3414,11 @@ def handle(payload: dict[str, Any], store: StateStore | None = None) -> dict[str
     return None
 
 
-def _diagnostic_absolute_path(path: Path) -> Path:
+def _legacy_p7_diagnostic_absolute_path(path: Path) -> Path:
     return path.expanduser().resolve(strict=False)
 
 
-def _diagnostic_base_document(
+def _legacy_p7_diagnostic_base_document(
     root: Path,
     session_id: str | None,
 ) -> dict[str, Any]:
@@ -3441,7 +3447,7 @@ def _diagnostic_base_document(
     }
 
 
-def _read_session_file_read_only(
+def _legacy_p7_read_session_file_read_only(
     path: Path,
     *,
     requested_session: str | None = None,
@@ -3545,7 +3551,7 @@ def _read_session_file_read_only(
         ) from exc
 
 
-def _diagnostic_validate_attempt(
+def _legacy_p7_diagnostic_validate_attempt(
     record: dict[str, Any],
     *,
     session_id: str,
@@ -3606,7 +3612,7 @@ def _diagnostic_validate_attempt(
     return issues, incomplete, identity_valid
 
 
-def _diagnostic_skipped_attempt_issues(
+def _legacy_p7_diagnostic_skipped_attempt_issues(
     tasks: dict[str, Any],
     *,
     session_id: str,
@@ -3673,7 +3679,7 @@ def _diagnostic_skipped_attempt_issues(
     return issues, bool(issues)
 
 
-def _diagnostic_normalize_session_shape(
+def _legacy_p7_diagnostic_normalize_session_shape(
     state: dict[str, Any],
     *,
     path: Path,
@@ -3761,7 +3767,7 @@ def _diagnostic_normalize_session_shape(
     }
 
 
-def _diagnostic_collect_attempts(
+def _legacy_p7_diagnostic_collect_attempts(
     normalized_state: dict[str, Any],
     *,
     session_id: str,
@@ -3837,7 +3843,7 @@ def _diagnostic_collect_attempts(
     }
 
 
-def _diagnostic_collect_work_items(
+def _legacy_p7_diagnostic_collect_work_items(
     normalized_state: dict[str, Any],
     allowed_task_ids: list[str],
     *,
@@ -3869,7 +3875,7 @@ def _diagnostic_collect_work_items(
     }
 
 
-def _diagnostic_collect_groups(
+def _legacy_p7_diagnostic_collect_groups(
     state: dict[str, Any],
     normalized_state: dict[str, Any],
     *,
@@ -3933,7 +3939,7 @@ def _diagnostic_collect_groups(
     }
 
 
-def _diagnostic_finalize_session_issues(
+def _legacy_p7_diagnostic_finalize_session_issues(
     issues: list[dict[str, Any]],
     incomplete: bool,
     omitted: int,
@@ -3968,7 +3974,7 @@ def _diagnostic_finalize_session_issues(
     return issues, incomplete, omitted
 
 
-def _diagnostic_session_snapshot(
+def _legacy_p7_diagnostic_session_snapshot(
     state: dict[str, Any],
     *,
     path: Path,
@@ -4038,13 +4044,13 @@ def _diagnostic_session_snapshot(
         omitted,
     )
 
-def _diagnostic_output_bytes(document: dict[str, Any]) -> bytes:
+def _legacy_p7_diagnostic_output_bytes(document: dict[str, Any]) -> bytes:
     return (
         json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")
 
 
-def _build_diagnostic_document(
+def _legacy_p7_build_diagnostic_document(
     session_id: str | None,
     data_root: Path | None = None,
 ) -> tuple[dict[str, Any], int]:
@@ -4218,10 +4224,12 @@ def _build_diagnostic_document(
     return document, 0 if scan["complete"] else 1
 
 
-def _diagnose(session_id: str | None, data_root: Path | None = None) -> int:
+def _legacy_p7_diagnose(session_id: str | None, data_root: Path | None = None) -> int:
     document, exit_code = _build_diagnostic_document(session_id, data_root)
     sys.stdout.buffer.write(_diagnostic_output_bytes(document))
     return exit_code
+
+'''
 
 
 # P4 public facade.  Protocol implementations are owned by their dedicated
@@ -4248,6 +4256,23 @@ try:
     from scripts.governance_prepared_store import (
         PreparedContractStore, _prepared_record, _prepared_root_for_store,
     )
+    from scripts.governance_views import (
+        action_required_records as _action_required_records,
+        recent_activity_records as _recent_activity_records,
+        work_item_view as _build_work_item_decision_snapshot,
+    )
+    from scripts.governance_groups import (
+        derive_group_snapshot as _derive_group_snapshot,
+        read_group, upsert_group, validate_group_value as _validate_group_value,
+    )
+    from scripts.governance_sessions import (
+        session_end as _session_end_domain, session_start as _session_start_domain,
+        stop_advisory as _stop_advisory_domain,
+    )
+    from scripts.governance_diagnostics import (
+        _read_session_file_read_only, build_diagnostic_document as _build_diagnostic_document,
+        diagnose as _diagnose_domain, diagnostic_output_bytes as _diagnostic_output_bytes,
+    )
 except ModuleNotFoundError:
     from governance_validation import _required_fields, _validate_text, _validate_text_list
     from governance_context import _run_git, _sha256_file, _validate_context_manifest, _validate_context_verification_record, verify_context_manifest
@@ -4255,6 +4280,67 @@ except ModuleNotFoundError:
     from governance_dispatch_identity import build_task_name, derive_task_ref, normalize_semantic_name, parse_task_name, select_task_ref
     from governance_dispatch_rendering import _context_projection, _render_list, _render_verified_context, _spawn_args, render_dispatch_prompt, render_dispatch_user_message
     from governance_prepared_store import PreparedContractStore, _prepared_record, _prepared_root_for_store
+    from governance_views import action_required_records as _action_required_records, recent_activity_records as _recent_activity_records, work_item_view as _build_work_item_decision_snapshot
+    from governance_groups import derive_group_snapshot as _derive_group_snapshot, read_group, upsert_group, validate_group_value as _validate_group_value
+    from governance_sessions import session_end as _session_end_domain, session_start as _session_start_domain, stop_advisory as _stop_advisory_domain
+    from governance_diagnostics import _read_session_file_read_only, build_diagnostic_document as _build_diagnostic_document, diagnose as _diagnose_domain, diagnostic_output_bytes as _diagnostic_output_bytes
+
+
+# P7 edge adapters: domain modules return portable results; only the runtime
+# owns Hook envelopes and stdout wiring during the P7→P8 transition.
+def _handle_stop(payload: dict[str, Any], store: StateStore, *, sleeper: Callable[[float], None] = time.sleep) -> dict[str, Any]:
+    result = _stop_advisory_domain(payload, store, sleeper=sleeper)
+    output = {"continue": bool(result.get("continue", True))}
+    if result.get("system_message"):
+        output["systemMessage"] = str(result["system_message"])
+    return output
+
+
+def _handle_session_start(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
+    result = _session_start_domain(payload, store)
+    output = {"continue": bool(result.get("continue", True))}
+    if result.get("additional_context"):
+        output["hookSpecificOutput"] = {"hookEventName": "SessionStart", "additionalContext": str(result["additional_context"])}
+        output.pop("continue", None)
+    elif result.get("system_message"):
+        output["systemMessage"] = str(result["system_message"])
+    return output
+
+
+def _handle_session_end(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
+    result = _session_end_domain(payload, store)
+    output = {"continue": bool(result.get("continue", True))}
+    if result.get("system_message"):
+        output["systemMessage"] = str(result["system_message"])
+    return output
+
+
+def handle(payload: dict[str, Any], store: StateStore | None = None) -> dict[str, Any] | None:
+    if store is not None:
+        active_store = store
+    else:
+        try:
+            active_store = _default_state_store()
+        except (OSError, RuntimeError) as exc:
+            active_store = UnavailableStateStore(exc)
+    event = str(payload.get("hook_event_name") or "")
+    if event == "PreToolUse":
+        kind = _tool_kind(str(payload.get("tool_name") or ""))
+        if kind == "spawn": return _handle_spawn(payload, active_store)
+        if kind in {"communication", "followup"}: return _handle_communication(payload, active_store)
+        if kind == "interrupt": return _handle_interrupt_pre(payload, active_store)
+        return None
+    if event == "PostToolUse": return _handle_post_tool(payload, active_store)
+    if event == "Stop": return _handle_stop(payload, active_store)
+    if event == "SessionStart": return _handle_session_start(payload, active_store)
+    if event == "SessionEnd": return _handle_session_end(payload, active_store)
+    return None
+
+
+def _diagnose(session_id: str | None, data_root: Path | None = None) -> int:
+    document, exit_code = _diagnose_domain(session_id, data_root or _data_root_path())
+    sys.stdout.buffer.write(_diagnostic_output_bytes(document))
+    return exit_code
 
 
 def main() -> int:
