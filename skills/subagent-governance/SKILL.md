@@ -166,7 +166,7 @@ stdin：
 
 StateStore 还保存有限 identity、恢复计数、pending operation 和 tombstone。它不保存业务结果正文、验收状态、结果文件引用或结果冲突。
 
-StateStore 只接受当前 `state_format_version=5`。缺少版本、版本不匹配或 managed record 不符合当前三平面结构时直接拒绝，不迁移、不修复、不写回。
+StateStore 只接受严格的 `state_format_version=6`，默认命名空间是 `state-v6`。缺少版本、版本不匹配、`managed=false` 或任何持久化未知字段都会直接拒绝；旧 `state-v1` 不读取、不迁移、不修复、不写回或删除。
 
 `parent_action` 只表达生命周期下一步：`wait|reconcile|retry_spawn|recover|decide_disposition|ask_user` 或 JSON `null`。
 

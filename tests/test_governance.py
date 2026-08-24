@@ -259,9 +259,7 @@ class GovernanceTests(unittest.TestCase):
         self.assertIsNone(execution["closure_record"]["parent_action"])
 
     def test_runtime_task_contract_matches_schema_shape(self):
-        schema = json.loads(
-            (PLUGIN_ROOT / "schemas/task-contract-v1.schema.json").read_text(encoding="utf-8")
-        )
+        schema = semantics.MACHINE_SEMANTICS["$defs"]["task_contract"]
         contract_fields = set(governance.TaskContract.__dataclass_fields__)
         self.assertEqual(set(schema["properties"]), contract_fields)
         self.assertTrue(set(schema["required"]) <= contract_fields)

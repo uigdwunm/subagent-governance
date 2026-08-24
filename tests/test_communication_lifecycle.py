@@ -384,8 +384,9 @@ class CommunicationLifecycleTests(unittest.TestCase):
         self.assertNotIn(
             "resume_contract_summary", task["executions"]["2"]["pending_action"]
         )
-        self.assertNotIn(
-            "resume_contract_digest", task["executions"]["2"]["pending_action"]
+        self.assertEqual(
+            task["executions"]["2"]["pending_action"]["resume_contract_digest"],
+            governance.contract_digest(governance._contract_from_input(self.contract("继续执行"))),
         )
         self.assertNotIn("resume_task_ref", task["executions"]["2"]["pending_action"])
         self.assertNotIn("task_id", task["executions"]["2"]["pending_action"])
@@ -558,7 +559,7 @@ class CommunicationLifecycleTests(unittest.TestCase):
             result = original_write(*args, **kwargs)
             if write_calls == 1:
                 changed = copy.deepcopy(args[2])
-                changed["health"]["concurrent_marker"] = True
+                changed["health"]["status"] = "unavailable"
                 original_write(args[0], args[1], changed, **kwargs)
                 raise governance.StateWriteError(
                     "simulated lifecycle claim failure after concurrent change"
@@ -577,7 +578,7 @@ class CommunicationLifecycleTests(unittest.TestCase):
         )
         self.assertIn("degraded", str(result))
         state = self.store.read(self.session_id)
-        self.assertTrue(state["health"]["concurrent_marker"])
+        self.assertEqual(state["health"]["status"], "unavailable")
         self.assertEqual(state["tasks"][task_id]["work_item"]["current_attempt"], 2)
         self.assertEqual(
             state["tasks"][task_id]["executions"]["2"]["pending_action"]["phase"],

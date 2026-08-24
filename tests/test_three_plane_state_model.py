@@ -80,14 +80,12 @@ class ThreePlaneStateModelTests(unittest.TestCase):
             }
             self.assertEqual(active_properties, set(runtime_fields))
 
-    def test_current_state_is_returned_without_normalization(self):
+    def test_unknown_root_field_is_rejected_without_normalization(self):
         state = self.current_state()
         state["future_extension"] = {"opaque": True}
 
-        loaded = governance._require_current_state_format(state)
-
-        self.assertIs(loaded, state)
-        self.assertEqual(loaded["future_extension"], {"opaque": True})
+        with self.assertRaisesRegex(governance.StateValidationError, "未知字段"):
+            governance._require_current_state_format(state)
 
     def test_missing_version_is_rejected_without_rewrite(self):
         state = self.current_state()
@@ -96,7 +94,7 @@ class ThreePlaneStateModelTests(unittest.TestCase):
         before = path.read_bytes()
 
         with self.assertRaisesRegex(
-            governance.StateValidationError, "unsupported_state_version"
+            governance.StateValidationError, "state_format_version"
         ):
             self.store.read("three-plane")
 
@@ -112,7 +110,7 @@ class ThreePlaneStateModelTests(unittest.TestCase):
 
                 with self.assertRaisesRegex(
                     governance.StateValidationError,
-                    rf"检测到 {version}.*仅支持 {governance.STATE_FORMAT_VERSION}",
+                    rf"仅支持 {governance.STATE_FORMAT_VERSION}",
                 ):
                     self.store.read(f"version-{version}")
 
@@ -125,7 +123,7 @@ class ThreePlaneStateModelTests(unittest.TestCase):
         before = path.read_bytes()
 
         with self.assertRaisesRegex(
-            governance.StateValidationError, "unsupported_state_version"
+            governance.StateValidationError, "state_format_version"
         ):
             self.store.update("three-plane", lambda current: current.clear())
 
@@ -138,7 +136,7 @@ class ThreePlaneStateModelTests(unittest.TestCase):
                 del state["tasks"]["three-plane-task"]["executions"]["1"][plane]
 
                 with self.assertRaisesRegex(
-                    governance.StateValidationError, "canonical execution 缺少字段"
+                    governance.StateValidationError, "缺少字段"
                 ):
                     governance._require_current_state_format(state)
 

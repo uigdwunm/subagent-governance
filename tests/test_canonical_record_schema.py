@@ -110,7 +110,7 @@ class CanonicalRecordSchemaTests(unittest.TestCase):
         container, execution = self.initial_execution()
         task_id = "v5-schema-task"
         state = governance.StateStore._empty_state(self.session_id)
-        self.assertEqual(self.definition("canonical_state")["properties"]["updated_at"], False)
+        self.assertNotIn("updated_at", self.definition("canonical_state")["properties"])
         state["tasks"][task_id] = container
         stored = governance._state_for_storage(state)["tasks"][task_id]
         self.assert_valid(stored, "canonical_task_container")

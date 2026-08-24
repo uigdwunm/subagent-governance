@@ -227,6 +227,9 @@ try:
         require_current_state_format as _require_current_state_format,
     )
     from scripts.governance_state import (
+        validate_current_state_format,
+    )
+    from scripts.governance_state import (
         validate_current_execution_planes as _validate_current_execution_planes,
     )
 except ModuleNotFoundError:
@@ -237,8 +240,14 @@ except ModuleNotFoundError:
         require_current_state_format as _require_current_state_format,
     )
     from governance_state import (
+        validate_current_state_format,
+    )
+    from governance_state import (
         validate_current_execution_planes as _validate_current_execution_planes,
     )
+
+
+require_current_state_format = _require_current_state_format
 
 
 def _valid_close_reason(value: Any) -> bool:
@@ -923,6 +932,9 @@ def validate_task_contract(value: Any) -> list[str]:
     errors = _required_fields(value, required)
     if not isinstance(value, dict):
         return errors
+    unknown = sorted(set(value) - set(SEMANTIC_RULES["task_contract_fields"]))
+    if unknown:
+        errors.append("TaskContract 包含未知字段 " + "、".join(unknown))
 
     semantic_name = value.get("semantic_name")
     semantic_definition = SEMANTIC_DEFINITIONS["semantic_name"]
@@ -1095,6 +1107,9 @@ def _contract_from_input(value: Any) -> TaskContract:
         raw = copy.deepcopy(value)
     else:
         raise ValueError("TaskContract 输入必须是对象")
+    unknown = sorted(set(raw) - set(SEMANTIC_RULES["task_contract_fields"]))
+    if unknown:
+        raise ValueError("TaskContract 包含未知字段 " + "、".join(unknown))
     raw["semantic_name"] = normalize_semantic_name(raw.get("semantic_name"))
     features = raw.get("task_features")
     if isinstance(features, TaskFeatures):
@@ -1463,7 +1478,7 @@ def _installed_plugin_data_root(script_path: Path | None = None) -> Path | None:
             / "plugins"
             / "data"
             / f"{plugin_name}-{marketplace}"
-            / "state-v1"
+            / "state-v6"
         )
     return None
 
@@ -1474,11 +1489,15 @@ def _data_root_path() -> Path:
     if override:
         root = Path(override).expanduser()
     elif plugin_data:
-        root = Path(plugin_data).expanduser() / "state-v1"
+        root = Path(plugin_data).expanduser() / "state-v6"
     elif installed_root := _installed_plugin_data_root():
         root = installed_root
     else:
-        root = Path(tempfile.gettempdir()) / f"subagent-governance-{_user_storage_key()}"
+        root = (
+            Path(tempfile.gettempdir())
+            / f"subagent-governance-{_user_storage_key()}"
+            / "state-v6"
+        )
     return root
 
 
@@ -1504,6 +1523,7 @@ class StateStore:
             "agents": {},
             "health": {"status": "ok"},
             "tombstones": {},
+            "groups": {},
         }
 
     def _paths(self, session_id: str) -> tuple[Path, Path]:
@@ -1537,7 +1557,7 @@ class StateStore:
                 f"治理状态缺少当前操作必需字段 {', '.join(missing)}：{path}"
             )
         for field_name in required_fields:
-            if field_name in {"tasks", "agents", "health", "tombstones"} and not isinstance(
+            if field_name in {"tasks", "agents", "health", "tombstones", "groups"} and not isinstance(
                 value.get(field_name), dict
             ):
                 raise StateValidationError(
@@ -1878,6 +1898,11 @@ class PreparedContractStore:
             raise PreparedContractValidationError(
                 f"PreparedContract 缺少字段 {', '.join(missing)}：{path}"
             )
+        unknown = sorted(set(value) - set(required))
+        if unknown:
+            raise PreparedContractValidationError(
+                f"PreparedContract 包含未知字段 {', '.join(unknown)}：{path}"
+            )
         if value.get("session_id") != session_id or value.get("task_ref") != task_ref:
             raise PreparedContractValidationError(f"PreparedContract 引用与文件路径不匹配：{path}")
         if not isinstance(value.get("task_id"), str) or not value["task_id"].strip():
@@ -1906,19 +1931,35 @@ class PreparedContractStore:
                 + "；".join(context_verification_errors)
                 + f"：{path}"
             )
-        if not isinstance(value.get("native_parameters"), dict):
+        native_parameters = value.get("native_parameters")
+        if not isinstance(native_parameters, dict):
             raise PreparedContractValidationError(f"PreparedContract native_parameters 无效：{path}")
+        expected_native_fields = {"task_name", "fork_turns", "model", "reasoning_effort"}
+        if set(native_parameters) != expected_native_fields:
+            raise PreparedContractValidationError(
+                f"PreparedContract native_parameters 字段无效：{path}"
+            )
+        if (
+            native_parameters.get("task_name") != value.get("task_name")
+            or not isinstance(native_parameters.get("fork_turns"), str)
+            or not native_parameters["fork_turns"].strip()
+            or not _is_nullable_nonempty_text(native_parameters.get("model"), maximum=128)
+            or (
+                native_parameters.get("reasoning_effort") is not None
+                and native_parameters.get("reasoning_effort") not in REASONING_EFFORTS
+            )
+        ):
+            raise PreparedContractValidationError(
+                f"PreparedContract native_parameters 无效：{path}"
+            )
         if isinstance(value.get("created_at"), bool) or not isinstance(value.get("created_at"), int):
             raise PreparedContractValidationError(f"PreparedContract created_at 无效：{path}")
         if not isinstance(value.get("consumed"), bool):
             raise PreparedContractValidationError(f"PreparedContract consumed 无效：{path}")
-        for field_name in ("tool_use_id", "claimed_at", "post_observed_at"):
-            field_value = value.get(field_name)
-            if field_value is not None and (
-                isinstance(field_value, bool)
-                or not isinstance(field_value, (str, int))
-                or (isinstance(field_value, str) and not field_value.strip())
-            ):
+        if not _is_nullable_nonempty_text(value.get("tool_use_id"), maximum=1024):
+            raise PreparedContractValidationError(f"PreparedContract tool_use_id 无效：{path}")
+        for field_name in ("claimed_at", "post_observed_at"):
+            if not _is_nullable_timestamp(value.get(field_name)):
                 raise PreparedContractValidationError(
                     f"PreparedContract {field_name} 无效：{path}"
                 )
@@ -2463,13 +2504,12 @@ def _running_interrupt_targets(
 
 
 def _tombstone_record(record: dict[str, Any], reason: str, closed_at: int) -> dict[str, Any]:
-    value = {
+    return {
         "task_ref": record.get("task_ref"),
         "dispatch_target": _dispatch_target(record),
         "close_reason": reason,
         "closed_at": closed_at,
     }
-    return {key: item for key, item in value.items() if item is not None}
 
 
 def _close_attempt_record(
@@ -3761,6 +3801,7 @@ def _pending_action_record(
         pending["authorized_recovery"] = True
     if resume_contract is not None:
         pending["resume_contract"] = resume_contract.to_record()
+        pending["resume_contract_digest"] = contract_digest(resume_contract)
         pending["resume_context_verification"] = copy.deepcopy(
             resume_context_verification
         )

@@ -110,11 +110,6 @@ class ContextManifestTests(unittest.TestCase):
                     governance._contract_from_input(value)
 
     def test_schema_requires_every_task_contract_direction_and_has_manifest_union(self):
-        contract_schema = json.loads(
-            (ROOT / "schemas" / "task-contract-v1.schema.json").read_text(
-                encoding="utf-8"
-            )
-        )
         semantics = json.loads(
             (ROOT / "schemas" / "governance-semantics.schema.json").read_text(
                 encoding="utf-8"
@@ -122,8 +117,8 @@ class ContextManifestTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            set(contract_schema["required"]),
-            set(contract_schema["properties"]),
+            set(semantics["$defs"]["task_contract"]["required"]),
+            set(semantics["$defs"]["task_contract"]["properties"]),
         )
         self.assertEqual(governance.TASK_CONTRACT_OPTIONAL_FIELDS, ())
         manifest = semantics["$defs"]["context_manifest"]

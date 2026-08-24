@@ -2,7 +2,7 @@
 
 - 插件保留 Codex 原生 `spawn_agent`、`send_message`、`followup_task`、`wait_agent` 和 `interrupt_agent`，不替代平台调度、沙箱或批准机制。
 - 任务正文、证据质量和父 Agent 的业务判断不由 Hook 解析或评分。
-- 当前状态格式为 v5。每个 execution 的 canonical authority 只有 `dispatch_record`、`observation_record` 和 `closure_record`。
+- 当前状态格式为严格 v6，默认命名空间为 `state-v6`。每个 execution 的 canonical authority 只有 `dispatch_record`、`observation_record` 和 `closure_record`，并使用关闭 persisted 字段集合。
 - `StateStore.read()`、`update()` 和 CAS callback 只暴露这三个 canonical plane；所有运行路径也只通过三平面读取和写入状态。
 - 缺少版本、版本不匹配或 managed record 不符合当前结构时直接拒绝，不转换、不修复、不写回。
 

@@ -10,6 +10,7 @@ class CurrentOnlyRepositoryTests(unittest.TestCase):
             for path in (ROOT / "docs").rglob("*")
             if path.is_file()
             and not path.name.startswith("private-platform-evidence-")
+            and "improvement-plans" not in path.parts
         }
         self.assertEqual(
             documents,

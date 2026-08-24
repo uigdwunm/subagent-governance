@@ -179,7 +179,7 @@
         "production": {"type": "boolean"},
         "concurrent_write": {"type": "boolean"}
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "context_manifest_mode": {
       "type": "string",
@@ -308,6 +308,106 @@
         {"type": "null"}
       ]
     },
+    "context_verification": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["mode"],
+          "properties": {"mode": {"const": "none"}},
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["mode", "workspace_root", "baseline", "required_paths"],
+          "properties": {
+            "mode": {"const": "declared"},
+            "workspace_root": {"type": "string", "minLength": 1},
+            "baseline": {"$ref": "#/$defs/context_baseline"},
+            "required_paths": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "object"}}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "task_contract": {
+      "type": "object",
+      "required": [
+        "semantic_name", "requested_mode", "resolved_mode", "resolution_reason",
+        "task_features", "objective", "background", "work_scope", "forbidden_scope",
+        "completion_conditions", "evidence_requirements", "relevant_files",
+        "context_manifest", "current_state", "model", "reasoning_effort",
+        "context_strategy", "context_turns", "context_reason"
+      ],
+      "properties": {
+        "semantic_name": {"$ref": "#/$defs/semantic_name"},
+        "requested_mode": {"$ref": "#/$defs/requested_mode"},
+        "resolved_mode": {"$ref": "#/$defs/resolved_mode"},
+        "resolution_reason": {"$ref": "#/$defs/resolution_reason"},
+        "task_features": {"$ref": "#/$defs/task_features"},
+        "objective": {"$ref": "#/$defs/business_text"},
+        "background": {"$ref": "#/$defs/business_text"},
+        "work_scope": {"$ref": "#/$defs/text_list", "minItems": 1},
+        "forbidden_scope": {"$ref": "#/$defs/text_list"},
+        "completion_conditions": {"$ref": "#/$defs/text_list", "minItems": 1},
+        "evidence_requirements": {"$ref": "#/$defs/text_list"},
+        "relevant_files": {"$ref": "#/$defs/text_list"},
+        "context_manifest": {"$ref": "#/$defs/context_manifest"},
+        "current_state": {"$ref": "#/$defs/nullable_business_text"},
+        "model": {"$ref": "#/$defs/model"},
+        "reasoning_effort": {"$ref": "#/$defs/nullable_reasoning_effort"},
+        "context_strategy": {"$ref": "#/$defs/context_strategy"},
+        "context_turns": {"$ref": "#/$defs/context_turns"},
+        "context_reason": {"$ref": "#/$defs/nullable_business_text"}
+      },
+      "allOf": [
+        {"if": {"properties": {"requested_mode": {"const": "light"}}}, "then": {"properties": {"resolved_mode": {"const": "light"}, "resolution_reason": {"const": "explicit_request"}}}},
+        {"if": {"properties": {"requested_mode": {"const": "standard"}}}, "then": {"properties": {"resolved_mode": {"const": "standard"}, "resolution_reason": {"const": "explicit_request"}}}},
+        {"if": {"properties": {"requested_mode": {"const": "strict"}}}, "then": {"properties": {"resolved_mode": {"const": "strict"}, "resolution_reason": {"const": "explicit_request"}}}},
+        {"if": {"properties": {"resolved_mode": {"const": "standard"}}}, "then": {"properties": {"evidence_requirements": {"minItems": 1}}}},
+        {"if": {"properties": {"resolved_mode": {"const": "strict"}}}, "then": {"properties": {"forbidden_scope": {"minItems": 1}, "evidence_requirements": {"minItems": 1}}}},
+        {"if": {"properties": {"context_strategy": {"const": "isolated"}}}, "then": {"properties": {"context_turns": {"type": "null"}}}},
+        {"if": {"properties": {"context_strategy": {"const": "limited"}}}, "then": {"properties": {"context_turns": {"type": "integer", "minimum": 1, "maximum": 100}, "context_reason": {"type": "string", "minLength": 1}}}},
+        {"if": {"properties": {"context_strategy": {"const": "full"}}}, "then": {"properties": {"context_turns": {"type": "null"}, "context_reason": {"type": "string", "minLength": 1}}}}
+      ],
+      "additionalProperties": false
+    },
+    "initial_rollback_marker": {
+      "type": "object",
+      "required": ["status", "task_ref", "observed_at", "error"],
+      "properties": {
+        "status": {"const": "rollback_incomplete"},
+        "task_ref": {"$ref": "#/$defs/task_ref"},
+        "observed_at": {"$ref": "#/$defs/timestamp"},
+        "error": {"$ref": "#/$defs/short_text"}
+      },
+      "additionalProperties": false
+    },
+    "health_record": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {"type": "string", "enum": ["ok", "degraded", "unavailable"]},
+        "initial_preparation_rollback": {"$ref": "#/$defs/initial_rollback_marker"}
+      },
+      "additionalProperties": false
+    },
+    "group_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "\\S"},
+    "group_member": {
+      "type": "object",
+      "required": ["task_id", "required"],
+      "properties": {"task_id": {"$ref": "#/$defs/task_id"}, "required": {"type": "boolean"}},
+      "additionalProperties": false
+    },
+    "group_record": {
+      "type": "object",
+      "required": ["group_id", "objective_summary", "members"],
+      "properties": {
+        "group_id": {"$ref": "#/$defs/group_id"},
+        "objective_summary": {"$ref": "#/$defs/short_text"},
+        "members": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/group_member"}}
+      },
+      "additionalProperties": false
+    },
     "work_item": {
       "type": "object",
       "required": [
@@ -325,7 +425,7 @@
         "last_parent_disposition": false,
         "action_required": false
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "contract_summary": {
       "type": "object",
@@ -471,9 +571,10 @@
         "parent_disposition": false,
         "parent_disposition_reason": false,
         "parent_disposition_at": false,
-        "spawn_not_created": false
+        "spawn_not_created": false,
+        "initial_preparation_rollback": {"$ref": "#/$defs/initial_rollback_marker"}
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "pending_action": {
       "type": "object",
@@ -493,11 +594,13 @@
         "claimed_at": {"$ref": "#/$defs/nullable_timestamp"},
         "authorized_recovery": {"type": "boolean"},
         "result_credential_id": false,
-        "resume_contract": {"type": "object"},
+        "resume_contract": {"$ref": "#/$defs/task_contract"},
+        "resume_contract_digest": {"$ref": "#/$defs/sha256"},
+        "resume_context_verification": {"$ref": "#/$defs/context_verification"},
         "prepared_on_attempt": {"$ref": "#/$defs/attempt"},
         "disposition": false
       },
-      "additionalProperties": true,
+      "additionalProperties": false,
       "allOf": [
         {
           "if": {
@@ -519,7 +622,8 @@
           },
           "then": {
             "required": [
-              "resume_contract", "prepared_on_attempt"
+              "resume_contract", "resume_contract_digest",
+              "resume_context_verification", "prepared_on_attempt"
             ]
           }
         }
@@ -537,21 +641,18 @@
         "call_observation": {"$ref": "#/$defs/call_observation"},
         "target_observation": {"type": "string", "minLength": 1, "maxLength": 128}
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "tombstone_record": {
       "type": "object",
-      "required": ["close_reason", "closed_at"],
+      "required": ["task_ref", "dispatch_target", "close_reason", "closed_at"],
       "properties": {
-        "task_id": false,
-        "attempt": false,
         "task_ref": {"$ref": "#/$defs/task_ref"},
-        "dispatch_target": {"type": "string", "minLength": 1},
-        "last_execution_status": false,
+        "dispatch_target": {"type": ["string", "null"], "minLength": 1},
         "close_reason": {"$ref": "#/$defs/short_text"},
         "closed_at": {"$ref": "#/$defs/timestamp"}
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "agent_identity_mapping": {
       "type": "object",
@@ -560,14 +661,58 @@
         "task_id": {"$ref": "#/$defs/task_id"},
         "attempt": {"$ref": "#/$defs/attempt"}
       },
-      "additionalProperties": true
+      "additionalProperties": false
+    },
+    "prepared_native_parameters": {
+      "type": "object",
+      "required": ["task_name", "fork_turns", "model", "reasoning_effort"],
+      "properties": {
+        "task_name": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "\\S"},
+        "fork_turns": {"type": "string", "minLength": 1},
+        "model": {"$ref": "#/$defs/model"},
+        "reasoning_effort": {"$ref": "#/$defs/nullable_reasoning_effort"}
+      },
+      "additionalProperties": false
+    },
+    "prepared_contract": {
+      "type": "object",
+      "required": [
+        "session_id", "task_id", "attempt", "task_ref", "task_name", "resolved_mode",
+        "contract", "contract_digest", "context_verification", "native_parameters",
+        "created_at", "consumed", "tool_use_id", "claimed_at", "post_observed_at",
+        "spawn_retry_count", "dispatch_operation"
+      ],
+      "properties": {
+        "session_id": {"type": "string", "minLength": 1},
+        "task_id": {"$ref": "#/$defs/task_id"},
+        "attempt": {"$ref": "#/$defs/attempt"},
+        "task_ref": {"$ref": "#/$defs/task_ref"},
+        "task_name": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "\\S"},
+        "resolved_mode": {"$ref": "#/$defs/resolved_mode"},
+        "contract": {"$ref": "#/$defs/task_contract"},
+        "contract_digest": {"$ref": "#/$defs/sha256"},
+        "context_verification": {"$ref": "#/$defs/context_verification"},
+        "native_parameters": {"$ref": "#/$defs/prepared_native_parameters"},
+        "created_at": {"$ref": "#/$defs/timestamp"},
+        "consumed": {"type": "boolean"},
+        "tool_use_id": {"type": ["string", "null"], "minLength": 1},
+        "claimed_at": {"$ref": "#/$defs/nullable_timestamp"},
+        "post_observed_at": {"$ref": "#/$defs/nullable_timestamp"},
+        "spawn_retry_count": {"type": "integer", "minimum": 0, "maximum": 2},
+        "dispatch_operation": {"type": "string", "enum": ["initial_spawn", "spawn_retry"]}
+      },
+      "allOf": [
+        {"if": {"properties": {"consumed": {"const": true}}}, "then": {"properties": {"tool_use_id": {"type": "string", "minLength": 1}, "claimed_at": {"$ref": "#/$defs/timestamp"}}}},
+        {"if": {"properties": {"dispatch_operation": {"const": "initial_spawn"}}}, "then": {"properties": {"attempt": {"const": 1}, "spawn_retry_count": {"const": 0}}}},
+        {"if": {"properties": {"dispatch_operation": {"const": "spawn_retry"}}}, "then": {"properties": {"spawn_retry_count": {"minimum": 1}}}}
+      ],
+      "additionalProperties": false
     },
     "canonical_task_container": {
       "type": "object",
       "required": ["managed", "work_item", "executions"],
       "properties": {
         "managed": {"const": true},
-        "task_id": false,
         "work_item": {"$ref": "#/$defs/work_item"},
         "executions": {
           "type": "object",
@@ -579,16 +724,16 @@
         },
         "result_credentials": false
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "canonical_state": {
       "type": "object",
       "required": [
         "state_format_version", "session_id", "tasks", "agents", "health",
-        "tombstones"
+        "tombstones", "groups"
       ],
       "properties": {
-        "state_format_version": {"const": 5},
+        "state_format_version": {"const": 6},
         "session_id": {"type": "string", "minLength": 1},
         "tasks": {
           "type": "object",
@@ -599,14 +744,18 @@
           "type": "object",
           "additionalProperties": {"$ref": "#/$defs/agent_identity_mapping"}
         },
-        "health": {"type": "object"},
+        "health": {"$ref": "#/$defs/health_record"},
         "tombstones": {
           "type": "object",
           "additionalProperties": {"$ref": "#/$defs/tombstone_record"}
         },
-        "updated_at": false
+        "groups": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/group_id"},
+          "additionalProperties": {"$ref": "#/$defs/group_record"}
+        }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "decision_allowed_action": {
       "type": "string",
@@ -943,7 +1092,7 @@
       "task_ref_lengths": [12, 16, 20, 24, 28, 32]
     },
     "canonical_record": {
-      "state_format_version": 5,
+      "state_format_version": 6,
       "task_key": "task_id",
       "work_item_field": "work_item",
       "executions_field": "executions",

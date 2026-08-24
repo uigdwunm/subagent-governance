@@ -219,8 +219,8 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
             lambda state: state["tombstones"].update(
                 {
                     "closed-task:1": {
-                        "task_id": "closed-task",
-                        "attempt": 1,
+                        "task_ref": "0123456789ab",
+                        "dispatch_target": None,
                         "close_reason": "parent_closed",
                         "closed_at": now - governance.RETENTION_SECONDS["tombstone"] - 1,
                     }

@@ -23,6 +23,22 @@ class StateStoreSafetyTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
+    @staticmethod
+    def record(attempt=1, task_ref="0123456789ab"):
+        contract = governance.TaskContract(
+            semantic_name="state_store", requested_mode="standard",
+            resolved_mode="standard", resolution_reason="explicit_request",
+            task_features={"risk": "medium", "read_only": False, "writes_files": True, "destructive": False, "production": False, "concurrent_write": False},
+            objective="验证 canonical work item", background="S1 local test",
+            work_scope=["StateStore"], forbidden_scope=[], completion_conditions=["canonical record exists"],
+            evidence_requirements=["unit test"], relevant_files=[], context_manifest={"mode": "none"},
+            current_state=None, model=None, reasoning_effort=None, context_strategy="isolated", context_turns=None, context_reason=None,
+        )
+        return governance._initial_task_record(attempt, task_ref, f"sg_standard_state_store_t_{task_ref}", contract, 100)
+
+    def add_record(self, state, task_id="task"):
+        state["tasks"][task_id] = self.record()
+
     def test_windows_lock_branch_initializes_locks_and_unlocks_one_byte(self):
         windows_api = SimpleNamespace(
             LK_LOCK=1,
@@ -60,6 +76,7 @@ class StateStoreSafetyTests(unittest.TestCase):
                 "agents",
                 "health",
                 "tombstones",
+                "groups",
             },
         )
         self.assertEqual(state["session_id"], "session-1")
@@ -183,7 +200,7 @@ class StateStoreSafetyTests(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "Windows does not expose POSIX file ownership")
     def test_state_owner_mismatch_is_rejected_without_rewriting(self):
-        self.store.update("session-1", lambda state: state["tasks"].update({"task": {}}))
+        self.store.update("session-1", self.add_record)
         state_path, _ = self.store._paths("session-1")
         original_lstat = Path.lstat
 
@@ -205,7 +222,7 @@ class StateStoreSafetyTests(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "Windows does not use POSIX group/other mode bits")
     def test_unsafe_state_permissions_are_rejected_without_rewriting(self):
-        self.store.update("session-1", lambda state: state["tasks"].update({"task": {}}))
+        self.store.update("session-1", self.add_record)
         state_path, _ = self.store._paths("session-1")
         before = state_path.read_bytes()
         state_path.chmod(0o644)
@@ -232,74 +249,58 @@ class StateStoreSafetyTests(unittest.TestCase):
 
         self.assertNotIn("tasks", json.loads(state_path.read_text(encoding="utf-8")))
 
-    def test_unknown_fields_survive_read_and_update(self):
+    def test_unknown_fields_are_rejected_without_rewrite(self):
         state_path, _ = self.store._paths("session-1")
         value = self.store._empty_state("session-1")
         value["future_extension"] = {"opaque": [1, 2, 3]}
         state_path.write_text(json.dumps(value), encoding="utf-8")
         state_path.chmod(0o600)
 
-        loaded = self.store.read("session-1", required_fields=("tasks",))
-        self.assertEqual(loaded["future_extension"], {"opaque": [1, 2, 3]})
+        before = state_path.read_bytes()
+        with self.assertRaisesRegex(governance.StateValidationError, "未知字段"):
+            self.store.read("session-1", required_fields=("tasks",))
+        self.assertEqual(state_path.read_bytes(), before)
 
-        self.store.update("session-1", lambda state: state["tasks"].update({"task": {}}))
-        self.assertEqual(
-            self.store.read("session-1")["future_extension"],
-            {"opaque": [1, 2, 3]},
-        )
-
-    def test_unresolved_records_are_not_pruned_by_age_or_count(self):
-        old = governance._now() - 90 * 24 * 60 * 60
-        total = 240
-
-        def add_records(state):
-            for index in range(total):
-                task_id = f"task-{index}"
-                state["tasks"][task_id] = {
-                    "task_id": task_id,
-                    "status": ("blocked", "failed", "needs_decision")[index % 3],
-                    "updated_at": old,
-                }
-
-        self.store.update("session-1", add_records)
-        self.store.update("session-1", lambda _state: None)
-
-        self.assertEqual(len(self.store.read("session-1")["tasks"]), total)
+    def test_noncanonical_unresolved_records_are_rejected_on_read(self):
+        state_path, _ = self.store._paths("session-1")
+        value = self.store._empty_state("session-1")
+        value["tasks"]["old"] = {"status": "blocked"}
+        state_path.write_text(json.dumps(value), encoding="utf-8")
+        state_path.chmod(0o600)
+        with self.assertRaises(governance.StateValidationError):
+            self.store.read("session-1")
 
     def test_new_task_soft_limit_rejects_without_overwriting(self):
-        padding = "x" * (governance.NEW_TASK_SOFT_LIMIT_BYTES - 2048)
-        self.store.update("session-1", lambda state: state.update({"padding": padding}))
+        self.store.update("session-1", self.add_record)
         state_path, _ = self.store._paths("session-1")
         before = state_path.read_bytes()
 
-        with self.assertRaises(governance.StateCapacityError):
-            self.store.update(
-                "session-1",
-                lambda state: state["tasks"].update({"new-task": {"payload": "y" * 4096}}),
-                admission="new_task",
-            )
+        with mock.patch.object(governance, "NEW_TASK_SOFT_LIMIT_BYTES", len(before) + 1):
+            with self.assertRaises(governance.StateCapacityError):
+                self.store.update(
+                    "session-1",
+                    lambda state: self.add_record(state, "new-task"),
+                    admission="new_task",
+                )
 
         self.assertEqual(state_path.read_bytes(), before)
 
     def test_existing_task_can_use_space_above_soft_limit_below_hard_limit(self):
-        padding = "x" * (governance.NEW_TASK_SOFT_LIMIT_BYTES + 4096)
-        self.store.update("session-1", lambda state: state.update({"padding": padding}))
-
-        self.store.update("session-1", lambda state: state.update({"existing_update": True}))
-
-        self.assertTrue(self.store.read("session-1")["existing_update"])
+        self.store.update("session-1", self.add_record)
+        self.store.update("session-1", lambda state: state["health"].update({"status": "degraded"}))
+        self.assertEqual(self.store.read("session-1")["health"]["status"], "degraded")
 
     def test_hard_limit_rejects_without_overwriting(self):
-        padding = "x" * (governance.MAX_STATE_BYTES - 8192)
-        self.store.update("session-1", lambda state: state.update({"padding": padding}))
+        self.store.update("session-1", self.add_record)
         state_path, _ = self.store._paths("session-1")
         before = state_path.read_bytes()
 
-        with self.assertRaises(governance.StateCapacityError):
-            self.store.update(
-                "session-1",
-                lambda state: state.update({"overflow": "y" * 16384}),
-            )
+        with mock.patch.object(governance, "MAX_STATE_BYTES", len(before) + 1):
+            with self.assertRaises(governance.StateCapacityError):
+                self.store.update(
+                    "session-1",
+                    lambda state: self.add_record(state, "overflow"),
+                )
 
         self.assertEqual(state_path.read_bytes(), before)
 
@@ -315,7 +316,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         self.assertEqual(state_path.read_bytes(), original)
 
     def test_compare_and_set_conflict_does_not_call_or_write(self):
-        self.store.update("session-1", lambda state: state.update({"marker": 1}))
+        self.store.update("session-1", self.add_record)
         state_path, _ = self.store._paths("session-1")
         before = state_path.read_bytes()
         callback_called = False
@@ -323,12 +324,12 @@ class StateStoreSafetyTests(unittest.TestCase):
         def callback(state):
             nonlocal callback_called
             callback_called = True
-            state["marker"] = 2
+            state["health"]["status"] = "degraded"
 
         with self.assertRaises(governance.StateConflictError):
             self.store.compare_and_set(
                 "session-1",
-                lambda state: state.get("marker") == 0,
+                lambda state: state.get("health", {}).get("status") == "unavailable",
                 callback,
             )
 
@@ -336,41 +337,41 @@ class StateStoreSafetyTests(unittest.TestCase):
         self.assertEqual(state_path.read_bytes(), before)
 
     def test_compare_and_set_success_is_persisted_and_read_back(self):
-        self.store.update("session-1", lambda state: state.update({"marker": 1}))
+        self.store.update("session-1", self.add_record)
 
         result = self.store.compare_and_set(
             "session-1",
-            lambda state: state.get("marker") == 1,
-            lambda state: state.update({"marker": 2}) or "committed",
+            lambda state: state.get("health", {}).get("status") == "ok",
+            lambda state: state["health"].update({"status": "degraded"}) or "committed",
         )
 
         self.assertEqual(result, "committed")
-        self.assertEqual(self.store.read("session-1")["marker"], 2)
+        self.assertEqual(self.store.read("session-1")["health"]["status"], "degraded")
 
     def test_atomic_replace_failure_keeps_previous_file(self):
-        self.store.update("session-1", lambda state: state.update({"marker": 1}))
+        self.store.update("session-1", self.add_record)
         state_path, _ = self.store._paths("session-1")
         before = state_path.read_bytes()
 
         with mock.patch.object(governance.os, "replace", side_effect=OSError("replace failed")):
             with self.assertRaises(governance.StateWriteError):
-                self.store.update("session-1", lambda state: state.update({"marker": 2}))
+                self.store.update("session-1", lambda state: state["health"].update({"status": "degraded"}))
 
         self.assertEqual(state_path.read_bytes(), before)
 
     def test_temporary_write_failure_keeps_previous_file(self):
-        self.store.update("session-1", lambda state: state.update({"marker": 1}))
+        self.store.update("session-1", self.add_record)
         state_path, _ = self.store._paths("session-1")
         before = state_path.read_bytes()
 
         with mock.patch.object(governance.os, "fsync", side_effect=OSError("write fsync failed")):
             with self.assertRaises(governance.StateWriteError):
-                self.store.update("session-1", lambda state: state.update({"marker": 2}))
+                self.store.update("session-1", lambda state: state["health"].update({"status": "degraded"}))
 
         self.assertEqual(state_path.read_bytes(), before)
 
     def test_readback_failure_is_not_reported_as_success(self):
-        self.store.update("session-1", lambda state: state.update({"marker": 1}))
+        self.store.update("session-1", self.add_record)
         original_read = self.store._read_path
         calls = 0
 
@@ -383,11 +384,11 @@ class StateStoreSafetyTests(unittest.TestCase):
 
         with mock.patch.object(self.store, "_read_path", side_effect=fail_second_read):
             with self.assertRaises(governance.StateWriteError):
-                self.store.update("session-1", lambda state: state.update({"marker": 2}))
+                self.store.update("session-1", lambda state: state["health"].update({"status": "degraded"}))
 
     @unittest.skipIf(os.name == "nt", "Windows access control is not represented by POSIX mode bits")
     def test_state_and_lock_permissions_are_private(self):
-        self.store.update("session-1", lambda state: state["tasks"].update({"task": {}}))
+        self.store.update("session-1", self.add_record)
         state_path, lock_path = self.store._paths("session-1")
 
         self.assertEqual(stat.S_IMODE(self.root.stat().st_mode), 0o700)
@@ -397,13 +398,15 @@ class StateStoreSafetyTests(unittest.TestCase):
     def test_expired_tombstones_cleanup_is_exact_and_keeps_lock(self):
         now = governance._now()
         def add_state(state):
-            state["tasks"]["unresolved"] = {"status": "blocked", "updated_at": 0}
+            self.add_record(state, "unresolved")
             state["tombstones"].update({
                 "tenant:task-old:1": {
+                    "task_ref": "0123456789ab", "dispatch_target": None,
                     "close_reason": "explicit close",
                     "closed_at": now - governance.RETENTION_SECONDS["tombstone"] - 1,
                 },
                 "task-recent:2": {
+                    "task_ref": "0123456789abcdef", "dispatch_target": None,
                     "close_reason": "explicit close",
                     "closed_at": now - governance.RETENTION_SECONDS["tombstone"] + 1,
                 },
@@ -432,15 +435,16 @@ class StateStoreSafetyTests(unittest.TestCase):
                 "closed_at": now - governance.RETENTION_SECONDS["tombstone"] - 1,
             }
 
-        self.store.update("session-1", add_invalid)
-
-        with self.assertRaisesRegex(governance.StateValidationError, "身份键"):
+        state_path, _ = self.store._paths("session-1")
+        state = self.store._empty_state("session-1")
+        add_invalid(state)
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        state_path.chmod(0o600)
+        with self.assertRaises(governance.StateValidationError):
             self.store.cleanup_expired_tombstones("session-1", now=now)
 
-        self.assertIn("invalid", self.store.read("session-1")["tombstones"])
-
     def test_delete_keeps_stable_lock_file(self):
-        self.store.update("session-1", lambda state: state["tasks"].update({"task": {}}))
+        self.store.update("session-1", self.add_record)
         state_path, lock_path = self.store._paths("session-1")
 
         self.store.delete("session-1")

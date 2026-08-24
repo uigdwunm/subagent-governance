@@ -257,7 +257,7 @@ class DispatchIdentityTests(unittest.TestCase):
             [(prepared["task_id"], 1)],
         )
 
-    def test_spawn_retry_uses_canonical_execution_when_root_projection_disagrees(self):
+    def test_spawn_retry_rejects_legacy_root_projection(self):
         prepared = self.prepare()
         governance.handle(self.pre_payload(prepared), self.store)
         governance.handle(
@@ -267,21 +267,12 @@ class DispatchIdentityTests(unittest.TestCase):
                 "tool_response": {"unexpected": True},
             }, self.store,
         )
-        self.store.update(
-            "session-1",
-            lambda state: state["tasks"][prepared["task_id"]].update(
-                {
-                    "spawn_observation": "failed",
-                    "identity_status": "unconfirmed",
-                    "spawn_not_created": True,
-                    "spawn_retry_count": 0,
-                }
-            ),
-        )
-        with self.assertRaisesRegex(governance.DispatchPreparationError, "明确 failed"):
-            governance.prepare_spawn_retry(
-                self.contract(), "session-1", prepared["task_id"],
-                state_store=self.store, prepared_store=self.prepared_store(),
+        with self.assertRaises(governance.StateValidationError):
+            self.store.update(
+                "session-1",
+                lambda state: state["tasks"][prepared["task_id"]].update(
+                    {"spawn_observation": "failed", "identity_status": "unconfirmed"}
+                ),
             )
 
     def test_closed_execution_rejects_retry_prepare_and_prepared_retry_claim(self):
@@ -512,9 +503,7 @@ class DispatchIdentityTests(unittest.TestCase):
             if update_calls == 1:
                 original_update(
                     "session-1",
-                    lambda state: state["tasks"][initial["task_id"]].update(
-                        {"concurrent_pre_callback_note": "must-survive"}
-                    ),
+                    lambda state: state["health"].update({"status": "unavailable"}),
                     required_fields=("tasks", "tombstones"),
                 )
                 raise RuntimeError("simulated StateStore failure before claim callback")
@@ -530,13 +519,12 @@ class DispatchIdentityTests(unittest.TestCase):
             denied = governance.handle(payload, self.store)
 
         self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("degraded", str(denied))
         task = self.store.read("session-1")["tasks"][initial["task_id"]]
-        self.assertEqual(task["concurrent_pre_callback_note"], "must-survive")
+        self.assertEqual(self.store.read("session-1")["health"]["status"], "unavailable")
         self.assertIsNone(task["executions"]["1"]["dispatch_record"]["tool_use_id"])
         prepared = self.prepared_store().read("session-1", initial["task_ref"])
-        self.assertTrue(prepared["consumed"])
-        self.assertEqual(prepared["tool_use_id"], "initial-pre-callback-concurrent")
+        self.assertFalse(prepared["consumed"])
+        self.assertIsNone(prepared["tool_use_id"])
 
     def test_retry_claim_persist_then_raise_restores_unclaimed_contract(self):
         initial = self.prepare()
@@ -587,7 +575,7 @@ class DispatchIdentityTests(unittest.TestCase):
         )
         expected_root = (
             codex_root
-            / "plugins/data/subagent-governance-personal/state-v1"
+            / "plugins/data/subagent-governance-personal/state-v6"
         ).resolve()
         session_id = "installed-session"
 
@@ -828,7 +816,7 @@ class DispatchIdentityTests(unittest.TestCase):
                     "session-1",
                     lambda state: "sg-task-initial-diverged" in state["tasks"],
                     lambda state: state["tasks"]["sg-task-initial-diverged"]
-                    ["work_item"].update({"concurrent_extension": "retained"}),
+                    ["executions"]["1"].update({"updated_at": 9_999}),
                     required_fields=("tasks", "tombstones"),
                 )
                 raise governance.StateWriteError(
@@ -854,7 +842,7 @@ class DispatchIdentityTests(unittest.TestCase):
         state = self.store.read("session-1")
         task = state["tasks"]["sg-task-initial-diverged"]
         execution = task["executions"]["1"]
-        self.assertEqual(task["work_item"]["concurrent_extension"], "retained")
+        self.assertGreaterEqual(task["executions"]["1"]["updated_at"], 9_999)
         self.assertEqual(governance._parent_action(execution), "reconcile")
         self.assertEqual(state["health"]["status"], "degraded")
         self.assertEqual(len(prepared_store.list_records("session-1")), 1)
@@ -1154,8 +1142,8 @@ class DispatchIdentityTests(unittest.TestCase):
                 original_compare_and_set(
                     "session-1",
                     lambda _state: True,
-                    lambda state: state["tasks"][prepared["task_id"]].update(
-                        {"concurrent_extension": "must-survive"}
+                    lambda state: state["tasks"][prepared["task_id"]]["executions"]["1"].update(
+                        {"updated_at": 1_200}
                     ),
                 )
             return original_compare_and_set(*args, **kwargs)
@@ -1174,7 +1162,7 @@ class DispatchIdentityTests(unittest.TestCase):
 
         self.assertEqual(result, {"expired": 0, "reconciled": 0})
         task = self.store.read("session-1")["tasks"][prepared["task_id"]]
-        self.assertEqual(task["concurrent_extension"], "must-survive")
+        self.assertEqual(task["executions"]["1"]["updated_at"], 1_200)
         self.assertEqual(task["work_item"]["lifecycle"], "open")
         self.assertIsNone(task["executions"]["1"]["closure_record"]["closed_at"])
 
@@ -1186,8 +1174,8 @@ class DispatchIdentityTests(unittest.TestCase):
         )
         self.store.update(
             "session-1",
-            lambda state: state["tasks"][prepared["task_id"]]["work_item"].update(
-                {"concurrent_extension": "retained"}
+            lambda state: state["tasks"][prepared["task_id"]]["executions"]["1"].update(
+                {"updated_at": 1_200}
             ),
         )
 
@@ -1202,7 +1190,7 @@ class DispatchIdentityTests(unittest.TestCase):
 
         state = self.store.read("session-1")
         task = state["tasks"][prepared["task_id"]]
-        self.assertEqual(task["work_item"]["concurrent_extension"], "retained")
+        self.assertEqual(task["executions"]["1"]["updated_at"], 1_301)
         self.assertEqual(
             task["executions"]["1"]["closure_record"]["parent_action"], "reconcile"
         )
@@ -1290,9 +1278,7 @@ class DispatchIdentityTests(unittest.TestCase):
                     session_id,
                     task_ref,
                     lambda _value: True,
-                    lambda value: value.update(
-                        {"concurrent_credential_extension": "retained"}
-                    ),
+                    lambda value: value.update({"created_at": 9_999}),
                 )
             return original_delete_if(
                 session_id, task_ref, predicate, **kwargs
@@ -1312,7 +1298,7 @@ class DispatchIdentityTests(unittest.TestCase):
 
         self.assertNotIn(prepared["task_id"], self.store.read("session-1")["tasks"])
         retained = prepared_store.read("session-1", prepared["task_ref"])
-        self.assertEqual(retained["concurrent_credential_extension"], "retained")
+        self.assertEqual(retained["created_at"], 9_999)
 
     def test_unclaimed_initial_expiry_deletes_task_absent_orphan(self):
         prepared_store = self.prepared_store()
@@ -1336,9 +1322,6 @@ class DispatchIdentityTests(unittest.TestCase):
 
     def test_unclaimed_initial_exact_cleanup_rejects_every_task_field_change(self):
         mutations = {
-            "extension": lambda task: task["work_item"].update(
-                {"concurrent_extension": "retained"}
-            ),
             "timestamp": lambda task: task["executions"]["1"].update(
                 {"updated_at": 9_999}
             ),
@@ -1411,7 +1394,7 @@ class DispatchIdentityTests(unittest.TestCase):
         )
         newer_health_marker = {
             "status": "rollback_incomplete",
-            "task_ref": "newer-health-writer",
+            "task_ref": "abcdefabcdef",
             "observed_at": 9_999,
             "error": "newer health observation",
         }
@@ -1423,7 +1406,6 @@ class DispatchIdentityTests(unittest.TestCase):
                     "initial_preparation_rollback": copy.deepcopy(
                         newer_health_marker
                     ),
-                    "concurrent_health_fact": "retained",
                 }
             ),
         )
@@ -1449,9 +1431,8 @@ class DispatchIdentityTests(unittest.TestCase):
             state["health"]["initial_preparation_rollback"],
             newer_health_marker,
         )
-        self.assertEqual(state["health"]["concurrent_health_fact"], "retained")
 
-    def test_initial_rollback_marker_preserves_invalid_health_shape_for_diagnose(self):
+    def test_initial_rollback_marker_rejects_invalid_health_shape(self):
         prepared_result = governance.prepare_dispatch(
             self.contract(), "session-health-invalid", state_store=self.store,
             prepared_store=self.prepared_store(),
@@ -1463,38 +1444,11 @@ class DispatchIdentityTests(unittest.TestCase):
         observed_task = copy.deepcopy(
             self.store.read("session-health-invalid")["tasks"][prepared["task_id"]]
         )
-        self.store.update(
-            "session-health-invalid",
-            lambda state: state["health"].update(
-                {
-                    "status": "invalid-health-status",
-                    "initial_preparation_rollback": "invalid-marker-shape",
-                    "diagnostic_fact": {"must": "survive"},
-                }
-            ),
-        )
-
-        governance._mark_initial_rollback_incomplete(
-            "session-health-invalid",
-            prepared,
-            self.store,
-            observed_task,
-            error="F10 marker with invalid health shape",
-            now=1_301,
-        )
-
-        state = self.store.read("session-health-invalid")
-        health = state["health"]
-        self.assertEqual(health["status"], "invalid-health-status")
-        self.assertEqual(
-            health["initial_preparation_rollback"], "invalid-marker-shape"
-        )
-        self.assertEqual(health["diagnostic_fact"], {"must": "survive"})
-        execution = state["tasks"][prepared["task_id"]]["executions"]["1"]
-        self.assertEqual(governance._parent_action(execution), "reconcile")
-        self.assertEqual(
-            execution["initial_preparation_rollback"]["observed_at"], 1_301
-        )
+        with self.assertRaises(governance.StateValidationError):
+            self.store.update(
+                "session-health-invalid",
+                lambda state: state["health"].update({"status": "invalid-health-status"}),
+            )
 
     def test_pre_tool_use_consumes_prepared_contract_once_and_checks_native_parameters(self):
         prepared = self.prepare()
@@ -1825,16 +1779,12 @@ class DispatchIdentityTests(unittest.TestCase):
     def test_retry_requires_reliable_not_created_fact(self):
         prepared = self.prepare()
         governance.handle(self.pre_payload(prepared), self.store)
-        self.store.update(
-            "session-1",
-            lambda state: state["tasks"][prepared["task_id"]]["executions"]["1"].update(
-                {"spawn_observation": "failed", "identity_status": "unconfirmed"}
-            ),
-        )
-        with self.assertRaisesRegex(governance.DispatchPreparationError, "明确 failed"):
-            governance.prepare_spawn_retry(
-                self.contract(), "session-1", prepared["task_id"],
-                state_store=self.store, prepared_store=self.prepared_store(),
+        with self.assertRaises(governance.StateValidationError):
+            self.store.update(
+                "session-1",
+                lambda state: state["tasks"][prepared["task_id"]]["executions"]["1"].update(
+                    {"spawn_observation": "failed", "identity_status": "unconfirmed"}
+                ),
             )
 
     def test_unmanaged_spawn_is_allowed_without_creating_state(self):

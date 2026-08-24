@@ -255,13 +255,15 @@ class PluginStructureTests(unittest.TestCase):
         contract = json.loads((ROOT / "schemas/task-contract-v1.schema.json").read_text(encoding="utf-8"))
         machine = semantics["x-semantics"]
 
-        self.assertEqual(list(contract["properties"]), machine["task_contract_fields"])
-        self.assertNotIn("protocol", contract["properties"])
+        self.assertEqual(contract["$ref"], "governance-semantics.schema.json#/$defs/task_contract")
+        task_contract = semantics["$defs"]["task_contract"]
+        self.assertEqual(list(task_contract["properties"]), machine["task_contract_fields"])
+        self.assertNotIn("protocol", task_contract["properties"])
         self.assertFalse((ROOT / "schemas/task-result-v1.schema.json").exists())
         self.assertNotIn("task_result_fields", machine)
         self.assertNotIn("business_result", semantics["$defs"])
         self.assertIn("terminal_notification_channel", machine)
-        self.assertTrue(contract["additionalProperties"])
+        self.assertFalse(task_contract["additionalProperties"])
 
     def test_agents_governance_asset_has_single_marker_pair(self):
         text = (ROOT / "assets/agents-governance.md").read_text(encoding="utf-8")

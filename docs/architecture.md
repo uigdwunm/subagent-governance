@@ -41,7 +41,7 @@ declared manifest 在 prepare 和原生调用 claim 前分别验证。插件只�
 - `observation_record`：精确 target 的平台观察或终态通知。
 - `closure_record`：等待、对账、父处置或关闭事实。
 
-StateStore 只接受当前 `state_format_version=5`。缺少版本、其他版本或非 canonical managed record 都以 `unsupported_state_version` 或结构错误拒绝，不迁移、不修复、不写回。
+StateStore 只接受严格的 `state_format_version=6`，默认数据命名空间为 `state-v6`。缺少版本、其他版本、`managed=false`、非 canonical record 或未知持久化字段都会以结构错误拒绝；旧 `state-v1` 不读取、不迁移、不修复、不写回或删除。
 
 未知根级扩展字段可以原样保留，但不能改变 canonical execution 语义。
 

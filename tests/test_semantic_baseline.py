@@ -6,11 +6,11 @@ governance = load_governance("semantic_baseline")
 
 
 class SemanticBaselineTests(unittest.TestCase):
-    def test_current_state_format_is_v5(self):
-        self.assertEqual(governance.STATE_FORMAT_VERSION, 5)
+    def test_current_state_format_is_v6(self):
+        self.assertEqual(governance.STATE_FORMAT_VERSION, 6)
         self.assertEqual(
             governance.SEMANTIC_RULES["canonical_record"]["state_format_version"],
-            5,
+            6,
         )
 
     def test_parent_disposition_is_lifecycle_only(self):

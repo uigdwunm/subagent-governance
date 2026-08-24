@@ -87,7 +87,7 @@ class ConcurrencyTests(unittest.TestCase):
     def test_parallel_compare_and_set_allows_one_commit_and_one_conflict(self):
         with tempfile.TemporaryDirectory() as directory:
             store = governance.StateStore(Path(directory))
-            store.update("cas-session", lambda state: state.update({"marker": 0}))
+            store.update("cas-session", lambda state: state["health"].update({"status": "ok"}))
             worker = f"""
 import importlib.util
 import sys
@@ -101,8 +101,8 @@ store = module.StateStore(Path(sys.argv[1]))
 try:
     store.compare_and_set(
         'cas-session',
-        lambda state: state.get('marker') == 0,
-        lambda state: state.update({{'marker': 1}}),
+        lambda state: state.get('health', {{}}).get('status') == 'ok',
+        lambda state: state['health'].update({{'status': 'degraded'}}),
     )
 except module.StateConflictError:
     print('conflict')
@@ -125,7 +125,7 @@ else:
                 outcomes.append(stdout.strip())
 
             self.assertEqual(sorted(outcomes), ["committed", "conflict"])
-            self.assertEqual(store.read("cas-session")["marker"], 1)
+            self.assertEqual(store.read("cas-session")["health"]["status"], "degraded")
 
 
 if __name__ == "__main__":
