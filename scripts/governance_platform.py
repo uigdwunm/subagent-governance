@@ -51,6 +51,12 @@ class AgentStatusObservation:
     bounded_summary: str | None = None
 
 
+@dataclass(frozen=True)
+class AgentStatusAdaptation:
+    observation: AgentStatusObservation | None
+    rejection_reason: str | None = None
+
+
 def _top_level_value(response: Any) -> Any:
     if not isinstance(response, str):
         return response
@@ -119,53 +125,59 @@ def adapt_lifecycle_response(response: Any, operation_type: str) -> LifecycleCal
     return LifecycleCallObservation("unknown")
 
 
-def adapt_list_agents_response(tool_input: Any, response: Any) -> AgentStatusObservation | None:
-    """Return one exact bound observation, or no canonical fact.
+def adapt_list_agents_response_result(tool_input: Any, response: Any) -> AgentStatusAdaptation:
+    """Return one exact bound observation or a bounded rejection reason.
 
     Empty exact results are represented by ``normalized_status='absent'``.
     Non-empty responses require one exact queried agent and are intentionally
     rejected when they contain ambiguity.
     """
     if not isinstance(tool_input, dict):
-        return None
+        return AgentStatusAdaptation(None, "missing_exact_path_prefix")
     target = tool_input.get("path_prefix")
     if not isinstance(target, str) or not target.startswith("/"):
-        return None
+        return AgentStatusAdaptation(None, "missing_exact_path_prefix")
     value = _top_level_value(response)
     if not isinstance(value, dict):
-        return None
+        return AgentStatusAdaptation(None, "response_shape_unrecognized")
     for flag in LIST_AGENTS_BOOLEAN_ERROR_FLAGS:
         if flag in value and (not isinstance(value[flag], bool) or value[flag]):
-            return None
+            return AgentStatusAdaptation(None, "response_reported_error")
     if (
         LIST_AGENTS_EXPLICIT_ERROR_FIELD in value
         and value[LIST_AGENTS_EXPLICIT_ERROR_FIELD] is not None
         and value[LIST_AGENTS_EXPLICIT_ERROR_FIELD] is not False
     ):
-        return None
+        return AgentStatusAdaptation(None, "response_reported_error")
     for field in LIST_AGENTS_WRAPPER_STATUS_FIELDS:
         if field in value:
             status = _native_status(value[field])
             if status is None or status in LIST_AGENTS_WRAPPER_ERROR_STATUSES:
-                return None
+                return AgentStatusAdaptation(None, "response_reported_error")
     agents = value.get("agents")
     if not isinstance(agents, list) or not all(isinstance(item, dict) for item in agents):
-        return None
+        return AgentStatusAdaptation(None, "response_shape_unrecognized")
     if not agents:
-        return AgentStatusObservation(target, "absent")
+        return AgentStatusAdaptation(AgentStatusObservation(target, "absent"))
     if len(agents) != 1 or agents[0].get("agent_name") != target:
-        return None
+        return AgentStatusAdaptation(None, "ambiguous_target_binding")
     raw_status = agents[0].get("agent_status")
     status = _native_status(raw_status)
     if status in LIST_AGENTS_ACTIVE_STATUSES | LIST_AGENTS_ADVISORY_STATUSES | LIST_AGENTS_TERMINAL_STATUSES:
-        return AgentStatusObservation(target, status, status)
+        return AgentStatusAdaptation(AgentStatusObservation(target, status, status))
     if status in LIST_AGENTS_ERROR_STATUSES:
         detail = raw_status.get(status) if isinstance(raw_status, dict) else status
-        return AgentStatusObservation(target, "error", str(detail)[:600])
-    return AgentStatusObservation(target, "unknown", status[:600] if status else None)
+        return AgentStatusAdaptation(AgentStatusObservation(target, "error", str(detail)[:600]))
+    return AgentStatusAdaptation(AgentStatusObservation(target, "unknown", status[:600] if status else None))
+
+
+def adapt_list_agents_response(tool_input: Any, response: Any) -> AgentStatusObservation | None:
+    """Project an adaptation into the exact canonical fact, when one exists."""
+    return adapt_list_agents_response_result(tool_input, response).observation
 
 
 __all__ = [
-    "AgentStatusObservation", "LifecycleCallObservation", "SpawnCallObservation",
-    "adapt_lifecycle_response", "adapt_list_agents_response", "adapt_spawn_response",
+    "AgentStatusAdaptation", "AgentStatusObservation", "LifecycleCallObservation", "SpawnCallObservation",
+    "adapt_lifecycle_response", "adapt_list_agents_response", "adapt_list_agents_response_result",
+    "adapt_spawn_response",
 ]

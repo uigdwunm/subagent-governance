@@ -130,6 +130,53 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
         self.assertNotIn("business_result", snapshot["execution_candidates"][0])
         self.assertEqual(snapshot["allowed_actions"], ["close_task", "resume_business"])
 
+    def test_snapshot_distinguishes_spawn_acknowledgement_from_execution_observation(self):
+        self.state_with_tasks("task-a")
+        state = self.store.read(self.session_id)
+
+        snapshot, issues, incomplete = views.work_item_decision_snapshot(
+            state,
+            "task-a",
+            session_id=self.session_id,
+            now=220,
+        )
+
+        self.assertFalse(incomplete, issues)
+        candidate = snapshot["execution_candidates"][0]
+        self.assertEqual(
+            candidate["dispatch"],
+            {
+                "state": "acknowledged",
+                "post_observed": True,
+                "target_bound": True,
+            },
+        )
+        self.assertEqual(candidate["execution"], "not_started")
+        self.assertEqual(candidate["identity"], "unconfirmed")
+        self.assertIsNone(candidate["last_lifecycle_observation"])
+
+        state["tasks"]["task-a"]["executions"]["1"]["last_lifecycle_operation"] = {
+            "operation_type": "interrupt",
+            "tool_use_id": "interrupt-tool",
+            "call_observation": "success",
+            "target_observation": "previously_running",
+        }
+        snapshot, issues, incomplete = views.work_item_decision_snapshot(
+            state,
+            "task-a",
+            session_id=self.session_id,
+            now=220,
+        )
+        self.assertFalse(incomplete, issues)
+        self.assertEqual(
+            snapshot["execution_candidates"][0]["last_lifecycle_observation"],
+            {
+                "operation_type": "interrupt",
+                "call_observation": "success",
+                "target_observation": "previously_running",
+            },
+        )
+
     def test_group_summary_ready_requires_every_required_notification(self):
         self.state_with_tasks("required-a", "required-b", "optional-c")
         created = groups.upsert_group(

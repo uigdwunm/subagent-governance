@@ -116,8 +116,10 @@ initial credential 已缺失且超过5分钟时，只有 canonical state 仍精�
 
 - 派发后保存 Agent ID 和 canonical task path，以 `timeout_ms: 1200000` 调用 `wait_agent`。
 - 正常等待超时后做一次精确目标巡检；平台明确报错时立即巡检。
+- 精确目标巡检必须调用 `list_agents({"path_prefix": "<完整 canonical target>"})`；`{}`、父路径或多目标结果都不是 exact observation，也不会写入 canonical state。
 - 精确 running 时继续等待，不读取代码、日志或测试猜进度，不发送心跳。
 - `list_agents` adapter 只读取顶层 `agents`，不扫描 `content`、summary、先前消息或 transcript。
+- 每次 exact list 后必须确认对应 attempt 的 `observation_record.source == "list_agents"`；没有该事实时只能记为未执行，不能把原生全量列表冒充 canonical observation。
 - completed、stopped、interrupted 的 list observation 只证明平台终态，不替代原生终态通知，也不生成业务结果。
 - 已看到平台终态但通知未到时，closure 为 `await_notification`，父动作是 `reconcile`。
 - `interrupt_agent` 只有可靠 inactive 事实才关闭 attempt；unknown 保持 reconcile。

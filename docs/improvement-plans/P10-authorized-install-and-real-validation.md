@@ -159,7 +159,8 @@ python3 <stable-plugin-root>/scripts/reinstall_plugin.py \
 - 调用真实原生 `spawn_agent`。
 -确认 PreToolUse claim、PostToolUse observation 和 canonical task/ref/digest。
 -记录平台返回的 exact Agent target。
--使用真实 wait/list-agents，确认 exact target 状态只更新对应 attempt。
+-使用真实 wait，并以平台返回的完整 target 调用 `list_agents({"path_prefix": "<exact target>"})`；禁止使用 `{}`、父路径或全量列表代替 exact observation。
+-确认对应 attempt 的 `observation_record.source == "list_agents"`；若未写入，只能标记该 observation 未执行或被拒绝，必须记录 Hook 的有界原因码。
 -禁止重复派发同一凭证。
 
 ### V3：通信、终态通知和父关闭
@@ -187,7 +188,7 @@ python3 <stable-plugin-root>/scripts/reinstall_plugin.py \
 - 创建一个可安全中断的长耗时 managed Agent。
 -准备 exact interrupt pending，调用原生 interrupt。
 -记录真实 `previous_status/status` response shape。
--使用 exact list/wait 对账。
+-使用 exact list/wait 对账；list 必须显式传入完整 canonical target 作为 `path_prefix`。
 -确认 not-found 不被单独当作 inactive，或在所需先验齐全时完成受控 reconciliation。
 -确认 recovery/interrupt budget 和 pending 没有重复消费。
 

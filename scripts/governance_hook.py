@@ -21,7 +21,8 @@ try:
         observe_lifecycle_post_tool,
     )
     from scripts.governance_platform import (
-        adapt_lifecycle_response, adapt_list_agents_response, adapt_spawn_response,
+        adapt_lifecycle_response, adapt_list_agents_response_result,
+        adapt_spawn_response,
     )
     from scripts.governance_prepared_store import PreparedContractStore, prepared_root_for_store
     from scripts.governance_semantics import RETENTION_SECONDS
@@ -33,7 +34,7 @@ except ModuleNotFoundError:
     from governance_dispatch import claim_spawn, observe_spawn_post_tool
     from governance_dispatch_identity import parse_task_name
     from governance_lifecycle import _claim_pending_action, observe_agent_status_post_tool, observe_lifecycle_post_tool
-    from governance_platform import adapt_lifecycle_response, adapt_list_agents_response, adapt_spawn_response
+    from governance_platform import adapt_lifecycle_response, adapt_list_agents_response_result, adapt_spawn_response
     from governance_prepared_store import PreparedContractStore, prepared_root_for_store
     from governance_semantics import RETENTION_SECONDS
     from governance_sessions import session_end, session_start, stop_advisory
@@ -166,8 +167,20 @@ def _post(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | 
             warning = observe_spawn_post_tool(session_id, prepared, adapt_spawn_response(payload.get("tool_response")).to_record(), int(payload.get("now") or time.time()), store, PreparedContractStore(prepared_root_for_store(store)))
             return _continue(warning or getattr(store, "last_warning", None)) if warning or getattr(store, "last_warning", None) else None
         if kind == "agent_status":
-            observation = adapt_list_agents_response(payload.get("tool_input"), payload.get("tool_response"))
-            return _post_result(observe_agent_status_post_tool(payload, store, session_id, observation)) if observation else None
+            adaptation = adapt_list_agents_response_result(
+                payload.get("tool_input"), payload.get("tool_response")
+            )
+            if adaptation.observation is None:
+                reason = adaptation.rejection_reason or "response_shape_unrecognized"
+                return _continue(
+                    "Subagent Governance：list_agents observation 未绑定"
+                    f"（{reason}），未写入 canonical observation；原生只读调用结果保持可用。"
+                )
+            return _post_result(
+                observe_agent_status_post_tool(
+                    payload, store, session_id, adaptation.observation
+                )
+            )
         if kind in {"communication", "followup", "interrupt"}:
             operation = "interrupt" if kind == "interrupt" else "normal_message"
             observation = adapt_lifecycle_response(payload.get("tool_response"), operation).to_record()

@@ -18,6 +18,7 @@ class PlatformAdapterTests(unittest.TestCase):
         spawn_cases = [
             ({"isError": True, "canonical_path": "/root/a"}, "failed", None),
             ({"success": True, "canonical_path": "/root/a"}, "success", "/root/a"),
+            ({"task_name": "/root/sg_light_real_platform_t_0123456789ab"}, "success", "/root/sg_light_real_platform_t_0123456789ab"),
             ('{"structuredContent":"{\\"canonical_path\\":\\"/root/a\\"}"}', "unknown", None),
             ("not json", "unknown", None),
         ]
@@ -29,11 +30,16 @@ class PlatformAdapterTests(unittest.TestCase):
             ({"status": "failed"}, "normal_message", "failed"),
             ({"success": True}, "normal_message", "success"),
             ({"previous_status": "not_found"}, "interrupt", "success"),
+            ({"previous_status": "running"}, "interrupt", "success"),
             ({"content": '{"success":true}'}, "normal_message", "unknown"),
         ]
         for raw, operation, expected in lifecycle_cases:
             with self.subTest(raw=raw):
                 self.assertEqual(governance_platform.adapt_lifecycle_response(raw, operation).observation, expected)
+        running_interrupt = governance_platform.adapt_lifecycle_response(
+            {"previous_status": "running"}, "interrupt"
+        )
+        self.assertEqual(running_interrupt.target_observation, "previously_running")
 
     def test_list_agents_accepts_only_one_exact_top_level_agent(self):
         target = "/root/worker"
@@ -78,6 +84,52 @@ class HookRouterTests(unittest.TestCase):
             result = governance_hook.handle_hook({"hook_event_name": "PreToolUse", "tool_name": "spawn_agent", "tool_input": {"task_name": "plain"}}, store)
             self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
             self.assertEqual(list(root.glob("*.json")), [])
+
+    def test_unbound_list_agents_is_visible_but_never_persisted(self):
+        store = mock.Mock()
+        result = governance_hook.handle_hook(
+            {
+                "session_id": "session-1",
+                "hook_event_name": "PostToolUse",
+                "tool_name": "list_agents",
+                "tool_input": {},
+                "tool_response": {
+                    "agents": [
+                        {"agent_name": "/root/a", "agent_status": "running"},
+                        {"agent_name": "/root/b", "agent_status": "completed"},
+                    ]
+                },
+            },
+            store,
+        )
+
+        self.assertTrue(result["continue"])
+        self.assertIn("missing_exact_path_prefix", result["systemMessage"])
+        self.assertIn("未写入 canonical observation", result["systemMessage"])
+        store.assert_not_called()
+
+    def test_ambiguous_exact_list_agents_is_visible_but_never_persisted(self):
+        store = mock.Mock()
+        result = governance_hook.handle_hook(
+            {
+                "session_id": "session-1",
+                "hook_event_name": "PostToolUse",
+                "tool_name": "list_agents",
+                "tool_input": {"path_prefix": "/root/a"},
+                "tool_response": {
+                    "agents": [
+                        {"agent_name": "/root/a", "agent_status": "running"},
+                        {"agent_name": "/root/b", "agent_status": "completed"},
+                    ]
+                },
+            },
+            store,
+        )
+
+        self.assertTrue(result["continue"])
+        self.assertIn("ambiguous_target_binding", result["systemMessage"])
+        self.assertIn("未写入 canonical observation", result["systemMessage"])
+        store.assert_not_called()
 
 
 class EntrypointAndManifestTests(unittest.TestCase):

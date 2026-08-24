@@ -15,7 +15,7 @@
 
 - 安装后新建的独立 `gpt-5.6-terra` / `high` 任务从干净的 `68981ce218e832e45f0352fe7cda0f983deb18dd` 开始。目标完整版本为 `0.4.0-rc.13+codex.20260824090918`；安装检查确认 stable/cache digest 相同（`89b025c1b5ea93a0ed17ff79d81be3a0bbdb95d1730e1e1d1f719255513fbd16`）、路径隔离和 single-current-cache，且 `codex plugin list` 显示 installed/enabled。
 - V1 已取得真实 fail-open evidence：unmanaged native spawn 获 PreToolUse allow/no-state 输出，创建 exact native target 并收到原生终态标记。
-- V2 发现新的真实正确性失败：受治理 spawn 的 PreToolUse 正常 claim，且 native target、`list_agents` completed 与 child notification 均可见；但 PostToolUse/list observation 没有写入 canonical state，attempt 仍为 `not_started/unconfirmed/not_checked`。V5 的真实 interrupt 再现该边界：native response 为 `previous_status=running`、exact list 为 interrupted，却因缺少 canonical identity 先验而无法进行受控 reconciliation。
+- 后续独立审计纠正了 V2/V5 的原始判断：spawn PostToolUse 已记录 acknowledged/target/post-observed，interrupt PostToolUse 也已记录 success/previously-running；实际 `list_agents` 输入均为 `{}`，而非带完整 target 的 `path_prefix`，所以 adapter 正确拒绝建立 canonical observation。V2/V5 应记为 `not_checked`（操作步骤无效），不是已证实的平台事件投递失败。
 - 依 P10，V6/V7 未继续；V3/V4 的最小探索性信号不作为通过证据。没有把安装文件、Skill 可见性或本地测试冒充 Hook trust、registration、事件投递、wait/notification、business-resume 或 restart/compact 的通过证据。详见 `docs/validation/current-only-real-platform-validation.md`。
 
 ## 已由本地测试覆盖
@@ -48,6 +48,6 @@
 - restart/compact 后 mailbox 与 retained target 的恢复表现。
 - business resume 在真实 follow-up 工具响应中的状态转换。
 
-在修复当前已见的 native Agent PostToolUse/list observation 未写入 canonical state 的问题后，必须由另一个新 P10-B 任务重新执行全部真实场景；本次失败任务不得在热修改安装环境后继续充当验收。
+在增加 exact-list 操作护栏和诊断可见性后，必须由另一个新 P10-B 任务重新执行全部真实场景；本次操作无效的任务不得在热修改安装环境后继续充当验收。
 
 真实测试必须遵循项目 `AGENTS.md`：先完成开发仓库验收，取得安装授权并更新用于测试的本地插件，然后新建独立任务。未完成上述步骤时只能报告本地可验证边界。

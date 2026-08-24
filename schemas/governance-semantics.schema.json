@@ -783,6 +783,26 @@
       },
       "additionalProperties": false
     },
+    "decision_dispatch_observation": {
+      "type": "object",
+      "required": ["state", "post_observed", "target_bound"],
+      "properties": {
+        "state": {"$ref": "#/$defs/dispatch_state"},
+        "post_observed": {"type": "boolean"},
+        "target_bound": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "decision_lifecycle_observation": {
+      "type": "object",
+      "required": ["operation_type", "call_observation"],
+      "properties": {
+        "operation_type": {"$ref": "#/$defs/lifecycle_operation_type"},
+        "call_observation": {"$ref": "#/$defs/call_observation"},
+        "target_observation": {"type": "string", "minLength": 1, "maxLength": 128}
+      },
+      "additionalProperties": false
+    },
     "decision_candidate_timestamps": {
       "type": "object",
       "properties": {
@@ -795,8 +815,8 @@
     "decision_execution_candidate": {
       "type": "object",
       "required": [
-        "attempt", "role", "target", "identity", "execution", "platform",
-        "notification", "action_required", "timestamps"
+        "attempt", "role", "dispatch", "target", "identity", "execution", "platform",
+        "notification", "last_lifecycle_observation", "action_required", "timestamps"
       ],
       "properties": {
         "attempt": {"anyOf": [{"$ref": "#/$defs/attempt"}, {"type": "null"}]},
@@ -804,6 +824,7 @@
           "type": "string",
           "enum": ["current", "prior", "tombstoned"]
         },
+        "dispatch": {"$ref": "#/$defs/decision_dispatch_observation"},
         "target": {
           "anyOf": [{"$ref": "#/$defs/decision_target"}, {"type": "null"}]
         },
@@ -820,6 +841,12 @@
           "enum": ["normal", "error", "unknown", "not_checked"]
         },
         "notification": {"$ref": "#/$defs/decision_candidate_notification"},
+        "last_lifecycle_observation": {
+          "anyOf": [
+            {"$ref": "#/$defs/decision_lifecycle_observation"},
+            {"type": "null"}
+          ]
+        },
         "action_required": {"type": "boolean"},
         "timestamps": {"$ref": "#/$defs/decision_candidate_timestamps"}
       },
@@ -937,6 +964,13 @@
       "wrapper_error_statuses": ["errored", "error", "failed", "failure"],
       "wrapper_status_parse_policy": "present_must_be_single_native_tag",
       "malformed_or_explicit_error": "no_exact_bound_fact",
+      "unbound_warning_reasons": [
+        "missing_exact_path_prefix",
+        "response_shape_unrecognized",
+        "response_reported_error",
+        "ambiguous_target_binding"
+      ],
+      "unbound_warning_persists_fact": false,
       "empty_response": "absent_at_check_only",
       "recursive_content_scan": false,
       "transcript_summary_final_history_scan": false,

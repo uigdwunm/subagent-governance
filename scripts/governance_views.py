@@ -111,17 +111,29 @@ def _records_for_task(state: dict[str, Any], task_id: str) -> tuple[dict[str, An
 
 
 def _candidate(state: dict[str, Any], task_id: str, attempt: int, record: dict[str, Any], current_attempt: int | None) -> dict[str, Any]:
+    dispatch = record.get("dispatch_record") if isinstance(record.get("dispatch_record"), dict) else {}
     observation = record.get("observation_record") if isinstance(record.get("observation_record"), dict) else {}
+    lifecycle = record.get("last_lifecycle_operation") if isinstance(record.get("last_lifecycle_operation"), dict) else None
     notification = bool(observation.get("source") == "terminal_notification" and observation.get("observed_state") == "terminal" and observation_is_bound(record))
     closed = _attempt_closed(state, task_id, attempt, record)
     return {
         "attempt": attempt,
         "role": "tombstoned" if closed else "current" if attempt == current_attempt else "prior",
+        "dispatch": {
+            "state": dispatch.get("dispatch_state"),
+            "post_observed": dispatch.get("dispatch_state") in {"acknowledged", "rejected", "indeterminate"},
+            "target_bound": bool(isinstance(dispatch.get("dispatch_target"), str) and dispatch["dispatch_target"]),
+        },
         "target": ({"dispatch_target": dispatch_target(record)} if isinstance(dispatch_target(record), str) else None),
         "identity": identity_status(record) if identity_status(record) in IDENTITY_STATUSES else "unknown",
         "execution": execution_status(record) if execution_status(record) in EXECUTION_STATUSES else "unknown",
         "platform": platform_observation(record) if platform_observation(record) in PLATFORM_OBSERVATIONS else "not_checked",
         "notification": {"observed": notification, "source": observation.get("source"), "terminal_status": observation.get("terminal_status")},
+        "last_lifecycle_observation": ({
+            "operation_type": lifecycle.get("operation_type"),
+            "call_observation": lifecycle.get("call_observation"),
+            **({"target_observation": lifecycle.get("target_observation")} if isinstance(lifecycle.get("target_observation"), str) else {}),
+        } if lifecycle is not None else None),
         "action_required": attempt_action_required(state, task_id, attempt, record),
         "timestamps": {key: value for key, value in (("activity_at", activity_at(record)), ("platform_checked_at", observation_checked_at(record)), ("attempt_closed_at", execution_closed_at(record))) if isinstance(value, int) and not isinstance(value, bool)},
     }

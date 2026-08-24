@@ -113,6 +113,16 @@ class PlatformObservationAdapterTests(unittest.TestCase):
         )
         self.assertFalse(adapter["recursive_content_scan"])
         self.assertFalse(adapter["transcript_summary_final_history_scan"])
+        self.assertEqual(
+            adapter["unbound_warning_reasons"],
+            [
+                "missing_exact_path_prefix",
+                "response_shape_unrecognized",
+                "response_reported_error",
+                "ambiguous_target_binding",
+            ],
+        )
+        self.assertFalse(adapter["unbound_warning_persists_fact"])
         self.assertEqual(adapter["boolean_error_flags"], ["isError", "is_error"])
         self.assertEqual(adapter["explicit_error_field"], "error")
         self.assertEqual(adapter["wrapper_status_fields"], ["status", "state"])
