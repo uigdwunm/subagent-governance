@@ -10,13 +10,27 @@ from tests.schema_validation import validate_instance
 from tests.support import load_governance
 
 
-governance = load_governance("v6_strict_state")
+from scripts import governance_contracts as contracts
+from scripts import governance_diagnostics as diagnostics
+from scripts import governance_dispatch as dispatch
+from scripts import governance_errors as errors
+from scripts import governance_execution as execution
+from scripts import governance_groups as groups
+from scripts import governance_hook as hook
+from scripts import governance_lifecycle as lifecycle
+from scripts import governance_prepared_store as prepared_store_module
+from scripts import governance_protocol as protocol
+from scripts import governance_semantics as semantics
+from scripts import governance_state as state_domain
+from scripts import governance_state_store as state_store_module
+from scripts import governance_store_support as store_support
+from scripts import governance_views as views
 
 
 class V6StrictStateContractTests(unittest.TestCase):
     @staticmethod
     def contract():
-        return governance.TaskContract(
+        return contracts.TaskContract(
             semantic_name="v6_state",
             requested_mode="standard",
             resolved_mode="standard",
@@ -46,8 +60,8 @@ class V6StrictStateContractTests(unittest.TestCase):
         )
 
     def canonical_state(self):
-        state = governance.StateStore._empty_state("v6-state")
-        state["tasks"]["v6-state-task"] = governance._initial_task_record(
+        state = state_store_module.StateStore._empty_state("v6-state")
+        state["tasks"]["v6-state-task"] = dispatch.initial_task_record(
             1,
             "0123456789ab",
             "sg_standard_v6_state_t_0123456789ab",
@@ -65,22 +79,22 @@ class V6StrictStateContractTests(unittest.TestCase):
 
     def assert_rejected_by_both(self, state):
         self.assertTrue(self.schema_errors(state))
-        self.assertTrue(governance.validate_current_state_format(state))
-        with self.assertRaises(governance.StateValidationError):
-            governance.require_current_state_format(state)
+        self.assertTrue(state_domain.validate_current_state_format(state))
+        with self.assertRaises(errors.StateValidationError):
+            state_domain.require_current_state_format(state)
 
     def test_v6_corpus_is_accepted_by_runtime_and_schema(self):
         state = self.canonical_state()
-        self.assertEqual(governance.STATE_FORMAT_VERSION, 6)
+        self.assertEqual(semantics.STATE_FORMAT_VERSION, 6)
         self.assertEqual(self.schema_errors(state), [])
-        self.assertEqual(governance.validate_current_state_format(state), [])
-        self.assertIs(governance.require_current_state_format(state), state)
+        self.assertEqual(state_domain.validate_current_state_format(state), [])
+        self.assertIs(state_domain.require_current_state_format(state), state)
 
     def test_full_producer_corpus_is_accepted_by_runtime_and_schema(self):
         state = self.canonical_state()
         task = state["tasks"]["v6-state-task"]
         execution = task["executions"]["1"]
-        execution["pending_action"] = governance._pending_action_record(
+        execution["pending_action"] = lifecycle._pending_action_record(
             target="/root/v6-state",
             attempt=2,
             task_ref="abcdefabcdef",
@@ -118,7 +132,7 @@ class V6StrictStateContractTests(unittest.TestCase):
             "closed_at": 103,
         }
         self.assertEqual(self.schema_errors(state), [])
-        self.assertEqual(governance.validate_current_state_format(state), [])
+        self.assertEqual(state_domain.validate_current_state_format(state), [])
 
     def test_default_namespace_uses_state_v6_without_touching_state_v1(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -129,9 +143,9 @@ class V6StrictStateContractTests(unittest.TestCase):
             old_file.write_text('{"legacy": true}', encoding="utf-8")
             before = old_file.stat().st_mtime_ns
             with mock.patch.dict(os.environ, {"SUBAGENT_GOVERNANCE_DATA": "", "PLUGIN_DATA": str(plugin_root)}):
-                data_root = governance._data_root_path()
+                data_root = store_support.data_root_path(state_store_module.__file__)
                 self.assertEqual(data_root, plugin_root / "state-v6")
-                governance.StateStore().read("namespace-v6")
+                state_store_module.StateStore().read("namespace-v6")
             self.assertEqual(old_file.read_text(encoding="utf-8"), '{"legacy": true}')
             self.assertEqual(old_file.stat().st_mtime_ns, before)
 
@@ -146,13 +160,13 @@ class V6StrictStateContractTests(unittest.TestCase):
             )
         )
         with self.assertRaises(ValueError):
-            governance._contract_from_input(contract)
+            contracts.contract_from_input(contract)
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            state_store = governance.StateStore(root / "sessions")
-            prepared_store = governance.PreparedContractStore(root / "prepared")
-            prepared = governance.prepare_dispatch(
+            state_store = state_store_module.StateStore(root / "sessions")
+            prepared_store = prepared_store_module.PreparedContractStore(root / "prepared")
+            prepared = protocol.prepare_dispatch(
                 self.contract(), "prepared-v6", state_store=state_store,
                 prepared_store=prepared_store, task_id_factory=lambda: "prepared-v6-task",
             )
@@ -166,8 +180,8 @@ class V6StrictStateContractTests(unittest.TestCase):
                 [],
             )
             record["future"] = True
-            with self.assertRaises(governance.PreparedContractValidationError):
-                governance.PreparedContractStore._validate_record(
+            with self.assertRaises(errors.PreparedContractValidationError):
+                prepared_store_module.PreparedContractStore._validate_record(
                     record, "prepared-v6", prepared["task_ref"], root / "record.json"
                 )
 

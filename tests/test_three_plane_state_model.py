@@ -7,18 +7,32 @@ from pathlib import Path
 from scripts import governance_semantics as semantics
 from tests.support import load_governance
 
-governance = load_governance("three_plane")
+from scripts import governance_contracts as contracts
+from scripts import governance_diagnostics as diagnostics
+from scripts import governance_dispatch as dispatch
+from scripts import governance_errors as errors
+from scripts import governance_execution as execution
+from scripts import governance_groups as groups
+from scripts import governance_hook as hook
+from scripts import governance_lifecycle as lifecycle
+from scripts import governance_prepared_store as prepared_store_module
+from scripts import governance_protocol as protocol
+from scripts import governance_semantics as semantics
+from scripts import governance_state as state_domain
+from scripts import governance_state_store as state_store_module
+from scripts import governance_store_support as store_support
+from scripts import governance_views as views
 
 
 class ThreePlaneStateModelTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.store = governance.StateStore(Path(self.temporary.name) / "sessions")
+        self.store = state_store_module.StateStore(Path(self.temporary.name) / "sessions")
 
     @staticmethod
     def contract():
-        return governance.TaskContract(
+        return contracts.TaskContract(
             semantic_name="three_plane",
             requested_mode="standard",
             resolved_mode="standard",
@@ -48,8 +62,8 @@ class ThreePlaneStateModelTests(unittest.TestCase):
         )
 
     def current_state(self, session_id="three-plane"):
-        state = governance.StateStore._empty_state(session_id)
-        state["tasks"]["three-plane-task"] = governance._initial_task_record(
+        state = state_store_module.StateStore._empty_state(session_id)
+        state["tasks"]["three-plane-task"] = dispatch.initial_task_record(
             1,
             "0123456789ab",
             "sg_standard_three_plane_t_0123456789ab",
@@ -73,7 +87,7 @@ class ThreePlaneStateModelTests(unittest.TestCase):
         for name, runtime_fields in expected.items():
             active_properties = {
                 field
-                for field, definition in governance.SEMANTIC_DEFINITIONS[name][
+                for field, definition in semantics.SEMANTIC_DEFINITIONS[name][
                     "properties"
                 ].items()
                 if definition is not False
@@ -84,8 +98,8 @@ class ThreePlaneStateModelTests(unittest.TestCase):
         state = self.current_state()
         state["future_extension"] = {"opaque": True}
 
-        with self.assertRaisesRegex(governance.StateValidationError, "未知字段"):
-            governance._require_current_state_format(state)
+        with self.assertRaisesRegex(errors.StateValidationError, "未知字段"):
+            state_domain.require_current_state_format(state)
 
     def test_missing_version_is_rejected_without_rewrite(self):
         state = self.current_state()
@@ -94,7 +108,7 @@ class ThreePlaneStateModelTests(unittest.TestCase):
         before = path.read_bytes()
 
         with self.assertRaisesRegex(
-            governance.StateValidationError, "state_format_version"
+            errors.StateValidationError, "state_format_version"
         ):
             self.store.read("three-plane")
 
@@ -109,8 +123,8 @@ class ThreePlaneStateModelTests(unittest.TestCase):
                 before = path.read_bytes()
 
                 with self.assertRaisesRegex(
-                    governance.StateValidationError,
-                    rf"仅支持 {governance.STATE_FORMAT_VERSION}",
+                    errors.StateValidationError,
+                    rf"仅支持 {semantics.STATE_FORMAT_VERSION}",
                 ):
                     self.store.read(f"version-{version}")
 
@@ -118,12 +132,12 @@ class ThreePlaneStateModelTests(unittest.TestCase):
 
     def test_newer_version_is_rejected_without_rewrite(self):
         state = self.current_state()
-        state["state_format_version"] = governance.STATE_FORMAT_VERSION + 1
+        state["state_format_version"] = semantics.STATE_FORMAT_VERSION + 1
         path = self.write_state(state)
         before = path.read_bytes()
 
         with self.assertRaisesRegex(
-            governance.StateValidationError, "state_format_version"
+            errors.StateValidationError, "state_format_version"
         ):
             self.store.update("three-plane", lambda current: current.clear())
 
@@ -136,9 +150,9 @@ class ThreePlaneStateModelTests(unittest.TestCase):
                 del state["tasks"]["three-plane-task"]["executions"]["1"][plane]
 
                 with self.assertRaisesRegex(
-                    governance.StateValidationError, "缺少字段"
+                    errors.StateValidationError, "缺少字段"
                 ):
-                    governance._require_current_state_format(state)
+                    state_domain.require_current_state_format(state)
 
     def test_current_planes_reject_unknown_fields(self):
         state = self.current_state()
@@ -146,9 +160,9 @@ class ThreePlaneStateModelTests(unittest.TestCase):
         execution["dispatch_record"]["old_field"] = True
 
         with self.assertRaisesRegex(
-            governance.StateValidationError, "包含未知字段 old_field"
+            errors.StateValidationError, "包含未知字段 old_field"
         ):
-            governance._require_current_state_format(state)
+            state_domain.require_current_state_format(state)
 
     def test_storage_rejects_callback_that_introduces_noncurrent_shape(self):
         self.store.update(
@@ -165,7 +179,7 @@ class ThreePlaneStateModelTests(unittest.TestCase):
                 "observation_record"
             ]
 
-        with self.assertRaises(governance.StateValidationError):
+        with self.assertRaises(errors.StateValidationError):
             self.store.update("three-plane", invalidate)
 
         self.assertEqual(path.read_bytes(), before)

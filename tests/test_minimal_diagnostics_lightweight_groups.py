@@ -8,7 +8,16 @@ from unittest import mock
 
 from tests.support import load_governance
 
-governance = load_governance("diagnostics")
+from scripts import governance_contracts as contracts
+from scripts import governance_diagnostics as diagnostics
+from scripts import governance_dispatch as dispatch
+from scripts import governance_execution as execution_module
+from scripts import governance_errors as errors
+from scripts import governance_groups as groups
+from scripts import governance_lifecycle as lifecycle
+from scripts import governance_semantics as semantics
+from scripts import governance_state_store as state_store_module
+from scripts import governance_views as views
 
 
 class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
@@ -16,12 +25,12 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.store = governance.StateStore(self.root / "sessions")
+        self.store = state_store_module.StateStore(self.root / "sessions")
         self.session_id = "diagnostics-v5"
 
     @staticmethod
     def contract(name):
-        return governance.TaskContract(
+        return contracts.TaskContract(
             semantic_name=name,
             requested_mode="light",
             resolved_mode="light",
@@ -51,11 +60,11 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
         )
 
     def state_with_tasks(self, *task_ids):
-        state = governance.StateStore._empty_state(self.session_id)
+        state = state_store_module.StateStore._empty_state(self.session_id)
         for index, task_id in enumerate(task_ids, start=1):
             ref = f"{index:012x}"
             name = f"task_{index}"
-            container = governance._initial_task_record(
+            container = dispatch.initial_task_record(
                 1,
                 ref,
                 f"sg_light_{name}_t_{ref}",
@@ -78,7 +87,7 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
         state = self.store.read(self.session_id)
         execution = state["tasks"][task_id]["executions"]["1"]
         target = execution["dispatch_record"]["dispatch_target"]
-        return governance.record_terminal_notification(
+        return lifecycle.record_terminal_notification(
             {
                 "sender_target": target,
                 "task_id": task_id,
@@ -95,7 +104,7 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
         self.notify("task-a")
         state = self.store.read(self.session_id)
 
-        snapshot, issues, incomplete = governance._build_work_item_decision_snapshot(
+        snapshot, issues, incomplete = views.work_item_decision_snapshot(
             state,
             "task-a",
             session_id=self.session_id,
@@ -123,7 +132,7 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
 
     def test_group_summary_ready_requires_every_required_notification(self):
         self.state_with_tasks("required-a", "required-b", "optional-c")
-        created = governance.upsert_group(
+        created = groups.upsert_group(
             {
                 "group_id": "group-v5",
                 "objective_summary": "汇总原生通知",
@@ -141,17 +150,17 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
         persisted = self.store.read(self.session_id)["groups"]["group-v5"]
         self.assertNotIn("created_at", persisted)
         self.assertNotIn("updated_at", persisted)
-        self.assertNotIn("created_at", governance.SEMANTIC_RULES["group"]["fields"])
-        self.assertNotIn("updated_at", governance.SEMANTIC_RULES["group"]["fields"])
+        self.assertNotIn("created_at", semantics.SEMANTIC_RULES["group"]["fields"])
+        self.assertNotIn("updated_at", semantics.SEMANTIC_RULES["group"]["fields"])
         self.notify("required-a", now=200)
         self.assertFalse(
-            governance.read_group(
+            groups.read_group(
                 self.session_id, "group-v5", state_store=self.store
             )["summary_ready"]
         )
 
         self.notify("required-b", now=210)
-        group = governance.read_group(
+        group = groups.read_group(
             self.session_id, "group-v5", state_store=self.store
         )
         self.assertTrue(group["summary_ready"])
@@ -164,12 +173,12 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
         self.state_with_tasks("closed-task")
         state = self.store.read(self.session_id)
         execution = state["tasks"]["closed-task"]["executions"]["1"]
-        governance._close_attempt_record(
+        execution_module.close_attempt_record(
             state, "closed-task", 1, execution, "parent_closed", 180
         )
         state["tasks"]["closed-task"]["work_item"]["lifecycle"] = "tombstoned"
         self.store.update(self.session_id, lambda current: current.update(state))
-        governance.upsert_group(
+        groups.upsert_group(
             {
                 "group_id": "closed-group",
                 "objective_summary": "关闭成员",
@@ -179,14 +188,14 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
             state_store=self.store,
         )
         self.assertTrue(
-            governance.read_group(
+            groups.read_group(
                 self.session_id, "closed-group", state_store=self.store
             )["summary_ready"]
         )
 
     def test_diagnose_reads_state_without_writing_storage(self):
         self.state_with_tasks("diagnose-task")
-        document, exit_code = governance._build_diagnostic_document(
+        document, exit_code = diagnostics.build_diagnostic_document(
             self.session_id,
             self.root,
         )
@@ -199,7 +208,7 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
         )
 
     def test_diagnose_missing_session_is_bounded_and_read_only(self):
-        document, exit_code = governance._build_diagnostic_document(
+        document, exit_code = diagnostics.build_diagnostic_document(
             "missing-session",
             self.root,
         )
@@ -229,8 +238,8 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
             )
 
         with mock.patch.object(Path, "lstat", autospec=True, side_effect=safe_path_lstat):
-            with self.assertRaises(governance.DiagnosticReadError) as raised:
-                governance._read_session_file_read_only(
+            with self.assertRaises(errors.DiagnosticReadError) as raised:
+                diagnostics._read_session_file_read_only(
                     state_path,
                     requested_session=self.session_id,
                 )
@@ -247,8 +256,8 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
         state_path.unlink()
         state_path.symlink_to(target)
 
-        with self.assertRaises(governance.DiagnosticReadError) as raised:
-            governance._read_session_file_read_only(
+        with self.assertRaises(errors.DiagnosticReadError) as raised:
+            diagnostics._read_session_file_read_only(
                 state_path,
                 requested_session=self.session_id,
             )
@@ -257,8 +266,8 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
 
     def test_group_rejects_unknown_member(self):
         self.state_with_tasks("known")
-        with self.assertRaises(governance.GroupValidationError):
-            governance.upsert_group(
+        with self.assertRaises(groups.GroupValidationError):
+            groups.upsert_group(
                 {
                     "group_id": "invalid-group",
                     "objective_summary": "非法成员",

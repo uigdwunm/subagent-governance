@@ -6,6 +6,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from scripts import governance_contracts as contracts
+from scripts import governance_dispatch as dispatch
+from scripts import governance_dispatch_identity as identity
+from scripts import governance_execution as execution_domain
+from scripts import governance_lifecycle as lifecycle_domain
+from scripts import governance_errors as errors
+from scripts import governance_semantics as semantics
+from scripts import governance_platform as platform
 from tests.support import load_governance
 
 governance = load_governance("communication")
@@ -62,9 +70,9 @@ class CommunicationLifecycleTests(unittest.TestCase):
         return value
 
     def add_managed(self, task_id="communication-task", target="/root/communication"):
-        contract = governance._contract_from_input(self.contract())
-        task_ref = governance.derive_task_ref(task_id, 1, 12)
-        container = governance._initial_task_record(
+        contract = contracts.contract_from_input(self.contract())
+        task_ref = identity.derive_task_ref(task_id, 1, 12)
+        container = dispatch.initial_task_record(
             1,
             task_ref,
             f"sg_standard_communication_task_t_{task_ref}",
@@ -77,8 +85,8 @@ class CommunicationLifecycleTests(unittest.TestCase):
             dispatch_target=target,
             tool_use_id="spawn-tool",
         )
-        governance._apply_canonical_execution_update(execution, "observed_execution_status", "running")
-        governance._apply_canonical_execution_update(execution, "closure_parent_action", "wait")
+        execution_domain.apply_canonical_execution_update(execution, "observed_execution_status", "running")
+        execution_domain.apply_canonical_execution_update(execution, "closure_parent_action", "wait")
         state = governance.StateStore._empty_state(self.session_id)
         state["tasks"][task_id] = container
         state["agents"][target] = {"task_id": task_id, "attempt": 1}
@@ -103,7 +111,7 @@ class CommunicationLifecycleTests(unittest.TestCase):
 
     def test_supported_operation_types_have_native_tools(self):
         self.assertEqual(
-            governance.OPERATION_NATIVE_TOOLS,
+            semantics.OPERATION_NATIVE_TOOLS,
             {
                 "normal_message": "send_message",
                 "platform_recovery": "followup_task",
@@ -145,13 +153,13 @@ class CommunicationLifecycleTests(unittest.TestCase):
 
     def test_call_response_keeps_only_semantic_observations(self):
         self.assertEqual(
-            governance.adapt_call_response({"status": "failed"}, "platform_recovery"),
+            platform.adapt_lifecycle_response({"status": "failed"}, "platform_recovery").to_record(),
             {"call_observation": "failed", "target_observation": None},
         )
         self.assertEqual(
-            governance.adapt_call_response(
+            platform.adapt_lifecycle_response(
                 {"previous_status": "running"}, "interrupt"
-            ),
+            ).to_record(),
             {
                 "call_observation": "success",
                 "target_observation": "previously_running",
@@ -159,7 +167,7 @@ class CommunicationLifecycleTests(unittest.TestCase):
         )
 
     def test_lifecycle_record_omits_duplicate_execution_fields(self):
-        lifecycle = governance._last_lifecycle_from_pending(
+        lifecycle = lifecycle_domain._last_lifecycle_from_pending(
             {
                 "operation_type": "interrupt",
                 "target": "/root/communication",
@@ -277,7 +285,7 @@ class CommunicationLifecycleTests(unittest.TestCase):
                 injected = True
 
                 def claim(current):
-                    record = governance._task_record_for_attempt(current, task_id, 1)
+                    record = execution_domain.task_record_for_attempt(current, task_id, 1)
                     assert record is not None
                     pending = record["pending_action"]
                     pending["phase"] = "claimed"
@@ -367,7 +375,7 @@ class CommunicationLifecycleTests(unittest.TestCase):
         self.assertEqual(task["work_item"]["current_attempt"], 2)
         source = task["executions"]["1"]
         resumed = task["executions"]["2"]
-        self.assertTrue(governance._execution_is_closed(source))
+        self.assertTrue(execution_domain.execution_is_closed(source))
         self.assertEqual(source["closure_record"]["reason"], "business_resume")
         self.assertEqual(resumed["dispatch_record"]["dispatch_target"], target)
         self.assertEqual(resumed["dispatch_record"]["tool_use_id"], "resume-tool")
@@ -401,7 +409,7 @@ class CommunicationLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(
             task["executions"]["2"]["pending_action"]["resume_contract_digest"],
-            governance.contract_digest(governance._contract_from_input(self.contract("继续执行"))),
+            contracts.contract_digest(contracts.contract_from_input(self.contract("继续执行"))),
         )
         self.assertNotIn("resume_task_ref", task["executions"]["2"]["pending_action"])
         self.assertNotIn("task_id", task["executions"]["2"]["pending_action"])
@@ -610,9 +618,9 @@ class CommunicationLifecycleTests(unittest.TestCase):
                 observed_state="error",
                 observed_at=120,
             )
-            governance._apply_canonical_execution_update(record, "observed_execution_status", "stopped")
-            governance._apply_canonical_execution_update(record, "observed_platform_state", "error")
-            governance._apply_canonical_execution_update(record, "closure_parent_action", "recover")
+            execution_domain.apply_canonical_execution_update(record, "observed_execution_status", "stopped")
+            execution_domain.apply_canonical_execution_update(record, "observed_platform_state", "error")
+            execution_domain.apply_canonical_execution_update(record, "closure_parent_action", "recover")
 
         self.store.update(self.session_id, mark_error)
         prepared = governance.prepare_communication(
@@ -651,7 +659,7 @@ class CommunicationLifecycleTests(unittest.TestCase):
                 "call_observation": "success",
                 "target_observation": "not_found",
             }
-            governance._apply_canonical_execution_update(
+            execution_domain.apply_canonical_execution_update(
                 record, "closure_parent_action", "reconcile"
             )
             record["updated_at"] = 140
@@ -662,7 +670,7 @@ class CommunicationLifecycleTests(unittest.TestCase):
             "attempt": 1,
         }
 
-        with self.assertRaisesRegex(governance.ReconciliationError, "unknown=thread_id"):
+        with self.assertRaisesRegex(errors.ReconciliationError, "unknown=thread_id"):
             governance.reconcile_interrupted_attempt(
                 {
                     **observation,
@@ -690,7 +698,7 @@ class CommunicationLifecycleTests(unittest.TestCase):
                 "terminal_status": "interrupted",
             },
         )
-        self.assertEqual(governance._parent_action(record), "decide_disposition")
+        self.assertEqual(execution_domain.parent_action(record), "decide_disposition")
         self.assertNotIn("last_lifecycle_operation", record)
         self.assertNotIn("reconciliation_reason", record)
         self.assertNotIn("reconciled_thread_id", record)
@@ -707,17 +715,17 @@ class CommunicationLifecycleTests(unittest.TestCase):
                 observed_at=140,
                 terminal_status="completed",
             )
-            governance._apply_canonical_execution_update(record, "observed_execution_status", "stopped")
-            governance._apply_canonical_execution_update(record, "observation_source", "list_agents")
-            governance._apply_canonical_execution_update(record, "observation_summary", "completed")
-            governance._apply_canonical_execution_update(record, "observation_observed_at", 140)
-            governance._apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
+            execution_domain.apply_canonical_execution_update(record, "observed_execution_status", "stopped")
+            execution_domain.apply_canonical_execution_update(record, "observation_source", "list_agents")
+            execution_domain.apply_canonical_execution_update(record, "observation_summary", "completed")
+            execution_domain.apply_canonical_execution_update(record, "observation_observed_at", 140)
+            execution_domain.apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
 
         self.store.update(self.session_id, persist_terminal)
         record = self.execution(task_id)
         self.assertNotIn("closure_state", record["closure_record"])
-        self.assertEqual(governance._execution_status(record), "stopped")
-        self.assertEqual(governance._parent_action(record), "reconcile")
+        self.assertEqual(execution_domain.execution_status(record), "stopped")
+        self.assertEqual(execution_domain.parent_action(record), "reconcile")
 
 if __name__ == "__main__":
     unittest.main()

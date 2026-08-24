@@ -9,10 +9,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.support import load_governance
-
-
-governance = load_governance("p5_dispatch_transactions")
+from scripts import governance_dispatch as dispatch
+from scripts import governance_errors as errors
+from scripts import governance_execution as execution_module
+from scripts import governance_prepared_store as prepared_store_module
+from scripts import governance_protocol as protocol
+from scripts import governance_state_store as state_store_module
 
 
 def _contract() -> dict[str, object]:
@@ -36,10 +38,10 @@ class P5DispatchTransactionTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         root = Path(self.directory.name)
-        self.state = governance.StateStore(root / "sessions")
-        self.prepared = governance.PreparedContractStore(root / "prepared")
+        self.state = state_store_module.StateStore(root / "sessions")
+        self.prepared = prepared_store_module.PreparedContractStore(root / "prepared")
         self.session_id = "p5-session"
-        self.initial = governance.prepare_dispatch(
+        self.initial = protocol.prepare_dispatch(
             _contract(), self.session_id, state_store=self.state,
             prepared_store=self.prepared, task_id_factory=lambda: "p5-task", now=10,
         )
@@ -52,7 +54,7 @@ class P5DispatchTransactionTests(unittest.TestCase):
         task_id = self.initial["task_id"]
         def reject(state):
             execution = state["tasks"][task_id]["executions"]["1"]
-            governance._apply_canonical_execution_update(execution, "dispatch_response", "failed")
+            execution_module.apply_canonical_execution_update(execution, "dispatch_response", "failed")
             execution["updated_at"] = 11
         self.state.update(self.session_id, reject)
 
@@ -66,8 +68,8 @@ class P5DispatchTransactionTests(unittest.TestCase):
             lambda value: (value.clear(), value.update(claimed)),
         )
 
-        with self.assertRaises(governance.DispatchPreparationError):
-            governance.prepare_spawn_retry(
+        with self.assertRaises(errors.DispatchPreparationError):
+            protocol.prepare_spawn_retry(
                 _contract(), self.session_id, self.initial["task_id"],
                 state_store=self.state, prepared_store=self.prepared, now=13,
             )
@@ -86,12 +88,12 @@ class P5DispatchTransactionTests(unittest.TestCase):
                 self.session_id, task_ref, lambda value: value == current,
                 lambda value: (value.clear(), value.update(claimed)),
             )
-            raise governance.StateWriteError("injected state failure")
+            raise errors.StateWriteError("injected state failure")
 
         self.state.update = fail_after_concurrent_claim
         try:
-            with self.assertRaises(governance.DispatchPreparationError):
-                governance.prepare_spawn_retry(
+            with self.assertRaises(errors.DispatchPreparationError):
+                protocol.prepare_spawn_retry(
                     _contract(), self.session_id, self.initial["task_id"],
                     state_store=self.state, prepared_store=self.prepared, now=13,
                 )
@@ -101,31 +103,29 @@ class P5DispatchTransactionTests(unittest.TestCase):
         self.assertEqual(self.prepared.read(self.session_id, task_ref)["tool_use_id"], "concurrent-tool")
 
     def test_execution_kernel_transition_table_and_import_boundary(self):
-        from scripts import governance_execution as execution
-
         record = self.state.read(self.session_id)["tasks"][self.initial["task_id"]]["executions"]["1"]
-        execution.apply_canonical_execution_update(record, "dispatch_tool_use_id", "tool-1")
-        execution.apply_canonical_execution_update(record, "dispatch_response", "success")
-        execution.apply_canonical_execution_update(record, "dispatch_target", "/root/worker")
-        execution.apply_canonical_execution_update(record, "observed_execution_status", "running")
-        execution.apply_canonical_execution_update(record, "observation_observed_at", 20)
-        execution.apply_canonical_execution_update(record, "observation_source", "list_agents")
-        self.assertEqual(execution.execution_status(record), "running")
-        self.assertEqual(execution.identity_status(record), "confirmed")
+        execution_module.apply_canonical_execution_update(record, "dispatch_tool_use_id", "tool-1")
+        execution_module.apply_canonical_execution_update(record, "dispatch_response", "success")
+        execution_module.apply_canonical_execution_update(record, "dispatch_target", "/root/worker")
+        execution_module.apply_canonical_execution_update(record, "observed_execution_status", "running")
+        execution_module.apply_canonical_execution_update(record, "observation_observed_at", 20)
+        execution_module.apply_canonical_execution_update(record, "observation_source", "list_agents")
+        self.assertEqual(execution_module.execution_status(record), "running")
+        self.assertEqual(execution_module.identity_status(record), "confirmed")
         with self.assertRaises(ValueError):
-            execution.apply_canonical_execution_update(record, "dispatch_response", "maybe")
-        imports = ast.parse((Path(governance.__file__).parent / "governance_execution.py").read_text()).body
+            execution_module.apply_canonical_execution_update(record, "dispatch_response", "maybe")
+        imports = ast.parse(Path(execution_module.__file__).read_text()).body
         imported = "\n".join(ast.unparse(node) for node in imports if isinstance(node, (ast.Import, ast.ImportFrom)))
         for forbidden in ("governance_store", "governance_contract", "governance_context", "governance_dispatch", "subagent_governance"):
             self.assertNotIn(forbidden, imported)
 
     def test_dispatch_module_has_no_runtime_or_hook_dependency(self):
-        source = (Path(governance.__file__).parent / "governance_dispatch.py").read_text()
+        source = Path(dispatch.__file__).read_text()
         self.assertNotIn("subagent_governance", source)
         self.assertNotIn("governance_cli", source)
 
     def test_p6_lifecycle_module_ownership_boundaries(self):
-        root = Path(governance.__file__).parent
+        root = Path(dispatch.__file__).parent
         lifecycle = ast.parse((root / "governance_lifecycle.py").read_text())
         communication = ast.parse((root / "governance_communication.py").read_text())
         runtime = ast.parse((root / "subagent_governance.py").read_text())

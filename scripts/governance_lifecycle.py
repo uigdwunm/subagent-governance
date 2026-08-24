@@ -45,11 +45,8 @@ try:
         platform_observation as _platform_observation, spawn_observation as _spawn_observation,
     )
     from scripts.governance_semantics import (
-        CALL_OBSERVATIONS, LIFECYCLE_OPERATION_TYPES, LIST_AGENTS_ACTIVE_STATUSES,
-        LIST_AGENTS_ADVISORY_STATUSES, LIST_AGENTS_BOOLEAN_ERROR_FLAGS,
-        LIST_AGENTS_ERROR_STATUSES, LIST_AGENTS_EXPLICIT_ERROR_FIELD,
-        LIST_AGENTS_TERMINAL_STATUSES, LIST_AGENTS_WRAPPER_ERROR_STATUSES,
-        LIST_AGENTS_WRAPPER_STATUS_FIELDS, MAX_CONTRACT_TEXT, OPERATION_NATIVE_TOOLS,
+        CALL_OBSERVATIONS, LIFECYCLE_OPERATION_TYPES, LIST_AGENTS_TERMINAL_STATUSES,
+        MAX_CONTRACT_TEXT, OPERATION_NATIVE_TOOLS,
         OPERATION_TYPES, PARENT_DISPOSITION_REASON_MAX_LENGTH, PARENT_DISPOSITIONS,
         RETENTION_SECONDS, RETRY_LIMITS, SEMANTIC_DEFINITIONS,
     )
@@ -63,7 +60,7 @@ except ModuleNotFoundError:
     from governance_dispatch_rendering import render_list as _render_list, render_verified_context as _render_verified_context
     from governance_errors import CommunicationPreparationError, ContextVerificationError, NotificationObservationError, ParentDispositionConflict, ParentDispositionError, ReconciliationError, StateConflictError, StateValidationError, _state_store_exception_category
     from governance_execution import apply_canonical_execution_update as _apply_canonical_execution_update, canonical_execution_for_attempt as _canonical_execution_for_attempt, close_attempt_record as _close_attempt_record, dispatch_target as _dispatch_target, execution_close_reason as _execution_close_reason, execution_is_closed as _execution_is_closed, execution_status as _execution_status, identity_status as _identity_status, iter_task_attempts as _iter_task_attempts, managed_target_admission as _managed_target_admission, observation_is_bound as _observation_is_bound, observation_checked_at as _observation_checked_at, observation_source as _observation_source, parent_action as _parent_action, record_has_target_provenance as _record_has_target_provenance, repair_managed_target_index as _repair_managed_target_index, task_attempt_records as _task_attempt_records, task_record_for_attempt as _task_record_for_attempt, ensure_canonical_task_record as _ensure_canonical_task_record, platform_observation as _platform_observation, spawn_observation as _spawn_observation
-    from governance_semantics import CALL_OBSERVATIONS, LIFECYCLE_OPERATION_TYPES, LIST_AGENTS_ACTIVE_STATUSES, LIST_AGENTS_ADVISORY_STATUSES, LIST_AGENTS_BOOLEAN_ERROR_FLAGS, LIST_AGENTS_ERROR_STATUSES, LIST_AGENTS_EXPLICIT_ERROR_FIELD, LIST_AGENTS_TERMINAL_STATUSES, LIST_AGENTS_WRAPPER_ERROR_STATUSES, LIST_AGENTS_WRAPPER_STATUS_FIELDS, MAX_CONTRACT_TEXT, OPERATION_NATIVE_TOOLS, OPERATION_TYPES, PARENT_DISPOSITION_REASON_MAX_LENGTH, PARENT_DISPOSITIONS, RETENTION_SECONDS, RETRY_LIMITS, SEMANTIC_DEFINITIONS
+    from governance_semantics import CALL_OBSERVATIONS, LIFECYCLE_OPERATION_TYPES, LIST_AGENTS_TERMINAL_STATUSES, MAX_CONTRACT_TEXT, OPERATION_NATIVE_TOOLS, OPERATION_TYPES, PARENT_DISPOSITION_REASON_MAX_LENGTH, PARENT_DISPOSITIONS, RETENTION_SECONDS, RETRY_LIMITS, SEMANTIC_DEFINITIONS
     from governance_state_store import StateStore
 
 
@@ -972,69 +969,6 @@ def prepare_interrupt(
     )
 
 
-def _native_status_tag(value: Any) -> str | None:
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        return normalized or None
-    if not isinstance(value, dict) or len(value) != 1:
-        return None
-    status, detail = next(iter(value.items()))
-    if not isinstance(status, str) or detail is None or detail is False:
-        return None
-    normalized = status.strip().lower()
-    return normalized or None
-
-
-def adapt_call_response(response: Any, operation_type: str) -> dict[str, str | None]:
-    def adapted(
-        call_observation: str,
-        *,
-        target_observation: str | None = None,
-    ) -> dict[str, str | None]:
-        return {
-            "call_observation": call_observation,
-            "target_observation": target_observation,
-        }
-
-    value = response
-    if value is None or value == "" or value == {}:
-        return adapted("success")
-    if not isinstance(value, dict):
-        return adapted("unknown")
-    if value.get("isError") is True or value.get("is_error") is True:
-        return adapted("failed")
-    status_value = value.get("status") if "status" in value else value.get("state")
-    status = _native_status_tag(status_value)
-    if status in {"error", "failed", "failure"}:
-        return adapted("failed")
-    if value.get("success") is True or status in {"ok", "success", "succeeded", "sent", "accepted"}:
-        return adapted("success")
-    if operation_type == "interrupt":
-        previous_value = value.get("previous_status")
-        previous_status = _native_status_tag(previous_value)
-        if previous_status == "running":
-            return adapted(
-                "success",
-                target_observation="previously_running",
-            )
-        if previous_status == "not_found":
-            return adapted(
-                "success",
-                target_observation="not_found",
-            )
-        if previous_status in {"stopped", "completed", "interrupted", "cancelled", "canceled"}:
-            return adapted(
-                "success",
-                target_observation=previous_status,
-            )
-        if status in {"interrupted", "cancelled", "canceled", "stopped", "completed"}:
-            return adapted(
-                "success",
-                target_observation=status,
-            )
-    return adapted("unknown")
-
-
 def _last_lifecycle_from_pending(
     pending: dict[str, Any], observation: dict[str, str | None]
 ) -> dict[str, Any]:
@@ -1647,64 +1581,6 @@ def _handle_interrupt_pre(payload: dict[str, Any], store: StateStore) -> dict[st
 
 
 
-def _agent_status_entries(response: Any) -> list[dict[str, Any]] | None:
-    """Adapt only the evidenced top-level list_agents response container."""
-    value = response
-    if not isinstance(value, dict):
-        return None
-    for error_flag in LIST_AGENTS_BOOLEAN_ERROR_FLAGS:
-        if error_flag not in value:
-            continue
-        flag_value = value[error_flag]
-        if not isinstance(flag_value, bool) or flag_value:
-            return None
-    if (
-        LIST_AGENTS_EXPLICIT_ERROR_FIELD in value
-        and value[LIST_AGENTS_EXPLICIT_ERROR_FIELD] is not None
-        and value[LIST_AGENTS_EXPLICIT_ERROR_FIELD] is not False
-    ):
-        return None
-    for status_field in LIST_AGENTS_WRAPPER_STATUS_FIELDS:
-        if status_field not in value:
-            continue
-        wrapper_status = _native_status_tag(value[status_field])
-        if wrapper_status is None:
-            return None
-        if wrapper_status in LIST_AGENTS_WRAPPER_ERROR_STATUSES:
-            return None
-    agents = value.get("agents")
-    if not isinstance(agents, list) or not all(
-        isinstance(entry, dict) for entry in agents
-    ):
-        return None
-    return agents
-
-
-def _list_agents_exact_target(tool_input: Any) -> str | None:
-    if not isinstance(tool_input, dict):
-        return None
-    value = tool_input.get("path_prefix")
-    if not isinstance(value, str):
-        return None
-    return value if value.startswith("/") else None
-
-
-def _normalized_agent_status(value: Any) -> tuple[str, str | None]:
-    status = _native_status_tag(value)
-    if status is not None:
-        if status in (
-            LIST_AGENTS_ACTIVE_STATUSES
-            | LIST_AGENTS_ADVISORY_STATUSES
-            | LIST_AGENTS_TERMINAL_STATUSES
-        ):
-            return status, status
-        if status in LIST_AGENTS_ERROR_STATUSES:
-            detail = value.get(status) if isinstance(value, dict) else status
-            return "error", _bounded(detail, status)
-        return "unknown", status or None
-    return "unknown", None
-
-
 def _weak_list_agents_observation_preserves_terminal(
     record: dict[str, Any], observation: str
 ) -> bool:
@@ -1765,57 +1641,48 @@ def _identity_mapping(task_id: str, attempt: int) -> dict[str, Any]:
     return {"task_id": task_id, "attempt": attempt}
 
 
-def _handle_post_tool_agent_status(
-    payload: dict[str, Any], store: StateStore, session_id: str
+def observe_agent_status_post_tool(
+    payload: dict[str, Any], store: StateStore, session_id: str, observation: Any
 ) -> dict[str, Any] | None:
-    response = payload.get("tool_response")
-    entries = _agent_status_entries(response)
-    if entries is None:
+    """Persist one adapter-proven exact list_agents observation."""
+    target = getattr(observation, "target", None)
+    platform_status = getattr(observation, "normalized_status", None)
+    if not isinstance(target, str) or not isinstance(platform_status, str):
         return None
-    exact_query_target = _list_agents_exact_target(payload.get("tool_input"))
-    if exact_query_target is None:
-        return None
-    if not entries:
+    if platform_status == "absent":
         try:
             store.update(
                 session_id,
                 lambda state: _record_exact_absence(
-                    state, exact_query_target, _event_now(payload)
+                    state, target, _event_now(payload)
                 ),
             )
         except (OSError, RuntimeError) as exc:
             return {"systemMessage": f"Subagent Governance 无法记录精确空 Agent 对账，已降级放行：{exc}"}
         return None
 
-    if len(entries) != 1 or entries[0].get("agent_name") != exact_query_target:
-        return None
-
     def reconcile(state: dict[str, Any]) -> None:
-        for entry in entries:
-            target = str(entry.get("agent_name") or "")
-            resolved = _resolve_exact_dispatch_target_attempt(state, target)
-            if resolved is None:
-                continue
-            task_id, mapped_attempt, _record = resolved
-            _ensure_canonical_task_record(state, task_id)
-            record = _task_record_for_attempt(state, task_id, mapped_attempt)
-            if not isinstance(record, dict):
-                continue
-            platform_status, _platform_summary = _normalized_agent_status(
-                entry.get("agent_status")
-            )
+        resolved = _resolve_exact_dispatch_target_attempt(state, target)
+        if resolved is None:
+            return
+        task_id, mapped_attempt, _record = resolved
+        _ensure_canonical_task_record(state, task_id)
+        record = _task_record_for_attempt(state, task_id, mapped_attempt)
+        if not isinstance(record, dict):
+            return
+        if True:
             observed_at = _event_now(payload)
             if _execution_is_closed(record) is True:
-                continue
+                return
             if _weak_list_agents_observation_preserves_terminal(
                 record, platform_status
             ):
-                continue
+                return
             _apply_canonical_execution_update(record, "observation_observed_at", observed_at)
             _apply_canonical_execution_update(record, "observation_source", "list_agents")
             if _execution_status(record) == "interrupted":
                 record["updated_at"] = observed_at
-                continue
+                return
             last = record.get("last_lifecycle_operation")
             interrupt_reconcile = bool(
                 isinstance(last, dict)
@@ -1847,7 +1714,7 @@ def _handle_post_tool_agent_status(
                     _apply_canonical_execution_update(record, "closure_parent_action", "ask_user")
                 _apply_canonical_execution_update(record, "observed_platform_state", "error")
                 record["updated_at"] = observed_at
-                continue
+                return
             if platform_status == "running":
                 _apply_canonical_execution_update(record, "observed_execution_status", "running")
                 if interrupt_reconcile:
@@ -1877,11 +1744,10 @@ def _handle_post_tool_agent_status(
     return None
 
 
-def _handle_post_tool_lifecycle(
-    payload: dict[str, Any], store: StateStore, session_id: str
+def observe_lifecycle_post_tool(
+    payload: dict[str, Any], store: StateStore, session_id: str, observation: dict[str, str | None]
 ) -> dict[str, Any] | None:
     tool_use_id = str(payload.get("tool_use_id") or "")
-    response = payload.get("tool_response")
     observed_at = _event_now(payload)
     try:
         state = store.read(session_id)
@@ -1895,7 +1761,8 @@ def _handle_post_tool_lifecycle(
         }
     if claimed is not None:
         task_id, attempt, _record, pending = claimed
-        observation = adapt_call_response(response, str(pending.get("operation_type")))
+        if observation.get("call_observation") not in CALL_OBSERVATIONS:
+            return {"systemMessage": "Subagent Governance 收到无效 lifecycle adapter 观察，已降级放行。"}
 
         def predicate(current: dict[str, Any]) -> bool:
             target = _task_record_for_attempt(current, task_id, attempt)

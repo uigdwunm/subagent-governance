@@ -5,29 +5,76 @@ import time
 from typing import Any, Callable
 
 try:
+    from scripts.governance_dispatch import (
+        cleanup_initial_attempt, close_expired_unclaimed_initials_without_credentials,
+        reconcile_claimed_spawn,
+    )
+    from scripts.governance_errors import PreparedContractConflictError
     from scripts.governance_lifecycle import reconcile_pending_actions
     from scripts.governance_prepared_store import PreparedContractStore, prepared_root_for_store
-    from scripts.governance_semantics import STOP_READ_ATTEMPTS, STOP_READ_RETRY_DELAY_SECONDS, SESSION_SUMMARY_CONTEXT_LIMIT, SESSION_SUMMARY_FIELD_LIMIT, SESSION_SUMMARY_RECORD_LIMIT
+    from scripts.governance_semantics import RETENTION_SECONDS, STOP_READ_ATTEMPTS, STOP_READ_RETRY_DELAY_SECONDS, SESSION_SUMMARY_CONTEXT_LIMIT, SESSION_SUMMARY_FIELD_LIMIT, SESSION_SUMMARY_RECORD_LIMIT
     from scripts.governance_views import action_required_records, recent_activity_records, work_item_views
 except ModuleNotFoundError:
+    from governance_dispatch import cleanup_initial_attempt, close_expired_unclaimed_initials_without_credentials, reconcile_claimed_spawn
+    from governance_errors import PreparedContractConflictError
     from governance_lifecycle import reconcile_pending_actions
     from governance_prepared_store import PreparedContractStore, prepared_root_for_store
-    from governance_semantics import STOP_READ_ATTEMPTS, STOP_READ_RETRY_DELAY_SECONDS, SESSION_SUMMARY_CONTEXT_LIMIT, SESSION_SUMMARY_FIELD_LIMIT, SESSION_SUMMARY_RECORD_LIMIT
+    from governance_semantics import RETENTION_SECONDS, STOP_READ_ATTEMPTS, STOP_READ_RETRY_DELAY_SECONDS, SESSION_SUMMARY_CONTEXT_LIMIT, SESSION_SUMMARY_FIELD_LIMIT, SESSION_SUMMARY_RECORD_LIMIT
     from governance_views import action_required_records, recent_activity_records, work_item_views
 
 
 def _bounded(value: Any, fallback: str = "") -> str: return str(value or fallback).strip()[:600]
 
 
-def reconcile_prepared_dispatches(session_id: str, *, state_store: Any, prepared_store: Any) -> dict[str, int]:
-    """Session maintenance entry point.
-
-    Prepared dispatch reconciliation remains intentionally conservative here:
-    v6 records are inspected by their owning dispatch transaction at claim time;
-    this hook only establishes that the prepared store is safely readable.
-    """
-    records = prepared_store.list_records(session_id)
-    return {"prepared_records": len(records)}
+def reconcile_prepared_dispatches(session_id: str, *, state_store: Any, prepared_store: Any, now: int | None = None) -> dict[str, int]:
+    """Expire exact unclaimed capabilities and reconcile stale claimed spawns."""
+    current_time = int(time.time()) if now is None else now
+    expired = reconciled = 0
+    for prepared in prepared_store.list_records(session_id):
+        task_ref = str(prepared["task_ref"])
+        if prepared.get("consumed") is False:
+            if prepared.get("created_at", 0) <= current_time - int(RETENTION_SECONDS["prepared_unclaimed"]):
+                task_id = str(prepared["task_id"])
+                attempt = int(prepared["attempt"])
+                if prepared.get("dispatch_operation") == "initial_spawn":
+                    cleanup = cleanup_initial_attempt(
+                        session_id, prepared, state_store,
+                        error_context="unclaimed initial PreparedContract expiry", now=current_time,
+                    )
+                    if not cleanup["safe_for_prepared_delete"]:
+                        marker_status = "rollback-incomplete 已持久化为 action-required" if cleanup["marked"] else "rollback-incomplete 无法持久化 reconcile 标记"
+                        details = "；".join(cleanup["errors"])
+                        raise PreparedContractConflictError(
+                            "过期 initial PreparedContract 清理进入 degraded / rollback-incomplete："
+                            f"{details}；{marker_status}；PreparedContract retained，可由显式 reconcile/expiry 重试；"
+                            f"task_id={task_id}, attempt={attempt}"
+                        )
+                    try:
+                        prepared_store.delete_if(session_id, task_ref, lambda value: value == prepared)
+                    except Exception as exc:
+                        raise PreparedContractConflictError(
+                            "过期 initial PreparedContract 清理进入 degraded / rollback-incomplete："
+                            f"PreparedContract cleanup failure：{exc}；task 已安全 absent，orphan PreparedContract retained；"
+                            f"task_id={task_id}, attempt={attempt}"
+                        ) from exc
+                    if cleanup["errors"]:
+                        raise PreparedContractConflictError(
+                            "过期 initial PreparedContract exact rollback 已完成，但 cleanup error 可见："
+                            f"{'；'.join(cleanup['errors'])}；task_id={task_id}, attempt={attempt}"
+                        )
+                    expired += 1
+                elif prepared.get("dispatch_operation") == "spawn_retry":
+                    prepared_store.delete_if(session_id, task_ref, lambda value: value == prepared)
+                    expired += 1
+                else:
+                    raise PreparedContractConflictError(f"未知 PreparedContract dispatch operation：{prepared.get('dispatch_operation')}")
+            continue
+        if reconcile_claimed_spawn(session_id, prepared, current_time, int(RETENTION_SECONDS["claimed_reconcile"]), state_store, prepared_store):
+            reconciled += 1
+    expired += close_expired_unclaimed_initials_without_credentials(
+        session_id, state_store=state_store, prepared_store=prepared_store, now=current_time,
+    )
+    return {"expired": expired, "reconciled": reconciled}
 
 
 def stop_advisory(payload: dict[str, Any], store: Any, *, sleeper: Callable[[float], None] = time.sleep) -> dict[str, Any]:

@@ -14,21 +14,25 @@ from scripts import governance_state_store as state_store
 from scripts import governance_storage as storage
 from scripts import governance_store_support as store_support
 
-governance = load_governance("state_store")
+from scripts import governance_contracts as contracts
+from scripts import governance_dispatch as dispatch
+from scripts import governance_errors as errors
+from scripts import governance_semantics as semantics
+from scripts import governance_state_store as state_store_module
 
 
 class StateStoreSafetyTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.store = governance.StateStore(self.root)
+        self.store = state_store_module.StateStore(self.root)
 
     def tearDown(self):
         self.temporary.cleanup()
 
     @staticmethod
     def record(attempt=1, task_ref="0123456789ab"):
-        contract = governance.TaskContract(
+        contract = contracts.TaskContract(
             semantic_name="state_store", requested_mode="standard",
             resolved_mode="standard", resolution_reason="explicit_request",
             task_features={"risk": "medium", "read_only": False, "writes_files": True, "destructive": False, "production": False, "concurrent_write": False},
@@ -37,7 +41,7 @@ class StateStoreSafetyTests(unittest.TestCase):
             evidence_requirements=["unit test"], relevant_files=[], context_manifest={"mode": "none"},
             current_state=None, model=None, reasoning_effort=None, context_strategy="isolated", context_turns=None, context_reason=None,
         )
-        return governance._initial_task_record(attempt, task_ref, f"sg_standard_state_store_t_{task_ref}", contract, 100)
+        return dispatch.initial_task_record(attempt, task_ref, f"sg_standard_state_store_t_{task_ref}", contract, 100)
 
     def add_record(self, state, task_id="task"):
         state["tasks"][task_id] = self.record()
@@ -84,11 +88,11 @@ class StateStoreSafetyTests(unittest.TestCase):
         )
         self.assertEqual(state["session_id"], "session-1")
         self.assertEqual(
-            state["state_format_version"], governance.STATE_FORMAT_VERSION
+            state["state_format_version"], semantics.STATE_FORMAT_VERSION
         )
 
     def test_new_governed_record_uses_canonical_work_item_and_executions(self):
-        contract = governance.TaskContract(
+        contract = contracts.TaskContract(
             semantic_name="state_store",
             requested_mode="standard",
             resolved_mode="standard",
@@ -116,7 +120,7 @@ class StateStoreSafetyTests(unittest.TestCase):
             context_turns=None,
             context_reason=None,
         )
-        record = governance._initial_task_record(
+        record = dispatch.initial_task_record(
             1, "0123456789ab", "sg_standard_state_store_t_0123456789ab", contract, 100
         )
 
@@ -148,7 +152,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         state_path, _ = self.store._paths("session-1")
         state_path.write_text("{broken", encoding="utf-8")
 
-        with self.assertRaises(governance.StateValidationError):
+        with self.assertRaises(errors.StateValidationError):
             self.store.read("session-1")
 
         self.assertEqual(state_path.read_text(encoding="utf-8"), "{broken")
@@ -159,7 +163,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         original = b"\xff\xfe\x00"
         state_path.write_bytes(original)
 
-        with self.assertRaises(governance.StateValidationError):
+        with self.assertRaises(errors.StateValidationError):
             self.store.update("session-1", lambda state: state.update({"unexpected": True}))
 
         self.assertEqual(state_path.read_bytes(), original)
@@ -169,7 +173,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         state_path, _ = self.store._paths("session-1")
         state_path.mkdir()
 
-        with self.assertRaises(governance.StateValidationError):
+        with self.assertRaises(errors.StateValidationError):
             self.store.read("session-1")
 
         self.assertTrue(state_path.is_dir())
@@ -178,7 +182,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         _state_path, lock_path = self.store._paths("session-1")
         lock_path.mkdir()
 
-        with self.assertRaises(governance.StateValidationError):
+        with self.assertRaises(errors.StateValidationError):
             self.store.read("session-1")
 
         self.assertTrue(lock_path.is_dir())
@@ -198,7 +202,7 @@ class StateStoreSafetyTests(unittest.TestCase):
             )
 
         with mock.patch.object(storage.os, "fstat", side_effect=mismatched_owner):
-            with self.assertRaises(governance.StateValidationError):
+            with self.assertRaises(errors.StateValidationError):
                 self.store.read("session-1")
 
     @unittest.skipIf(os.name == "nt", "Windows does not expose POSIX file ownership")
@@ -219,7 +223,7 @@ class StateStoreSafetyTests(unittest.TestCase):
 
         before = state_path.read_bytes()
         with mock.patch.object(Path, "lstat", autospec=True, side_effect=mismatched_owner):
-            with self.assertRaises(governance.StateValidationError):
+            with self.assertRaises(errors.StateValidationError):
                 self.store.read("session-1")
         self.assertEqual(state_path.read_bytes(), before)
 
@@ -230,7 +234,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         before = state_path.read_bytes()
         state_path.chmod(0o644)
 
-        with self.assertRaises(governance.StateValidationError):
+        with self.assertRaises(errors.StateValidationError):
             self.store.read("session-1")
 
         self.assertEqual(state_path.read_bytes(), before)
@@ -247,7 +251,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         state_path.write_text(json.dumps(value), encoding="utf-8")
         state_path.chmod(0o600)
 
-        with self.assertRaisesRegex(governance.StateValidationError, "tasks"):
+        with self.assertRaisesRegex(errors.StateValidationError, "tasks"):
             self.store.read("session-1", required_fields=("tasks", "agents"))
 
         self.assertNotIn("tasks", json.loads(state_path.read_text(encoding="utf-8")))
@@ -260,7 +264,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         state_path.chmod(0o600)
 
         before = state_path.read_bytes()
-        with self.assertRaisesRegex(governance.StateValidationError, "未知字段"):
+        with self.assertRaisesRegex(errors.StateValidationError, "未知字段"):
             self.store.read("session-1", required_fields=("tasks",))
         self.assertEqual(state_path.read_bytes(), before)
 
@@ -270,7 +274,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         value["tasks"]["old"] = {"status": "blocked"}
         state_path.write_text(json.dumps(value), encoding="utf-8")
         state_path.chmod(0o600)
-        with self.assertRaises(governance.StateValidationError):
+        with self.assertRaises(errors.StateValidationError):
             self.store.read("session-1")
 
     def test_new_task_soft_limit_rejects_without_overwriting(self):
@@ -279,7 +283,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         before = state_path.read_bytes()
 
         with mock.patch.object(state_store, "NEW_TASK_SOFT_LIMIT_BYTES", len(before) + 1):
-            with self.assertRaises(governance.StateCapacityError):
+            with self.assertRaises(errors.StateCapacityError):
                 self.store.update(
                     "session-1",
                     lambda state: self.add_record(state, "new-task"),
@@ -299,7 +303,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         before = state_path.read_bytes()
 
         with mock.patch.object(state_store, "MAX_STATE_BYTES", len(before) + 1):
-            with self.assertRaises(governance.StateCapacityError):
+            with self.assertRaises(errors.StateCapacityError):
                 self.store.update(
                     "session-1",
                     lambda state: self.add_record(state, "overflow"),
@@ -313,7 +317,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         state_path.write_bytes(original)
         state_path.chmod(0o600)
 
-        with self.assertRaises(governance.StateCapacityError):
+        with self.assertRaises(errors.StateCapacityError):
             self.store.read("session-1")
 
         self.assertEqual(state_path.read_bytes(), original)
@@ -329,7 +333,7 @@ class StateStoreSafetyTests(unittest.TestCase):
             callback_called = True
             state["health"]["status"] = "degraded"
 
-        with self.assertRaises(governance.StateConflictError):
+        with self.assertRaises(errors.StateConflictError):
             self.store.compare_and_set(
                 "session-1",
                 lambda state: state.get("health", {}).get("status") == "unavailable",
@@ -357,7 +361,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         before = state_path.read_bytes()
 
         with mock.patch.object(storage.os, "replace", side_effect=OSError("replace failed")):
-            with self.assertRaises(governance.StateWriteError):
+            with self.assertRaises(errors.StateWriteError):
                 self.store.update("session-1", lambda state: state["health"].update({"status": "degraded"}))
 
         self.assertEqual(state_path.read_bytes(), before)
@@ -368,7 +372,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         before = state_path.read_bytes()
 
         with mock.patch.object(storage.os, "fsync", side_effect=OSError("write fsync failed")):
-            with self.assertRaises(governance.StateWriteError):
+            with self.assertRaises(errors.StateWriteError):
                 self.store.update("session-1", lambda state: state["health"].update({"status": "degraded"}))
 
         self.assertEqual(state_path.read_bytes(), before)
@@ -382,11 +386,11 @@ class StateStoreSafetyTests(unittest.TestCase):
             nonlocal calls
             calls += 1
             if calls == 2:
-                raise governance.StateValidationError("simulated readback failure")
+                raise errors.StateValidationError("simulated readback failure")
             return original_read(*args, **kwargs)
 
         with mock.patch.object(self.store, "_read_path", side_effect=fail_second_read):
-            with self.assertRaises(governance.StateWriteError):
+            with self.assertRaises(errors.StateWriteError):
                 self.store.update("session-1", lambda state: state["health"].update({"status": "degraded"}))
 
     @unittest.skipIf(os.name == "nt", "Windows access control is not represented by POSIX mode bits")
@@ -399,19 +403,19 @@ class StateStoreSafetyTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(lock_path.stat().st_mode), 0o600)
 
     def test_expired_tombstones_cleanup_is_exact_and_keeps_lock(self):
-        now = governance._now()
+        now = state_store_module._now()
         def add_state(state):
             self.add_record(state, "unresolved")
             state["tombstones"].update({
                 "tenant:task-old:1": {
                     "task_ref": "0123456789ab", "dispatch_target": None,
                     "close_reason": "explicit close",
-                    "closed_at": now - governance.RETENTION_SECONDS["tombstone"] - 1,
+                    "closed_at": now - semantics.RETENTION_SECONDS["tombstone"] - 1,
                 },
                 "task-recent:2": {
                     "task_ref": "0123456789abcdef", "dispatch_target": None,
                     "close_reason": "explicit close",
-                    "closed_at": now - governance.RETENTION_SECONDS["tombstone"] + 1,
+                    "closed_at": now - semantics.RETENTION_SECONDS["tombstone"] + 1,
                 },
             })
 
@@ -430,12 +434,12 @@ class StateStoreSafetyTests(unittest.TestCase):
         self.assertTrue(lock_path.is_file())
 
     def test_invalid_tombstone_is_not_guessed_or_deleted(self):
-        now = governance._now()
+        now = state_store_module._now()
 
         def add_invalid(state):
             state["tombstones"]["invalid"] = {
                 "close_reason": "explicit close",
-                "closed_at": now - governance.RETENTION_SECONDS["tombstone"] - 1,
+                "closed_at": now - semantics.RETENTION_SECONDS["tombstone"] - 1,
             }
 
         state_path, _ = self.store._paths("session-1")
@@ -443,7 +447,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         add_invalid(state)
         state_path.write_text(json.dumps(state), encoding="utf-8")
         state_path.chmod(0o600)
-        with self.assertRaises(governance.StateValidationError):
+        with self.assertRaises(errors.StateValidationError):
             self.store.cleanup_expired_tombstones("session-1", now=now)
 
     def test_delete_keeps_stable_lock_file(self):

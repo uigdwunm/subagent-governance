@@ -5,6 +5,9 @@ import unittest
 from pathlib import Path
 
 from scripts import governance_semantics as semantics
+from scripts import governance_dispatch as dispatch
+from scripts import governance_execution as execution_domain
+from scripts import governance_state as state_domain
 from tests.schema_validation import assert_schema_supported, validate_instance
 from tests.support import load_governance
 
@@ -62,7 +65,7 @@ class CanonicalRecordSchemaTests(unittest.TestCase):
         self.assertEqual([str(error) for error in errors], [])
 
     def initial_execution(self, task_id="v5-schema-task"):
-        record = governance._initial_task_record(
+        record = dispatch.initial_task_record(
             1,
             "0123456789ab",
             "sg_standard_v5_schema_t_0123456789ab",
@@ -94,10 +97,10 @@ class CanonicalRecordSchemaTests(unittest.TestCase):
 
     def test_runtime_enums_match_schema(self):
         mappings = {
-            "operation_type": governance.OPERATION_TYPES,
-            "parent_action": governance.PARENT_ACTIONS,
-            "parent_disposition": governance.PARENT_DISPOSITIONS,
-            "observation_source": governance.OBSERVATION_SOURCES,
+            "operation_type": semantics.OPERATION_TYPES,
+            "parent_action": semantics.PARENT_ACTIONS,
+            "parent_disposition": semantics.PARENT_DISPOSITIONS,
+            "observation_source": semantics.OBSERVATION_SOURCES,
         }
         for definition_name, runtime_values in mappings.items():
             with self.subTest(definition=definition_name):
@@ -112,7 +115,7 @@ class CanonicalRecordSchemaTests(unittest.TestCase):
         state = governance.StateStore._empty_state(self.session_id)
         self.assertNotIn("updated_at", self.definition("canonical_state")["properties"])
         state["tasks"][task_id] = container
-        stored = governance._state_for_storage(state)["tasks"][task_id]
+        stored = state_domain.require_current_state_format(state)["tasks"][task_id]
         self.assert_valid(stored, "canonical_task_container")
         self.assert_valid(stored["executions"]["1"], "execution_record")
 
@@ -182,13 +185,13 @@ class CanonicalRecordSchemaTests(unittest.TestCase):
             now=130,
         )
 
-        current_state = governance._state_for_storage(self.store.read(self.session_id))
+        current_state = state_domain.require_current_state_format(self.store.read(self.session_id))
         current = current_state["tasks"][task_id]
         tombstone = current_state["tombstones"][f"{task_id}:1"]
         self.assert_valid(current, "canonical_task_container")
         self.assert_valid(tombstone, "tombstone_record")
         execution = current["executions"]["1"]
-        self.assertTrue(governance._execution_is_closed(execution))
+        self.assertTrue(execution_domain.execution_is_closed(execution))
 
 if __name__ == "__main__":
     unittest.main()

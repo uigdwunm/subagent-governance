@@ -9,6 +9,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts import governance_context as context
+from scripts import governance_contracts as contracts
+from scripts import governance_dispatch_identity as identity
+from scripts import governance_dispatch_rendering as rendering
+from scripts import governance_prepared_store as prepared_records
 from tests.support import load_governance
 
 
@@ -46,7 +51,7 @@ class P4ProtocolCharacterizationTests(unittest.TestCase):
         }
 
     def test_contract_canonical_record_and_digest_are_stable(self):
-        contract = governance._contract_from_input(self.input_contract())
+        contract = contracts.contract_from_input(self.input_contract())
 
         self.assertEqual(
             contract.to_record(),
@@ -58,23 +63,23 @@ class P4ProtocolCharacterizationTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            governance.contract_digest(contract),
+            contracts.contract_digest(contract),
             "a681502ac7a09782a093a29645b61202d9c322b624f40beb0561330c5ff8de2c",
         )
 
     def test_identity_prompt_and_native_arguments_are_byte_stable(self):
-        contract = governance._contract_from_input(self.input_contract())
+        contract = contracts.contract_from_input(self.input_contract())
         task_ref = "0123456789ab"
-        task_name = governance.build_task_name(
+        task_name = identity.build_task_name(
             contract.resolved_mode, contract.semantic_name, task_ref
         )
         verification = {"mode": "none"}
-        prompt = governance.render_dispatch_prompt(contract, verification)
-        message = governance.render_dispatch_user_message(contract, verification)
-        arguments = governance._spawn_args(contract, task_name, verification)
+        prompt = rendering.render_dispatch_prompt(contract, verification)
+        message = rendering.render_dispatch_user_message(contract, verification)
+        arguments = rendering.spawn_args(contract, task_name, verification)
 
         self.assertEqual(task_name, "sg_standard_payment_review_t_0123456789ab")
-        self.assertEqual(governance.parse_task_name(task_name), ("standard", "payment_review", task_ref))
+        self.assertEqual(identity.parse_task_name(task_name), ("standard", "payment_review", task_ref))
         self.assertEqual(
             hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
             "f5e7eb781b79324a350483f481e9309b7637c6bbb7eff1f73f751347f6c3428f",
@@ -89,11 +94,11 @@ class P4ProtocolCharacterizationTests(unittest.TestCase):
         )
 
     def test_prepared_record_is_strict_and_round_trips_unchanged(self):
-        contract = governance._contract_from_input(self.input_contract())
+        contract = contracts.contract_from_input(self.input_contract())
         task_ref = "0123456789ab"
         task_name = "sg_standard_payment_review_t_0123456789ab"
-        spawn_args = governance._spawn_args(contract, task_name, {"mode": "none"})
-        record = governance._prepared_record(
+        spawn_args = rendering.spawn_args(contract, task_name, {"mode": "none"})
+        record = prepared_records.prepared_record(
             "session-1", "sg-task-0001", 1, task_ref, task_name, contract,
             {"mode": "none"}, spawn_args, created_at=42, spawn_retry_count=0,
             dispatch_operation="initial_spawn",
@@ -102,7 +107,7 @@ class P4ProtocolCharacterizationTests(unittest.TestCase):
             store = governance.PreparedContractStore(Path(directory) / "prepared")
             store.create(record)
             self.assertEqual(store.read("session-1", task_ref), record)
-        self.assertEqual(record["contract_digest"], governance.contract_digest(contract))
+        self.assertEqual(record["contract_digest"], contracts.contract_digest(contract))
         self.assertEqual(record["native_parameters"], {
             "task_name": task_name,
             "fork_turns": "none",
@@ -117,7 +122,7 @@ class P4ProtocolCharacterizationTests(unittest.TestCase):
             "baseline": {"kind": "working_tree", "revision": None},
             "required_paths": [{"path": "docs/task.md", "type": "file"}],
         }
-        self.assertEqual(governance._validate_context_manifest(manifest), [])
+        self.assertEqual(context.validate_context_manifest(manifest), [])
 
 
 if __name__ == "__main__":

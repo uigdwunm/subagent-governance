@@ -6,7 +6,15 @@ from pathlib import Path
 
 from tests.support import load_governance
 
-governance = load_governance("session_closure")
+from scripts import governance_contracts as contracts
+from scripts import governance_dispatch as dispatch
+from scripts import governance_dispatch_identity as dispatch_identity
+from scripts import governance_execution as execution_module
+from scripts import governance_hook as hook
+from scripts import governance_lifecycle as lifecycle
+from scripts import governance_semantics as semantics
+from scripts import governance_state_store as state_store_module
+from scripts import governance_views as views
 
 
 class WaitRecoverySessionClosureTests(unittest.TestCase):
@@ -14,12 +22,12 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.store = governance.StateStore(self.root / "sessions")
+        self.store = state_store_module.StateStore(self.root / "sessions")
         self.session_id = "session-v5"
 
     @staticmethod
     def contract():
-        return governance.TaskContract(
+        return contracts.TaskContract(
             semantic_name="session_v5",
             requested_mode="standard",
             resolved_mode="standard",
@@ -50,8 +58,8 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
 
     def add_task(self, task_id="session-task", *, attempt=1, target=None, now=100):
         target = target or f"/root/{task_id}-{attempt}"
-        ref = governance.derive_task_ref(task_id, attempt, 12)
-        container = governance._initial_task_record(
+        ref = dispatch_identity.derive_task_ref(task_id, attempt, 12)
+        container = dispatch.initial_task_record(
             attempt,
             ref,
             f"sg_standard_session_v5_t_{ref}",
@@ -64,8 +72,8 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
             dispatch_target=target,
             tool_use_id=f"spawn-{attempt}",
         )
-        governance._apply_canonical_execution_update(execution, "observed_execution_status", "running")
-        governance._apply_canonical_execution_update(execution, "closure_parent_action", "wait")
+        execution_module.apply_canonical_execution_update(execution, "observed_execution_status", "running")
+        execution_module.apply_canonical_execution_update(execution, "closure_parent_action", "wait")
 
         def add(state):
             state["tasks"][task_id] = container
@@ -75,28 +83,28 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
         return task_id, target
 
     def test_machine_semantics_anchor_wait_and_derived_views(self):
-        self.assertEqual(governance.SEMANTIC_RULES["wait_timeout_ms"], 1_200_000)
-        self.assertEqual(governance.SEMANTIC_RULES["stop_read_attempts"], 3)
+        self.assertEqual(semantics.SEMANTIC_RULES["wait_timeout_ms"], 1_200_000)
+        self.assertEqual(semantics.SEMANTIC_RULES["stop_read_attempts"], 3)
         self.assertFalse(
-            governance.SEMANTIC_RULES["derived_views"]["action_required"][
+            semantics.SEMANTIC_RULES["derived_views"]["action_required"][
                 "persisted_on_work_item"
             ]
         )
 
     def test_running_attempt_is_action_required_and_recent(self):
-        task_id, _target = self.add_task(now=governance._now())
+        task_id, _target = self.add_task(now=state_store_module._now())
         state = self.store.read(self.session_id)
         self.assertEqual(
-            [(item["task_id"], item["attempt"]) for item in governance._action_required_records(state)],
+            [(item["task_id"], item["attempt"]) for item in views.action_required_records(state)],
             [(task_id, 1)],
         )
-        recent = governance._recent_activity_records(state)
+        recent = views.recent_activity_records(state)
         self.assertEqual(len(recent), 1)
         self.assertNotIn("is_current_attempt", recent[0])
 
     def test_terminal_notification_is_action_required_until_parent_closes(self):
         task_id, target = self.add_task()
-        governance.record_terminal_notification(
+        lifecycle.record_terminal_notification(
             {
                 "sender_target": target,
                 "task_id": task_id,
@@ -114,9 +122,9 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
             ],
             "decide_disposition",
         )
-        self.assertEqual(len(governance._action_required_records(state)), 1)
+        self.assertEqual(len(views.action_required_records(state)), 1)
 
-        governance.apply_parent_disposition(
+        lifecycle.apply_parent_disposition(
             {
                 "task_id": task_id,
                 "attempt": 1,
@@ -127,11 +135,11 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
             state_store=self.store,
             now=160,
         )
-        self.assertEqual(governance._action_required_records(self.store.read(self.session_id)), [])
+        self.assertEqual(views.action_required_records(self.store.read(self.session_id)), [])
 
     def test_session_start_summary_uses_notification_view(self):
         task_id, target = self.add_task()
-        governance.record_terminal_notification(
+        lifecycle.record_terminal_notification(
             {
                 "sender_target": target,
                 "task_id": task_id,
@@ -142,7 +150,7 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
             state_store=self.store,
             now=150,
         )
-        result = governance.handle(
+        result = hook.handle_hook(
             {
                 "session_id": self.session_id,
                 "hook_event_name": "SessionStart",
@@ -160,7 +168,7 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
     def test_session_end_preserves_action_required_state(self):
         self.add_task()
         path, lock_path = self.store._paths(self.session_id)
-        result = governance.handle(
+        result = hook.handle_hook(
             {"session_id": self.session_id, "hook_event_name": "SessionEnd"},
             self.store,
         )
@@ -171,7 +179,7 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
 
     def test_stop_advisory_summary_uses_canonical_execution_status(self):
         self.add_task()
-        result = governance.handle(
+        result = hook.handle_hook(
             {"session_id": self.session_id, "hook_event_name": "Stop"},
             self.store,
         )
@@ -182,7 +190,7 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
 
     def test_session_end_deletes_closed_state_but_keeps_lock(self):
         task_id, target = self.add_task()
-        governance.record_terminal_notification(
+        lifecycle.record_terminal_notification(
             {
                 "sender_target": target,
                 "task_id": task_id,
@@ -193,7 +201,7 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
             state_store=self.store,
             now=150,
         )
-        governance.apply_parent_disposition(
+        lifecycle.apply_parent_disposition(
             {
                 "task_id": task_id,
                 "attempt": 1,
@@ -205,7 +213,7 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
             now=160,
         )
         path, lock_path = self.store._paths(self.session_id)
-        governance.handle(
+        hook.handle_hook(
             {"session_id": self.session_id, "hook_event_name": "SessionEnd"},
             self.store,
         )
@@ -216,19 +224,19 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
         task_id, _target = self.add_task()
         state = self.store.read(self.session_id)
         execution = state["tasks"][task_id]["executions"]["1"]
-        governance._apply_canonical_execution_update(
+        execution_module.apply_canonical_execution_update(
             execution, "observed_execution_status", "stopped"
         )
-        governance._apply_canonical_execution_update(
+        execution_module.apply_canonical_execution_update(
             execution, "closure_reason", "resume_delivery_failed"
         )
-        governance._apply_canonical_execution_update(execution, "closure_closed_at", 150)
-        governance._apply_canonical_execution_update(
+        execution_module.apply_canonical_execution_update(execution, "closure_closed_at", 150)
+        execution_module.apply_canonical_execution_update(
             execution, "closure_parent_action", "decide_disposition"
         )
         self.store.update(self.session_id, lambda current: current.update(state))
 
-        view, issues, incomplete = governance._build_work_item_decision_snapshot(
+        view, issues, incomplete = views.work_item_decision_snapshot(
             self.store.read(self.session_id), task_id, session_id=self.session_id
         )
         self.assertFalse(incomplete, issues)
@@ -240,19 +248,19 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
         task_id, _target = self.add_task()
         state = self.store.read(self.session_id)
         execution = state["tasks"][task_id]["executions"]["1"]
-        governance._apply_canonical_execution_update(execution, "observed_execution_status", "stopped")
-        governance._apply_canonical_execution_update(execution, "closure_reason", "resume_delivery_failed")
-        governance._apply_canonical_execution_update(execution, "closure_closed_at", 150)
-        governance._apply_canonical_execution_update(execution, "closure_parent_action", "decide_disposition")
+        execution_module.apply_canonical_execution_update(execution, "observed_execution_status", "stopped")
+        execution_module.apply_canonical_execution_update(execution, "closure_reason", "resume_delivery_failed")
+        execution_module.apply_canonical_execution_update(execution, "closure_closed_at", 150)
+        execution_module.apply_canonical_execution_update(execution, "closure_parent_action", "decide_disposition")
         self.store.update(self.session_id, lambda current: current.update(state))
         path, _lock = self.store._paths(self.session_id)
 
-        governance.handle({"session_id": self.session_id, "hook_event_name": "SessionEnd"}, self.store)
+        hook.handle_hook({"session_id": self.session_id, "hook_event_name": "SessionEnd"}, self.store)
 
         self.assertTrue(path.exists())
 
     def test_expired_tombstone_is_removed(self):
-        now = governance._now()
+        now = state_store_module._now()
         self.store.update(
             self.session_id,
             lambda state: state["tombstones"].update(
@@ -261,12 +269,12 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
                         "task_ref": "0123456789ab",
                         "dispatch_target": None,
                         "close_reason": "parent_closed",
-                        "closed_at": now - governance.RETENTION_SECONDS["tombstone"] - 1,
+                        "closed_at": now - semantics.RETENTION_SECONDS["tombstone"] - 1,
                     }
                 }
             ),
         )
-        governance.handle(
+        hook.handle_hook(
             {"session_id": self.session_id, "hook_event_name": "SessionStart"},
             self.store,
         )
@@ -275,8 +283,8 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
         )
 
     def test_stop_fails_open_when_store_is_unavailable(self):
-        unavailable = governance.UnavailableStateStore(RuntimeError("state unavailable"))
-        result = governance.handle(
+        unavailable = state_store_module.UnavailableStateStore(RuntimeError("state unavailable"))
+        result = hook.handle_hook(
             {"session_id": self.session_id, "hook_event_name": "Stop"},
             unavailable,
         )

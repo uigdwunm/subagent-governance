@@ -7,18 +7,24 @@ from pathlib import Path
 
 from tests.support import load_governance
 
-governance = load_governance("terminal_notification")
+from scripts import governance_contracts as contracts
+from scripts import governance_dispatch as dispatch
+from scripts import governance_dispatch_identity as dispatch_identity
+from scripts import governance_errors as errors
+from scripts import governance_execution as execution_module
+from scripts import governance_lifecycle as lifecycle
+from scripts import governance_state_store as state_store_module
 
 
 class TerminalNotificationChannelTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.store = governance.StateStore(self.root / "sessions")
+        self.store = state_store_module.StateStore(self.root / "sessions")
         self.session_id = "session-terminal-notification"
         self.task_id = "sg-terminal-notification-task"
         self.target = "/root/sg_standard_terminal_notification_t_0123456789ab"
-        contract = governance.TaskContract(
+        contract = contracts.TaskContract(
             semantic_name="terminal_notification",
             requested_mode="standard",
             resolved_mode="standard",
@@ -46,19 +52,19 @@ class TerminalNotificationChannelTests(unittest.TestCase):
             context_turns=None,
             context_reason=None,
         )
-        task = governance._initial_task_record(
+        task = dispatch.initial_task_record(
             1,
-            governance.derive_task_ref(self.task_id, 1, 12),
+            dispatch_identity.derive_task_ref(self.task_id, 1, 12),
             "sg_standard_terminal_notification_t_0123456789ab",
             contract,
             100,
         )
         execution = task["executions"]["1"]
-        governance._apply_canonical_execution_update(
+        execution_module.apply_canonical_execution_update(
             execution, "dispatch_target", self.target
         )
-        governance._apply_canonical_execution_update(execution, "observed_execution_status", "running")
-        governance._apply_canonical_execution_update(execution, "closure_parent_action", "wait")
+        execution_module.apply_canonical_execution_update(execution, "observed_execution_status", "running")
+        execution_module.apply_canonical_execution_update(execution, "closure_parent_action", "wait")
         self.store.update(
             self.session_id,
             lambda state: (
@@ -83,7 +89,7 @@ class TerminalNotificationChannelTests(unittest.TestCase):
         return value
 
     def record(self, **overrides):
-        return governance.record_terminal_notification(
+        return lifecycle.record_terminal_notification(
             self.envelope(**overrides),
             self.session_id,
             state_store=self.store,
@@ -99,8 +105,8 @@ class TerminalNotificationChannelTests(unittest.TestCase):
         result = self.record()
         self.assertEqual(result["status"], "recorded")
         execution = self.execution()
-        self.assertEqual(governance._execution_status(execution), "stopped")
-        self.assertEqual(governance._parent_action(execution), "decide_disposition")
+        self.assertEqual(execution_module.execution_status(execution), "stopped")
+        self.assertEqual(execution_module.parent_action(execution), "decide_disposition")
         self.assertNotIn("result_record", execution)
         self.assertEqual(
             execution["observation_record"],
@@ -112,13 +118,13 @@ class TerminalNotificationChannelTests(unittest.TestCase):
             },
         )
         self.assertNotIn("closure_state", execution["closure_record"])
-        self.assertEqual(governance._execution_status(execution), "stopped")
-        self.assertEqual(governance._parent_action(execution), "decide_disposition")
+        self.assertEqual(execution_module.execution_status(execution), "stopped")
+        self.assertEqual(execution_module.parent_action(execution), "decide_disposition")
         self.assertFalse((self.root / "results").exists())
 
     def test_replay_is_idempotent_and_does_not_change_timestamp(self):
         self.record()
-        replayed = governance.record_terminal_notification(
+        replayed = lifecycle.record_terminal_notification(
             self.envelope(),
             self.session_id,
             state_store=self.store,
@@ -129,13 +135,13 @@ class TerminalNotificationChannelTests(unittest.TestCase):
 
     def test_wrong_sender_is_rejected_without_state_change(self):
         before = copy.deepcopy(self.store.read(self.session_id))
-        with self.assertRaises(governance.NotificationObservationError):
+        with self.assertRaises(errors.NotificationObservationError):
             self.record(sender_target="/root/wrong")
         self.assertEqual(self.store.read(self.session_id), before)
 
     def test_conflicting_terminal_status_requires_reconciliation(self):
         self.record()
-        conflict = governance.record_terminal_notification(
+        conflict = lifecycle.record_terminal_notification(
             self.envelope(terminal_status="interrupted"),
             self.session_id,
             state_store=self.store,
@@ -144,11 +150,11 @@ class TerminalNotificationChannelTests(unittest.TestCase):
         self.assertEqual(conflict["status"], "conflict")
         execution = self.execution()
         self.assertEqual(execution["observation_record"]["terminal_status"], "completed")
-        self.assertEqual(governance._parent_action(execution), "reconcile")
+        self.assertEqual(execution_module.parent_action(execution), "reconcile")
 
     def test_notification_allows_parent_to_close_without_business_acceptance(self):
         self.record()
-        closed = governance.apply_parent_disposition(
+        closed = lifecycle.apply_parent_disposition(
             {
                 "task_id": self.task_id,
                 "attempt": 1,
@@ -164,7 +170,7 @@ class TerminalNotificationChannelTests(unittest.TestCase):
         self.assertEqual(task["work_item"]["lifecycle"], "tombstoned")
         closure = task["executions"]["1"]["closure_record"]
         self.assertNotIn("closure_state", closure)
-        self.assertTrue(governance._execution_is_closed(task["executions"]["1"]))
+        self.assertTrue(execution_module.execution_is_closed(task["executions"]["1"]))
         self.assertEqual(closure["reason"], "close_task:父 Agent 已处理原生终态通知")
         self.assertNotIn("parent_disposition", closure)
         self.assertNotIn("disposition_recorded_at", closure)

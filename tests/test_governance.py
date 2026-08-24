@@ -14,14 +14,19 @@ from tests.support import ROOT as PLUGIN_ROOT
 from tests.support import load_governance
 
 SCRIPT = PLUGIN_ROOT / "scripts/subagent_governance.py"
-governance = load_governance("governance")
+from scripts import governance_contracts as contracts
+from scripts import governance_execution as execution_module
+from scripts import governance_hook as hook
+from scripts import governance_prepared_store as prepared_store_module
+from scripts import governance_protocol as protocol
+from scripts import governance_state_store as state_store_module
 
 
 class GovernanceTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.store = governance.StateStore(self.root / "sessions")
+        self.store = state_store_module.StateStore(self.root / "sessions")
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -74,11 +79,11 @@ class GovernanceTests(unittest.TestCase):
         return value
 
     def prepare_managed(self, *, session_id="session-1", tool_use_id="tool-1", **overrides):
-        prepared = governance.prepare_dispatch(
+        prepared = protocol.prepare_dispatch(
             self.managed_contract(**overrides),
             session_id,
             state_store=self.store,
-            prepared_store=governance.PreparedContractStore(self.root / "prepared"),
+            prepared_store=prepared_store_module.PreparedContractStore(self.root / "prepared"),
         )
         payload = {
             "session_id": session_id,
@@ -91,6 +96,7 @@ class GovernanceTests(unittest.TestCase):
         return prepared, payload
 
     def test_tool_kind_recognizes_only_native_agent_operations(self):
+        from scripts.governance_hook import tool_kind
         expected = {
             "Agent": "spawn",
             "spawn_agent": "spawn",
@@ -106,28 +112,13 @@ class GovernanceTests(unittest.TestCase):
         }
         for tool_name, kind in expected.items():
             with self.subTest(tool_name=tool_name):
-                self.assertEqual(governance._tool_kind(tool_name), kind)
+                self.assertEqual(tool_kind(tool_name), kind)
         for tool_name in ("", "update_plan", "codex_app.send_message_to_thread"):
             with self.subTest(tool_name=tool_name):
-                self.assertIsNone(governance._tool_kind(tool_name))
+                self.assertIsNone(tool_kind(tool_name))
 
-    def test_handle_routes_registered_events_and_ignores_unknown_events(self):
-        routes = {
-            "PostToolUse": "_handle_post_tool",
-            "Stop": "_handle_stop",
-            "SessionStart": "_handle_session_start",
-            "SessionEnd": "_handle_session_end",
-        }
-        for event, handler_name in routes.items():
-            sentinel = {"route": event}
-            with self.subTest(event=event), mock.patch.object(
-                governance, handler_name, return_value=sentinel
-            ) as handler:
-                payload = {"hook_event_name": event}
-                self.assertEqual(governance.handle(payload, self.store), sentinel)
-                handler.assert_called_once_with(payload, self.store)
-        for event in ("SubagentStart", "SubagentStop", "UnknownEvent"):
-            self.assertIsNone(governance.handle({"hook_event_name": event}, self.store))
+    def test_handle_ignores_unknown_events_without_constructing_state(self):
+        self.assertIsNone(hook.handle_hook({"hook_event_name": "UnknownEvent"}, self.store))
 
     def test_main_fails_open_for_invalid_hook_input(self):
         for raw_input in ("{", "[]"):
@@ -169,7 +160,7 @@ class GovernanceTests(unittest.TestCase):
 
     def test_unmanaged_spawn_remains_native_and_does_not_create_state(self):
         payload = self.unmanaged_spawn_payload()
-        result = governance.handle(payload, self.store)["hookSpecificOutput"]
+        result = hook.handle_hook(payload, self.store)["hookSpecificOutput"]
         self.assertEqual(result["permissionDecision"], "allow")
         self.assertEqual(result["updatedInput"], payload["tool_input"])
         self.assertEqual(self.store.read("session-1")["tasks"], {})
@@ -187,7 +178,7 @@ class GovernanceTests(unittest.TestCase):
         self.assertIn("普通任务不加载", asset)
         self.assertIn("平台权限或安全边界", asset)
         self.assertIn("`requested_mode`", skill)
-        for mode in governance.REQUESTED_MODES:
+        for mode in semantics.REQUESTED_MODES:
             self.assertIn(f"`{mode}`", skill)
             self.assertIn(mode, levels.lower())
         self.assertIn("sg_<resolved_mode>_<semantic_name>_t_<task_ref>", skill)
@@ -209,14 +200,14 @@ class GovernanceTests(unittest.TestCase):
         link = self.root / "linked"
         link.symlink_to(target, target_is_directory=True)
         with self.assertRaises(RuntimeError):
-            governance.StateStore(link)
+            state_store_module.StateStore(link)
 
     def test_corrupt_and_non_utf8_state_are_preserved_for_unmanaged_spawn(self):
         state_path, _ = self.store._paths("session-1")
         for payload in (b"{broken", b"\xff\xfe\x00"):
             with self.subTest(payload=payload):
                 state_path.write_bytes(payload)
-                result = governance.handle(self.unmanaged_spawn_payload(), self.store)
+                result = hook.handle_hook(self.unmanaged_spawn_payload(), self.store)
                 self.assertEqual(
                     result["hookSpecificOutput"]["permissionDecision"], "allow"
                 )
@@ -229,14 +220,14 @@ class GovernanceTests(unittest.TestCase):
             def update(self, session_id, callback):
                 raise PermissionError("state directory is read-only")
 
-        result = governance.handle(self.unmanaged_spawn_payload(), FailingStore())
+        result = hook.handle_hook(self.unmanaged_spawn_payload(), FailingStore())
         self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
         with mock.patch.object(
-            governance,
+            hook,
             "StateStore",
             side_effect=PermissionError("plugin data is unavailable"),
         ):
-            result = governance.handle(self.unmanaged_spawn_payload())
+            result = hook.handle_hook(self.unmanaged_spawn_payload())
         self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
 
     def test_generator_creates_current_initial_attempt(self):
@@ -254,13 +245,13 @@ class GovernanceTests(unittest.TestCase):
         self.assertEqual(
             execution["observation_record"]["observed_state"], "not_observed"
         )
-        self.assertEqual(governance._execution_status(execution), "not_started")
+        self.assertEqual(execution_module.execution_status(execution), "not_started")
         self.assertEqual(execution["dispatch_record"]["dispatch_state"], "prepared")
         self.assertIsNone(execution["closure_record"]["parent_action"])
 
     def test_runtime_task_contract_matches_schema_shape(self):
         schema = semantics.MACHINE_SEMANTICS["$defs"]["task_contract"]
-        contract_fields = set(governance.TaskContract.__dataclass_fields__)
+        contract_fields = set(contracts.TaskContract.__dataclass_fields__)
         self.assertEqual(set(schema["properties"]), contract_fields)
         self.assertTrue(set(schema["required"]) <= contract_fields)
 

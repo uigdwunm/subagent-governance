@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts import governance_execution as execution_domain
 from tests.support import ROOT, load_governance
 
 governance = load_governance("hook_fixtures")
@@ -58,13 +59,13 @@ class HookFixtureTests(unittest.TestCase):
             state["agents"][agent_id] = mapping
             if canonical_path:
                 state["agents"][canonical_path] = mapping
-            governance._apply_canonical_execution_update(
+            execution_domain.apply_canonical_execution_update(
                 execution,
                 "dispatch_target",
                 canonical_path or agent_id,
             )
-            governance._apply_canonical_execution_update(execution, "observed_execution_status", "running")
-            governance._apply_canonical_execution_update(execution, "closure_parent_action", "wait")
+            execution_domain.apply_canonical_execution_update(execution, "observed_execution_status", "running")
+            execution_domain.apply_canonical_execution_update(execution, "closure_parent_action", "wait")
             execution.pop("last_lifecycle_operation", None)
 
         store.update(session_id, bind)
@@ -122,10 +123,10 @@ class HookFixtureTests(unittest.TestCase):
             governance.handle(events[2], store)
             state = store.read("interrupt-session")
             record = self.current_execution(state, dispatch["task_id"])
-            self.assertEqual(governance._execution_status(record), "interrupted")
-            self.assertEqual(governance._parent_action(record), "reconcile")
+            self.assertEqual(execution_domain.execution_status(record), "interrupted")
+            self.assertEqual(execution_domain.parent_action(record), "reconcile")
             self.assertNotIn("closure_state", record["closure_record"])
-            self.assertEqual(governance._execution_status(record), "interrupted")
+            self.assertEqual(execution_domain.execution_status(record), "interrupted")
             self.assertEqual(state["tombstones"], {})
 
     def test_opaque_spawn_fixture_uses_task_ref_without_body_classification(self):
@@ -153,7 +154,7 @@ class HookFixtureTests(unittest.TestCase):
             record = self.current_execution(store.read("opaque-session"), prepared["task_id"])
             self.assertEqual(record["resolved_mode"], "strict")
             self.assertNotIn("message_visibility", record)
-            self.assertEqual(governance._dispatch_tool_use_id(record), "opaque-tool")
+            self.assertEqual(execution_domain.dispatch_tool_use_id(record), "opaque-tool")
 
     def test_agent_status_fixture_writes_current_state(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -201,10 +202,10 @@ class HookFixtureTests(unittest.TestCase):
             governance.handle(self.load_fixture("agent-status-error-v1.json"), store)
             record = self.current_execution(store.read("status-session"), prepared["task_id"])
             self.assertNotIn("status", record)
-            self.assertEqual(governance._execution_status(record), "not_started")
+            self.assertEqual(execution_domain.execution_status(record), "not_started")
             self.assertEqual(record["observation_record"]["observed_state"], "error")
-            self.assertEqual(governance._platform_observation(record), "error")
-            self.assertEqual(governance._parent_action(record), "recover")
+            self.assertEqual(execution_domain.platform_observation(record), "error")
+            self.assertEqual(execution_domain.parent_action(record), "recover")
 
     def test_recovery_limit_fixture_handles_real_identifier_drift(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -283,7 +284,7 @@ class HookFixtureTests(unittest.TestCase):
             )
             self.assertNotIn("recovery_status", record)
             self.assertEqual(record["recovery_count"], 1)
-            self.assertEqual(governance._parent_action(record), "ask_user")
+            self.assertEqual(execution_domain.parent_action(record), "ask_user")
             with self.assertRaisesRegex(
                 governance.CommunicationPreparationError, "需要用户明确授权"
             ):
@@ -317,7 +318,7 @@ class HookFixtureTests(unittest.TestCase):
             )
             self.assertEqual(record["recovery_count"], 2)
             self.assertNotIn("recovery_status", record)
-            self.assertEqual(governance._parent_action(record), "ask_user")
+            self.assertEqual(execution_domain.parent_action(record), "ask_user")
 
 
 if __name__ == "__main__":

@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 
 from scripts import governance_semantics as semantics
+from scripts import governance_dispatch as dispatch
+from scripts import governance_execution as execution_domain
 from tests.support import load_governance
 
 governance = load_governance("platform_observation")
@@ -48,7 +50,7 @@ class PlatformObservationAdapterTests(unittest.TestCase):
             context_turns=None,
             context_reason=None,
         )
-        task = governance._initial_task_record(
+        task = dispatch.initial_task_record(
             1,
             "0123456789ab",
             "sg_standard_platform_observation_t_0123456789ab",
@@ -61,10 +63,10 @@ class PlatformObservationAdapterTests(unittest.TestCase):
             tool_use_id="spawn-tool",
             dispatch_target=self.target,
         )
-        governance._apply_canonical_execution_update(
+        execution_domain.apply_canonical_execution_update(
             execution, "observed_execution_status", "running"
         )
-        governance._apply_canonical_execution_update(
+        execution_domain.apply_canonical_execution_update(
             execution, "closure_parent_action", "wait"
         )
         self.state = governance.StateStore._empty_state(self.session_id)
@@ -98,7 +100,7 @@ class PlatformObservationAdapterTests(unittest.TestCase):
         )
 
     def test_machine_contract_defines_adapter_freshness_and_stop(self):
-        adapter = governance.SEMANTIC_RULES["platform_observation_adapter"]
+        adapter = semantics.SEMANTIC_RULES["platform_observation_adapter"]
         self.assertEqual(adapter["source"], "post_tool_use_list_agents")
         self.assertEqual(adapter["response_container"], "top_level_agents_only")
         self.assertEqual(adapter["query_binding"], "exact_canonical_path_prefix")
@@ -134,7 +136,7 @@ class PlatformObservationAdapterTests(unittest.TestCase):
             adapter["malformed_or_explicit_error"],
         )
 
-        capability = governance.SEMANTIC_RULES["hook_capability_contract"]
+        capability = semantics.SEMANTIC_RULES["hook_capability_contract"]
         self.assertEqual(capability["active_freshness_authority"], "disabled")
         self.assertEqual(capability["positive_parent_stop_gate"], "none")
         self.assertEqual(capability["parent_stop_behavior"], "advisory_continue")

@@ -208,6 +208,11 @@ def work_item_views(state: dict[str, Any], *, session_id: str | None = None, now
     return results, issues, incomplete
 
 
+def work_item_decision_snapshot(state: dict[str, Any], task_id: str, *, session_id: str | None = None, now: int | None = None) -> tuple[dict[str, Any] | None, list[dict[str, Any]], bool]:
+    """Return one P7 work-item projection for composition callers."""
+    return work_item_view(state, task_id, session_id=session_id, now=now)
+
+
 def action_required_records(state: dict[str, Any]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for task_id, task in (state.get("tasks") or {}).items():

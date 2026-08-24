@@ -11,15 +11,29 @@ from tests.schema_validation import validate_instance
 from tests.support import ROOT, load_governance
 
 SCRIPT = ROOT / "scripts" / "subagent_governance.py"
-governance = load_governance("context")
+from scripts import governance_contracts as contracts
+from scripts import governance_diagnostics as diagnostics
+from scripts import governance_dispatch as dispatch
+from scripts import governance_errors as errors
+from scripts import governance_execution as execution
+from scripts import governance_groups as groups
+from scripts import governance_hook as hook
+from scripts import governance_lifecycle as lifecycle
+from scripts import governance_prepared_store as prepared_store_module
+from scripts import governance_protocol as protocol
+from scripts import governance_semantics as semantics_module
+from scripts import governance_state as state_domain
+from scripts import governance_state_store as state_store_module
+from scripts import governance_store_support as store_support
+from scripts import governance_views as views
 
 
 class ContextManifestTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.store = governance.StateStore(self.root / "state" / "sessions")
-        self.prepared = governance.PreparedContractStore(self.root / "state" / "prepared")
+        self.store = state_store_module.StateStore(self.root / "state" / "sessions")
+        self.prepared = prepared_store_module.PreparedContractStore(self.root / "state" / "prepared")
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -84,7 +98,7 @@ class ContextManifestTests(unittest.TestCase):
         return repository, revision
 
     def prepare(self, contract):
-        return governance.prepare_dispatch(
+        return protocol.prepare_dispatch(
             contract,
             "session-1",
             state_store=self.store,
@@ -93,7 +107,7 @@ class ContextManifestTests(unittest.TestCase):
         )
 
     def test_all_model_input_directions_are_required_but_nullable_overrides_are_valid(self):
-        normalized = governance._contract_from_input(self.contract())
+        normalized = contracts.contract_from_input(self.contract())
         self.assertIsNone(normalized.model)
         self.assertIsNone(normalized.reasoning_effort)
 
@@ -107,7 +121,7 @@ class ContextManifestTests(unittest.TestCase):
                 value = self.contract()
                 value.pop(field_name)
                 with self.assertRaisesRegex(ValueError, field_name):
-                    governance._contract_from_input(value)
+                    contracts.contract_from_input(value)
 
     def test_schema_requires_every_task_contract_direction_and_has_manifest_union(self):
         semantics = json.loads(
@@ -120,7 +134,7 @@ class ContextManifestTests(unittest.TestCase):
             set(semantics["$defs"]["task_contract"]["required"]),
             set(semantics["$defs"]["task_contract"]["properties"]),
         )
-        self.assertEqual(governance.TASK_CONTRACT_OPTIONAL_FIELDS, ())
+        self.assertEqual(semantics_module.TASK_CONTRACT_OPTIONAL_FIELDS, ())
         manifest = semantics["$defs"]["context_manifest"]
         self.assertEqual(
             {
@@ -195,7 +209,7 @@ class ContextManifestTests(unittest.TestCase):
             "required_paths": [{"path": "docs/uncommitted.md", "type": "file"}],
         }
 
-        with self.assertRaisesRegex(governance.DispatchPreparationError, "docs/uncommitted.md"):
+        with self.assertRaisesRegex(errors.DispatchPreparationError, "docs/uncommitted.md"):
             self.prepare(self.contract(context_manifest=manifest))
 
         state = self.store.read("session-1")
@@ -213,7 +227,7 @@ class ContextManifestTests(unittest.TestCase):
         }
 
         with self.assertRaisesRegex(
-            governance.DispatchPreparationError,
+            errors.DispatchPreparationError,
             "工作区内容与 Git baseline 不一致",
         ):
             self.prepare(self.contract(context_manifest=manifest))
@@ -231,7 +245,7 @@ class ContextManifestTests(unittest.TestCase):
         }
 
         with self.assertRaisesRegex(
-            governance.DispatchPreparationError,
+            errors.DispatchPreparationError,
             "HEAD 与声明 baseline 不一致",
         ):
             self.prepare(self.contract(context_manifest=manifest))
@@ -254,7 +268,7 @@ class ContextManifestTests(unittest.TestCase):
             "tool_input": dict(prepared["spawn_args"]),
         }
 
-        result = governance.handle(payload, self.store)
+        result = hook.handle_hook(payload, self.store)
 
         output = result["hookSpecificOutput"]
         self.assertEqual(output["permissionDecision"], "deny")
@@ -301,10 +315,10 @@ class ContextManifestTests(unittest.TestCase):
             encoding="utf-8",
         )
         with self.assertRaisesRegex(
-            governance.DispatchPreparationError,
+            errors.DispatchPreparationError,
             "工作区内容与 Git baseline 不一致",
         ):
-            governance.prepare_dispatch(
+            protocol.prepare_dispatch(
                 self.contract(context_manifest=manifest),
                 "session-2",
                 state_store=self.store,
@@ -318,10 +332,10 @@ class ContextManifestTests(unittest.TestCase):
         record["context_verification"] = {"mode": "none", "claimed": True}
 
         with self.assertRaisesRegex(
-            governance.PreparedContractValidationError,
+            errors.PreparedContractValidationError,
             "context_verification",
         ):
-            governance.PreparedContractStore._validate_record(
+            prepared_store_module.PreparedContractStore._validate_record(
                 record,
                 "session-1",
                 prepared["task_ref"],
@@ -338,7 +352,7 @@ class ContextManifestTests(unittest.TestCase):
         }
 
         with self.assertRaisesRegex(ValueError, "不能包含"):
-            governance._contract_from_input(self.contract(context_manifest=manifest))
+            contracts.contract_from_input(self.contract(context_manifest=manifest))
 
     def test_manifest_rejects_invalid_baseline_kind_and_long_path(self):
         base = {
@@ -347,7 +361,7 @@ class ContextManifestTests(unittest.TestCase):
             "required_paths": [{"path": "task.md", "type": "file"}],
         }
         with self.assertRaisesRegex(ValueError, "baseline.kind"):
-            governance._contract_from_input(
+            contracts.contract_from_input(
                 self.contract(
                     context_manifest={
                         **base,
@@ -357,7 +371,7 @@ class ContextManifestTests(unittest.TestCase):
             )
 
         with self.assertRaisesRegex(ValueError, "长度不能超过 1000"):
-            governance._contract_from_input(
+            contracts.contract_from_input(
                 self.contract(
                     context_manifest={
                         **base,

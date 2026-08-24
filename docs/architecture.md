@@ -77,13 +77,16 @@ StateStore 只接受严格的 `state_format_version=6`，默认数据命名空�
 - `schemas/governance-semantics.schema.json`：机器语义与状态枚举。
 - `schemas/task-contract-v1.schema.json`：TaskContract wire contract。
 - `schemas/codex-hook-events-v1.contract.json`：当前 Hook 字段能力边界。
-- `scripts/subagent_governance.py`：生命周期状态机和 Hook facade。
+- `scripts/subagent_governance.py`：唯一可执行入口与显式公共 API。
 - `scripts/governance_semantics.py`：机器语义加载与常量。
 - `scripts/governance_contracts.py`：TaskContract 和任务特征值对象。
 - `scripts/governance_state.py`：当前状态模型与结构验证。
 - `scripts/governance_storage.py`：私有文件、锁和原子写入。
 - `scripts/governance_errors.py`：运行时错误分类。
-- `scripts/governance_cli.py`：命令行解析与运行时适配。
+- `scripts/governance_platform.py`：无状态原生响应规范化；不扫描嵌套字符串或 transcript。
+- `scripts/governance_hook.py`：Hook 事件/工具路由、lazy store 和 allow/deny/fail-open 映射。
+- `scripts/governance_protocol.py`：PreparedContract 派发组合服务。
+- `scripts/governance_cli.py`：直接依赖领域所有者的命令行传输层。
 - `skills/subagent-governance/SKILL.md`：Agent 可执行协议。
 - `skills/subagent-governance/references/runtime-boundaries.md`：运行边界摘要。
 

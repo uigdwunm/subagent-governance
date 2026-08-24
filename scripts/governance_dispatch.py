@@ -18,11 +18,12 @@ try:
     from scripts.governance_contracts import TaskContract, contract_digest, contract_from_input, contract_summary
     from scripts.governance_execution import (
         apply_canonical_execution_update, canonical_execution_for_attempt,
-        dispatch_reliably_not_created, execution_is_closed, identity_status,
+        close_attempt_record, dispatch_reliably_not_created, execution_is_closed, identity_status,
         spawn_observation,
     )
-    from scripts.governance_semantics import RETRY_LIMITS
+    from scripts.governance_semantics import RETENTION_SECONDS, RETRY_LIMITS
     from scripts.governance_state import initial_plane_records
+    from scripts.governance_dispatch_identity import parse_task_name
 except ModuleNotFoundError:
     from governance_errors import (
         PreparedContractConflictError, PreparedContractValidationError, StateConflictError, StateValidationError,
@@ -30,11 +31,12 @@ except ModuleNotFoundError:
     from governance_contracts import TaskContract, contract_digest, contract_from_input, contract_summary
     from governance_execution import (
         apply_canonical_execution_update, canonical_execution_for_attempt,
-        dispatch_reliably_not_created, execution_is_closed, identity_status,
+        close_attempt_record, dispatch_reliably_not_created, execution_is_closed, identity_status,
         spawn_observation,
     )
-    from governance_semantics import RETRY_LIMITS
+    from governance_semantics import RETENTION_SECONDS, RETRY_LIMITS
     from governance_state import initial_plane_records
+    from governance_dispatch_identity import parse_task_name
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,96 @@ class DispatchCleanupResult:
     state_status: str
     prepared_status: str
     errors: tuple[str, ...] = ()
+
+
+def merge_initial_rollback_health(health: dict[str, Any], marker: dict[str, Any]) -> None:
+    """Record the newest rollback warning without downgrading worse health."""
+    status_rank = {"ok": 0, "degraded": 1, "unavailable": 2}
+    if status_rank.get(str(health.get("status")), 0) < status_rank["degraded"]:
+        health["status"] = "degraded"
+    field = "initial_preparation_rollback"
+    existing = health.get(field)
+    existing_at = existing.get("observed_at") if isinstance(existing, dict) else None
+    observed_at = marker.get("observed_at")
+    if field not in health or not isinstance(existing_at, int) or not isinstance(observed_at, int) or existing_at <= observed_at:
+        health[field] = copy.deepcopy(marker)
+
+
+def mark_initial_rollback_incomplete(
+    session_id: str, prepared: dict[str, Any], state_store: Any, observed_task: dict[str, Any], *, error: str, now: int,
+) -> bool:
+    """Mark an exact divergent initial state for manual reconciliation."""
+    task_id, attempt = str(prepared["task_id"]), int(prepared["attempt"])
+
+    def mark(state: dict[str, Any]) -> None:
+        task = state.get("tasks", {}).get(task_id)
+        record = canonical_execution_for_attempt(task, attempt) if isinstance(task, dict) else None
+        if not isinstance(task, dict) or not isinstance(record, dict):
+            raise StateConflictError("rollback-incomplete task/attempt 已不存在，无法持久化 reconcile 标记")
+        marker = {
+            "status": "rollback_incomplete", "task_ref": str(prepared["task_ref"]),
+            "observed_at": now, "error": str(error)[:600],
+        }
+        apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
+        record["initial_preparation_rollback"] = copy.deepcopy(marker)
+        previous = record.get("updated_at")
+        record["updated_at"] = max(previous, now) if isinstance(previous, int) and not isinstance(previous, bool) else now
+        health = state.get("health")
+        if not isinstance(health, dict):
+            raise StateValidationError("治理状态字段 health 必须是对象")
+        merge_initial_rollback_health(health, marker)
+        return True
+
+    return state_store.compare_and_set(
+        session_id, lambda state: state.get("tasks", {}).get(task_id) == observed_task,
+        mark, required_fields=("tasks", "tombstones"),
+    )
+
+
+def cleanup_initial_attempt(
+    session_id: str, prepared: dict[str, Any], state_store: Any, *, error_context: str, now: int,
+) -> dict[str, Any]:
+    """Compensate an initial prepare only when its complete post-state remains exact."""
+    task_id, expected_task = str(prepared["task_id"]), initial_task_post_state(prepared)
+    errors: list[str] = []
+    try:
+        state = state_store.read(session_id, required_fields=("tasks", "tombstones"))
+    except Exception as exc:
+        return {"safe_for_prepared_delete": False, "task_status": "unknown", "marked": False, "errors": [f"StateStore readback failure：{exc}"]}
+    current_task = state.get("tasks", {}).get(task_id)
+    if current_task is None:
+        return {"safe_for_prepared_delete": True, "task_status": "absent", "marked": False, "errors": errors}
+    if current_task == expected_task:
+        try:
+            state_store.compare_and_set(
+                session_id, lambda value: value.get("tasks", {}).get(task_id) == expected_task,
+                lambda value: value["tasks"].pop(task_id), required_fields=("tasks", "tombstones"),
+            )
+            return {"safe_for_prepared_delete": True, "task_status": "deleted", "marked": False, "errors": errors}
+        except Exception as exc:
+            errors.append(f"StateStore task cleanup failure：{exc}")
+            try:
+                state = state_store.read(session_id, required_fields=("tasks", "tombstones"))
+            except Exception as readback_exc:
+                errors.append(f"StateStore cleanup readback failure：{readback_exc}")
+                return {"safe_for_prepared_delete": False, "task_status": "unknown", "marked": False, "errors": errors}
+            current_task = state.get("tasks", {}).get(task_id)
+            if current_task is None:
+                return {"safe_for_prepared_delete": True, "task_status": "deleted_after_error", "marked": False, "errors": errors}
+            if current_task != expected_task:
+                errors.append("task cleanup 异常后完整 task 已发生并发变化")
+    else:
+        errors.append("完整 initial task post-state 不匹配，检测到并发变化")
+    marked = False
+    if isinstance(current_task, dict):
+        try:
+            marked = mark_initial_rollback_incomplete(
+                session_id, prepared, state_store, copy.deepcopy(current_task),
+                error=f"{error_context}；{'；'.join(errors)}", now=now,
+            )
+        except Exception as exc:
+            errors.append(f"rollback-incomplete reconcile 标记失败：{exc}")
+    return {"safe_for_prepared_delete": False, "task_status": "diverged" if current_task != expected_task else "retained", "marked": marked, "errors": errors}
 
 
 def initial_task_record(
@@ -376,3 +468,70 @@ def reconcile_claimed_spawn(
         lambda value: value.update({"post_observed_at": current_time}),
     )
     return True
+
+
+def expired_unclaimed_initial_without_credential(task: Any, *, prepared_refs: set[str], cutoff: int) -> bool:
+    """Prove an untouched initial state can no longer create a native Agent."""
+    if not isinstance(task, dict) or task.get("managed") is not True:
+        return False
+    if task.get("work_item") != {"current_attempt": 1, "lifecycle": "open"}:
+        return False
+    executions = task.get("executions")
+    if not isinstance(executions, dict) or set(executions) != {"1"}:
+        return False
+    execution = executions.get("1")
+    if not isinstance(execution, dict):
+        return False
+    task_ref, updated_at = execution.get("task_ref"), execution.get("updated_at")
+    if not isinstance(task_ref, str) or not task_ref or task_ref in prepared_refs or isinstance(updated_at, bool) or not isinstance(updated_at, int) or updated_at > cutoff:
+        return False
+    if execution.get("spawn_retry_count") != 0 or execution.get("recovery_count") != 0:
+        return False
+    if any(field in execution for field in ("pending_action", "last_lifecycle_operation", "initial_preparation_rollback")):
+        return False
+    if execution.get("dispatch_record") != {"dispatch_state": "prepared", "dispatch_target": None, "tool_use_id": None}:
+        return False
+    if execution.get("observation_record") != {"observed_at": None, "observed_state": "not_observed", "source": None, "terminal_status": None}:
+        return False
+    if execution.get("closure_record") != {"closed_at": None, "parent_action": None, "reason": None}:
+        return False
+    parsed = parse_task_name(execution.get("task_name"))
+    return bool(parsed is not None and parsed[2] == task_ref)
+
+
+def close_expired_unclaimed_initials_without_credentials(
+    session_id: str, *, state_store: Any, prepared_store: Any, now: int,
+) -> int:
+    """Tombstone only untouched, expired initial attempts with no credential."""
+    prepared_refs = prepared_store.refs(session_id)
+    state = state_store.read(session_id, required_fields=("tasks", "tombstones"))
+    tasks = state.get("tasks")
+    if not isinstance(tasks, dict):
+        raise StateValidationError("治理状态缺少 tasks 对象")
+    cutoff = now - int(RETENTION_SECONDS["prepared_unclaimed"])
+    candidates = [(str(task_id), copy.deepcopy(task)) for task_id, task in tasks.items() if expired_unclaimed_initial_without_credential(task, prepared_refs=prepared_refs, cutoff=cutoff)]
+    closed = 0
+    for task_id, expected_task in sorted(candidates):
+        def close(current: dict[str, Any]) -> None:
+            task = current["tasks"][task_id]
+            close_attempt_record(current, task_id, 1, task["executions"]["1"], "automatic_close:expired_unclaimed_dispatch", now)
+            task["work_item"]["lifecycle"] = "tombstoned"
+        try:
+            state_store.compare_and_set(
+                session_id, lambda current: current.get("tasks", {}).get(task_id) == expected_task,
+                close, required_fields=("tasks", "tombstones"),
+            )
+        except StateConflictError:
+            continue
+        closed += 1
+    return closed
+
+
+__all__ = [
+    "DispatchCleanupResult", "claim_spawn", "cleanup_initial_attempt",
+    "close_expired_unclaimed_initials_without_credentials", "dispatch_admission_error",
+    "discard_retry_prepared_exact", "expired_unclaimed_initial_without_credential",
+    "initial_task_post_state", "initial_task_record", "mark_initial_rollback_incomplete",
+    "merge_initial_rollback_health", "observe_spawn_post_tool", "prepare_initial_transaction",
+    "prepare_retry_transaction", "reconcile_claimed_spawn",
+]
