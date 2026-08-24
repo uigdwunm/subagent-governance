@@ -8,7 +8,6 @@ does not import the runtime facade or render Hook allow/deny envelopes.
 from __future__ import annotations
 
 import copy
-import json
 import time
 from typing import Any
 
@@ -76,12 +75,12 @@ def _default_state_store() -> StateStore:
     return StateStore()
 
 
-def _deny(reason: str) -> dict[str, Any]:
+def _admission_denied(reason: str) -> dict[str, Any]:
     """Compatibility result for the runtime adapter; rendering stays at the edge."""
     return {"decision": "deny", "reason": reason}
 
 
-def _allow_updated(updated_input: dict[str, Any], context: str | None = None) -> dict[str, Any]:
+def _admission_allowed(updated_input: dict[str, Any], context: str | None = None) -> dict[str, Any]:
     return {"decision": "allow", "updated_input": updated_input, "context": context}
 
 
@@ -997,7 +996,7 @@ def adapt_call_response(response: Any, operation_type: str) -> dict[str, str | N
             "target_observation": target_observation,
         }
 
-    value = _json_value(response)
+    value = response
     if value is None or value == "" or value == {}:
         return adapted("success")
     if not isinstance(value, dict):
@@ -1396,10 +1395,10 @@ def _claim_pending_action(
 ) -> dict[str, Any]:
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
-        return _deny("子 Agent 操作被阻止：工具参数不是对象。")
+        return _admission_denied("子 Agent 操作被阻止：工具参数不是对象。")
     target_value = tool_input.get("target")
     if not isinstance(target_value, str) or not target_value.strip():
-        return _deny("子 Agent 操作被阻止：target 必须是非空字符串。")
+        return _admission_denied("子 Agent 操作被阻止：target 必须是非空字符串。")
     target = target_value.strip()
     session_id = str(payload.get("session_id") or "unknown")
     tool_use_id = str(payload.get("tool_use_id") or "")
@@ -1413,11 +1412,11 @@ def _claim_pending_action(
             interrupt or kind == "communication"
         ):
             projected = {"target": target} if interrupt else copy.deepcopy(tool_input)
-            return _allow_updated(
+            return _admission_allowed(
                 projected,
                 f"Subagent Governance 状态不可读，本次原生操作已 fail-open；治理状态未可靠记录：{exc}",
             )
-        return _deny(
+        return _admission_denied(
             "受治理 lifecycle 操作被阻止：StateStore 读取未取得可降级的存储故障"
             f"（{failure_category}）：{exc}"
         )
@@ -1426,44 +1425,44 @@ def _claim_pending_action(
     if not matches:
         admission = _managed_target_admission(state, target)
         if admission.disposition == "reconcile":
-            return _deny(
+            return _admission_denied(
                 f"managed target identity 需要人工对账，不能按 unmanaged 放行：{admission.reason}。"
             )
         if admission.disposition == "closed":
-            return _deny(
+            return _admission_denied(
                 "target 仅匹配已可靠关闭的 provenance；"
                 "不能复活 active index 或按 unmanaged 放行。"
             )
         if admission.disposition != "managed":
-            return _allow_updated(
+            return _admission_allowed(
                 copy.deepcopy(tool_input),
                 "Subagent Governance：目标没有 canonical provenance，"
                 "本次原生操作按 unmanaged 放行。",
             )
         if interrupt:
-            return _deny("managed interrupt 缺少由生成器创建的明确 pending_action。")
+            return _admission_denied("managed interrupt 缺少由生成器创建的明确 pending_action。")
         if kind == "communication":
-            return _deny("managed normal_message 缺少由生成器创建的唯一 prepared pending_action。")
-        return _deny("managed followup_task 缺少唯一 prepared pending_action，不能猜测 operation type。")
+            return _admission_denied("managed normal_message 缺少由生成器创建的唯一 prepared pending_action。")
+        return _admission_denied("managed followup_task 缺少唯一 prepared pending_action，不能猜测 operation type。")
     if len(matches) != 1:
-        return _deny("同一 target 映射到多个 pending_action，已拒绝调用并要求人工对账。")
+        return _admission_denied("同一 target 映射到多个 pending_action，已拒绝调用并要求人工对账。")
     if not tool_use_id:
-        return _deny("子 Agent 操作被阻止：缺少 tool_use_id，无法认领 pending_action。")
+        return _admission_denied("子 Agent 操作被阻止：缺少 tool_use_id，无法认领 pending_action。")
     task_id, stored_attempt, _record, pending = matches[0]
     operation_type = str(pending.get("operation_type") or "")
     if interrupt != (operation_type == "interrupt"):
-        return _deny("原生工具类型与 prepared operation type 不匹配。")
+        return _admission_denied("原生工具类型与 prepared operation type 不匹配。")
     if not interrupt:
         if kind == "communication":
             if operation_type != "normal_message":
-                return _deny("send_message 只能认领 normal_message pending_action。")
+                return _admission_denied("send_message 只能认领 normal_message pending_action。")
         elif kind == "followup":
             if operation_type == "normal_message":
-                return _deny("followup_task 不能认领 normal_message pending_action。")
+                return _admission_denied("followup_task 不能认领 normal_message pending_action。")
         else:
-            return _deny("通信 pending_action 与原生工具类型不匹配。")
+            return _admission_denied("通信 pending_action 与原生工具类型不匹配。")
     if pending.get("phase") != "prepared":
-        return _deny("pending_action 已被认领，不能重复调用。")
+        return _admission_denied("pending_action 已被认领，不能重复调用。")
     created_at = pending.get("created_at")
     if (
         isinstance(created_at, bool)
@@ -1507,8 +1506,8 @@ def _claim_pending_action(
                 expire,
             )
         except Exception as exc:
-            return _deny(f"过期 pending_action 清理失败：{exc}")
-        return _deny("pending_action 已超过5分钟，请重新生成本次操作。")
+            return _admission_denied(f"过期 pending_action 清理失败：{exc}")
+        return _admission_denied("pending_action 已超过5分钟，请重新生成本次操作。")
 
     def predicate(current: dict[str, Any]) -> bool:
         current_matches = _pending_action_matches_target(current, target)
@@ -1590,7 +1589,7 @@ def _claim_pending_action(
         if commit_status == "committed":
             pass
         elif commit_status == "ambiguous":
-            return _deny(
+            return _admission_denied(
                 "受治理 lifecycle 操作认领结果无法确认，状态已发生并发变化，"
                 f"已进入 degraded：{exc}"
             )
@@ -1609,7 +1608,7 @@ def _claim_pending_action(
                     if verification_error is not None
                     else ""
                 )
-                return _allow_updated(
+                return _admission_allowed(
                     {"target": target}
                     if interrupt
                     else {
@@ -1624,7 +1623,7 @@ def _claim_pending_action(
                 if verification_error is not None
                 else ""
             )
-            return _deny(
+            return _admission_denied(
                 "受治理 lifecycle 操作认领失败，pending 保留供对账或过期清理"
                 f"（{failure_category}）：{exc}{verification_suffix}"
             )
@@ -1632,7 +1631,7 @@ def _claim_pending_action(
         "target": target,
         "message": str(tool_input.get("message") or ""),
     }
-    return _allow_updated(
+    return _admission_allowed(
         projected,
         f"Subagent Governance 已认领 {operation_type} pending_action 并绑定 tool_use_id。",
     )
@@ -1646,18 +1645,11 @@ def _handle_interrupt_pre(payload: dict[str, Any], store: StateStore) -> dict[st
     return _claim_pending_action(payload, store, interrupt=True)
 
 
-def _json_value(value: Any) -> Any:
-    if not isinstance(value, str):
-        return value
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return value
 
 
 def _agent_status_entries(response: Any) -> list[dict[str, Any]] | None:
     """Adapt only the evidenced top-level list_agents response container."""
-    value = _json_value(response)
+    value = response
     if not isinstance(value, dict):
         return None
     for error_flag in LIST_AGENTS_BOOLEAN_ERROR_FLAGS:

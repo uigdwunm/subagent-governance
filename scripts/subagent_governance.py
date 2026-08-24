@@ -2378,11 +2378,15 @@ def _handle_interrupt_pre(payload: dict[str, Any], store: StateStore) -> dict[st
 
 
 def _handle_post_tool_agent_status(payload: dict[str, Any], store: StateStore, session_id: str) -> dict[str, Any] | None:
-    return _lifecycle._handle_post_tool_agent_status(payload, store, session_id)
+    adapted = copy.deepcopy(payload)
+    adapted["tool_response"] = _json_value(payload.get("tool_response"))
+    return _lifecycle._handle_post_tool_agent_status(adapted, store, session_id)
 
 
 def _handle_post_tool_lifecycle(payload: dict[str, Any], store: StateStore, session_id: str) -> dict[str, Any] | None:
-    return _lifecycle._handle_post_tool_lifecycle(payload, store, session_id)
+    adapted = copy.deepcopy(payload)
+    adapted["tool_response"] = _json_value(payload.get("tool_response"))
+    return _lifecycle._handle_post_tool_lifecycle(adapted, store, session_id)
 
 
 def _attempt_projection(

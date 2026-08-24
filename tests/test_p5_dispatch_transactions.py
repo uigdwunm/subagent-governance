@@ -124,6 +124,32 @@ class P5DispatchTransactionTests(unittest.TestCase):
         self.assertNotIn("subagent_governance", source)
         self.assertNotIn("governance_cli", source)
 
+    def test_p6_lifecycle_module_ownership_boundaries(self):
+        root = Path(governance.__file__).parent
+        lifecycle = ast.parse((root / "governance_lifecycle.py").read_text())
+        communication = ast.parse((root / "governance_communication.py").read_text())
+        runtime = ast.parse((root / "subagent_governance.py").read_text())
+
+        def imported_modules(tree):
+            return {
+                alias.name
+                for node in tree.body if isinstance(node, (ast.Import, ast.ImportFrom))
+                for alias in (node.names if isinstance(node, ast.Import) else [node])
+                if isinstance(alias, ast.alias)
+            } | {
+                node.module or "" for node in tree.body if isinstance(node, ast.ImportFrom)
+            }
+
+        self.assertFalse(any("subagent_governance" in name for name in imported_modules(lifecycle)))
+        self.assertFalse(any("subagent_governance" in name or "state_store" in name for name in imported_modules(communication)))
+        lifecycle_functions = {node.name for node in lifecycle.body if isinstance(node, ast.FunctionDef)}
+        self.assertNotIn("_deny", lifecycle_functions)
+        self.assertNotIn("_allow_updated", lifecycle_functions)
+        self.assertNotIn("_json_value", lifecycle_functions)
+        migrated = {"record_terminal_notification", "apply_parent_disposition", "prepare_communication", "prepare_interrupt", "reconcile_pending_actions", "_claim_pending_action", "_create_resume_attempt"}
+        runtime_functions = {node.name for node in runtime.body if isinstance(node, ast.FunctionDef)}
+        self.assertFalse(migrated & runtime_functions)
+
 
 if __name__ == "__main__":
     unittest.main()
