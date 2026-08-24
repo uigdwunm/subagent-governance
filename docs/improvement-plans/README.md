@@ -29,8 +29,9 @@
 | P8 | [平台适配、Hook 路由与 CLI 门面](P8-platform-hook-cli-entrypoints.md) | 架构债务、边界收口 | P1–P7 |
 | P9 | [仓库内综合验收与文档/Schema/Skill 一致性](P9-local-integrated-acceptance.md) | 验证 | P1–P8 |
 | P10 | [经授权安装和新对话真实平台验证](P10-authorized-install-and-real-validation.md) | 真实验证 | P9 |
+| P11 | [followup PostToolUse 与 exact-list 的 current-only 绑定](P11-followup-posttool-and-exact-list-binding.md) | 正确性、可观测性、真实验证修复 | P10-B V4 failure；须先完成P11本地门禁后才可重跑P10 |
 
-P1–P8 必须顺序执行。即使某个后续方案看起来可以独立修改，也不能在前置模块尚未落地时复制临时实现。
+P1–P8 必须顺序执行。即使某个后续方案看起来可以独立修改，也不能在前置模块尚未落地时复制临时实现。P11 是P10-B真实V4 failure后的独立修复方案；它不替代P10的重新授权安装和全新真实复验。
 
 ## 新对话交接模板
 
