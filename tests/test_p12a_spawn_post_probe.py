@@ -110,8 +110,39 @@ class SpawnPostProbeTests(unittest.TestCase):
             storage.record_marker(second, now=100)
         receipt = probe.receipt_record(second, "recognized", "exact_probe_marker", recorded_at=100)
         storage.record_receipt(receipt, now=100, tool_use_id="two")
+        self.assertIsNotNone(storage.lookup_receipt("session", "two", now=receipt["updated_at"] + probe.RECEIPT_TTL_SECONDS))
+        self.assertIsNone(storage.lookup_receipt("session", "two", now=receipt["updated_at"] + probe.RECEIPT_TTL_SECONDS + 1))
         self.assertEqual(storage.cleanup_expired_receipts(now=receipt["recorded_at"] + probe.RECEIPT_TTL_SECONDS), 0)
         self.assertEqual(storage.cleanup_expired_receipts(now=receipt["recorded_at"] + probe.RECEIPT_TTL_SECONDS + 1), 1)
+
+    def test_receipt_is_monotonic_and_terminal_records_cannot_reset(self):
+        storage = probe.SpawnPostProbeStore(Path(self.temp.name) / "monotonic")
+        marker = probe.marker_record("session", "id", "task", 1, "0123456789ab", "initial_spawn", 0, claimed_at=100)
+        received = probe.receipt_record(marker, "recognized", "exact_probe_marker", recorded_at=100)
+        storage.record_receipt(received, now=100, tool_use_id="id")
+        checked = {**received, "claim_check": "matched", "handler_stage": "claim_checked", "updated_at": 101}
+        storage.record_receipt(checked, now=101, tool_use_id="id")
+        shaped = {**checked, "response_shape": "top_level_object", "handler_stage": "shape_classified", "updated_at": 102}
+        storage.record_receipt(shaped, now=102, tool_use_id="id")
+        completed = {**shaped, "handler_stage": "completed", "updated_at": 103}
+        storage.record_receipt(completed, now=103, tool_use_id="id")
+        for invalid in (
+            {**received, "updated_at": 104},
+            {**completed, "handler_stage": "handler_failed", "updated_at": 104},
+            {**completed, "updated_at": 102},
+            {**completed, "tool_name_classification": "unrecognized", "updated_at": 104},
+            {**completed, "admission_source": "recognized_prepared", "updated_at": 104},
+            {**completed, "recorded_at": 101, "updated_at": 104},
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(Exception):
+                    storage.record_receipt(invalid, now=104, tool_use_id="id")
+        failed_marker = probe.marker_record("session", "id-2", "task", 1, "0123456789ab", "initial_spawn", 0, claimed_at=100)
+        failed = probe.receipt_record(failed_marker, "recognized", "exact_probe_marker", recorded_at=100)
+        storage.record_receipt(failed, now=100, tool_use_id="id-2")
+        storage.record_receipt({**failed, "claim_check": "validation_failed", "handler_stage": "handler_failed", "updated_at": 101}, now=101, tool_use_id="id-2")
+        with self.assertRaises(Exception):
+            storage.record_receipt({**failed, "updated_at": 102}, now=102, tool_use_id="id-2")
 
     def test_same_id_recognized_spawn_records_shape_and_keeps_legacy_canonical_transition(self):
         self.assertIsNone(self._post(response={"success": True}))
@@ -153,6 +184,33 @@ class SpawnPostProbeTests(unittest.TestCase):
         self.assertEqual(result["systemMessage"], "spawn_post_probe_handler_failed")
         execution = self.store.read(self.session_id)["tasks"]["p12-a-task"]["executions"]["1"]
         self.assertEqual(execution["dispatch_record"]["dispatch_state"], "acknowledged")
+
+    def test_recognized_merges_probe_legacy_and_store_warnings(self):
+        original = governance_hook.observe_spawn_post_tool
+
+        def legacy(*args, **kwargs):
+            original(*args, **kwargs)
+            args[4].last_warning = "store-warning"
+            return "legacy-warning"
+
+        with mock.patch.object(governance_hook, "_record_spawn_probe_post", return_value="probe-warning"), mock.patch.object(
+            governance_hook, "observe_spawn_post_tool", side_effect=legacy,
+        ):
+            result = self._post(response={"success": True})
+        self.assertTrue(result["continue"])
+        self.assertEqual(result["systemMessage"], "probe-warning；legacy-warning；store-warning")
+        execution = self.store.read(self.session_id)["tasks"]["p12-a-task"]["executions"]["1"]
+        self.assertEqual(execution["dispatch_record"]["dispatch_state"], "acknowledged")
+
+    def test_duplicate_post_cannot_reset_completed_receipt(self):
+        self.assertIsNone(self._post(response={"success": True}))
+        receipt = copy.deepcopy(self._receipt())
+        before = copy.deepcopy(self.store.read(self.session_id))
+        result = self._post(response={"success": True})
+        self.assertTrue(result["continue"])
+        self.assertIn("spawn_post_probe_handler_failed", result["systemMessage"])
+        self.assertEqual(self._receipt(), receipt)
+        self.assertEqual(self.store.read(self.session_id), before)
 
     def test_missing_or_different_id_and_unknown_marker_miss_are_fully_inert(self):
         with mock.patch.object(governance_hook, "_store_or_unavailable") as constructor:

@@ -95,7 +95,7 @@ def _valid_receipt(value: Any, *, session_id: str, tool_use_id: str, now: int) -
         return None
     if any(isinstance(value.get(field), bool) or not isinstance(value.get(field), int) or value[field] < 0 for field in ("recorded_at", "updated_at")):
         return None
-    if value["updated_at"] < value["recorded_at"] or value["recorded_at"] + RECEIPT_TTL_SECONDS < now:
+    if value["updated_at"] < value["recorded_at"] or value["updated_at"] + RECEIPT_TTL_SECONDS < now:
         return None
     return value
 
@@ -224,9 +224,26 @@ class SpawnPostProbeStore:
                 )
             except (PrivateStorageError, UnicodeDecodeError, json.JSONDecodeError):
                 existing = None
-            owner_fields = ("task_id", "attempt", "task_ref", "dispatch_operation", "spawn_retry_count")
+            owner_fields = (
+                "tool_use_id_match", "tool_name_classification", "admission_source", "recorded_at",
+                "task_id", "attempt", "task_ref", "dispatch_operation", "spawn_retry_count",
+            )
             if existing is None or any(existing[field] != valid[field] for field in owner_fields):
                 raise PrivateStorageError("spawn PostToolUse probe receipt owner mismatch")
+            if valid["updated_at"] < existing["updated_at"]:
+                raise PrivateStorageError("spawn PostToolUse probe receipt updated_at regressed")
+            current_stage, next_stage = existing["handler_stage"], valid["handler_stage"]
+            allowed_stages = {
+                "received": {"claim_checked", "handler_failed"},
+                "claim_checked": {"shape_classified", "completed", "handler_failed"},
+                "shape_classified": {"completed", "handler_failed"},
+                "completed": set(),
+                "handler_failed": set(),
+            }
+            if next_stage not in allowed_stages[current_stage]:
+                raise PrivateStorageError("spawn PostToolUse probe receipt stage regression")
+        elif valid["handler_stage"] != "received":
+            raise PrivateStorageError("spawn PostToolUse probe receipt must start received")
         self._write(self.receipts_root, destination, valid, "spawn PostToolUse probe receipt")
 
     def remove_marker(self, session_id: str, tool_use_id: str) -> None:

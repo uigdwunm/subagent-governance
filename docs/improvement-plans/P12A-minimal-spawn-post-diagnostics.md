@@ -30,7 +30,7 @@
 P12-A 只包含：
 
 1. governed spawn Pre claim 后发布一个私有、短期、same-ID probe marker；
-2. recognized spawn Post 或 unknown-name catch-all 的 exact marker hit 进入只诊断 handler；
+2. recognized spawn Post 或 unknown-name catch-all 的 exact marker hit 进入 sidecar diagnostics handler；
 3. 对 current StateStore 与 current PreparedContract 作只为归属确认的 exact recheck；
 4. 写入独立、严格、容量受限的 probe receipt；
 5. 在 diagnose/view 中显示机械枚举和时间；
@@ -38,7 +38,7 @@ P12-A 只包含：
 
 P12-A 明确不包含：
 
-- 不写 `dispatch_response`、`dispatch_target`、`agents` 或 `observation_record`；
+- probe sidecar 自身不写 `dispatch_response`、`dispatch_target`、`agents` 或 `observation_record`；recognized spawn 保留既有 canonical Post transition；
 - 不把 list/terminal/final 当作 Post 或 identity authority；
 - 不改变 spawn retry budget、父方处置、等待、恢复或终态流程；
 - 不增加 receipt-first canonical transition、generation replacement 或 PreparedContract settlement；
@@ -75,7 +75,7 @@ P12-A 明确不包含：
 - lookup 只读，不创建目录、锁、StateStore 或输出。
 - P12-A 不在 SessionStart 重建 marker；一次 marker 丢失被如实记录为诊断不可用，不借机增加恢复协议。
 
-### B. 独立 probe receipt，不写 canonical execution
+### B. 独立 probe receipt，sidecar 不写 canonical execution
 
 使用新的私有目录 `spawn-post-probes-v1`。receipt 以 session/tool-use ID 的不可逆摘要定位，只允许以下机械字段：
 
@@ -120,7 +120,7 @@ P12-A 明确不包含：
 | --- | --- |
 | 新的 probe storage 模块 | marker/receipt 的 strict validator、私有写入、TTL、容量、exact lookup/remove。 |
 | `scripts/governance_dispatch.py` | claim 完成后发布 marker；失败仅返回固定诊断码。 |
-| `scripts/governance_hook.py` | recognized/exact-marker admission 与只诊断 handler；miss 保持 inert。 |
+| `scripts/governance_hook.py` | recognized/exact-marker sidecar admission；recognized 保留 legacy canonical handler，unknown marker miss 保持 inert。 |
 | `scripts/governance_platform.py` | 增加纯顶层 `spawn_response_shape()`，不解析 identity。 |
 | diagnostics/views | 只投影 probe enum、时间和 ID-match boolean。 |
 | tests | marker、receipt、router、privacy、capacity、fault injection 和 regression。 |
@@ -132,8 +132,8 @@ P12-A 明确不包含：
 | 层级 | 必测 | 通过条件 |
 | --- | --- | --- |
 | marker | publish、same-ID lookup、different/missing ID、TTL、容量、损坏 | 仅 exact current claim 命中；miss 完全 inert。 |
-| router | recognized spawn、unknown name + hit、unknown miss、unmanaged spawn | 只有前两类可写 probe；不写 canonical execution。 |
-| recheck | Prepared missing、StateStore mismatch、attempt/ref/retry count mismatch | 仅 bounded claim_check；无 identity/dispatch 变化。 |
+| router | recognized spawn、unknown name + hit、unknown miss、unmanaged spawn | 前两类可写 probe；recognized 保留 legacy baseline，unknown-name probe 路径不写 canonical execution。 |
+| recheck | Prepared missing、StateStore mismatch、attempt/ref/retry count mismatch | probe 仅写 bounded claim_check；recognized 的后续 legacy 结果保持基线，unknown-name 无 identity/dispatch 变化。 |
 | shape | empty/object/non-object/invalid JSON/error envelope/nested content | 只记录顶层 enum，不读取 nested content。 |
 | failure | marker write、receipt write、stage update、diagnostic read failure | 原生调用 fail-open；固定码；不伪造 Post 结论。 |
 | privacy | raw name、target、response、message、summary、final、transcript 注入 | 全部拒绝或不落盘。 |
@@ -151,7 +151,7 @@ P12-A 明确不包含：
 
 ## 真实验证门槛与停止条件
 
-至少执行 3 次相互独立的 governed spawn，其中至少一次发生在 Codex 重启后的新任务中。每次只记录：Pre marker 是否发布、receipt 是否存在、name classification、ID-match、claim_check、response_shape、handler_stage，以及 canonical state 是否保持原状。
+至少执行 3 次相互独立的 governed spawn，其中至少一次发生在 Codex 重启后的新任务中。每次只记录：Pre marker 是否发布、receipt 是否存在、name classification、ID-match、claim_check、response_shape、handler_stage，以及 canonical state 是否符合基线：recognized 为既有 legacy transition，unknown-name exact-marker diagnostics 为逐字段不变。
 
 结果分流：
 
@@ -168,7 +168,7 @@ P12-A 的成功不是“修复 V2”，而是把未知分支缩小到足以做�
 
 ## 本地验收标准
 
-- 未修改 canonical state format、identity、dispatch、retry 或 lifecycle transition。
+- 未新增 canonical 状态语义；recognized Post 保留既有 transition，probe 仅为 sidecar diagnostics。
 - 无关 catch-all 与 different/missing ID 完全 inert。
 - probe 只含白名单机械字段，容量、TTL、权限和 strict validator 有测试。
 - recognized/unknown-name exact hit 可区分 handler 到达和失败阶段。

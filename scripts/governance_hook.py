@@ -77,6 +77,18 @@ def _continue(message: str | None = None) -> dict[str, Any]:
     return result
 
 
+def _merge_warnings(*values: Any) -> str | None:
+    """Preserve every bounded domain warning while avoiding duplicate UI text."""
+    messages: list[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        message = value.strip()
+        if message and message not in messages:
+            messages.append(message)
+    return "；".join(messages) or None
+
+
 def _session_id(payload: dict[str, Any]) -> str:
     return str(payload.get("session_id") or "unknown")
 
@@ -291,11 +303,14 @@ def _post(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | 
             # PreparedContract exact lookup, adapter, and canonical transition.
             if prepared is None:
                 return _continue(probe_warning) if probe_warning else None
-            warning = observe_spawn_post_tool(
-                session_id, prepared, adapt_spawn_response(payload.get("tool_response")).to_record(),
-                int(payload.get("now") or time.time()), store, prepared_store,
-            )
-            combined = probe_warning or warning or getattr(store, "last_warning", None)
+            try:
+                warning = observe_spawn_post_tool(
+                    session_id, prepared, adapt_spawn_response(payload.get("tool_response")).to_record(),
+                    int(payload.get("now") or time.time()), store, prepared_store,
+                )
+            except Exception as exc:
+                warning = f"Subagent Governance PostToolUse 记录失败，原生调用已发生，已降级放行：{exc}"
+            combined = _merge_warnings(probe_warning, warning, getattr(store, "last_warning", None))
             return _continue(combined) if combined else None
         if kind == "agent_status":
             store = state_store if state_store is not None else _store_or_unavailable()
