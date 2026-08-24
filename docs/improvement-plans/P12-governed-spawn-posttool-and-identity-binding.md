@@ -14,7 +14,7 @@
 
 若 P12-A 的独立真实任务均没有 receipt、真实 Post 使用不同/缺失 ID，或结果仍不足以建立 same-ID authority，本方案保持冻结。不得以更多 catch-all、list 推断、时间匹配、task name 猜测或 SessionStart 自动恢复绕过门槛。
 
-P12-A 通过后也不能原样照搬本方案：实施任务必须以实际 probe shape 和失败阶段删除无证据支持的分支，只保留解决已证实问题所需的最小子集。
+P12-A 通过后也不能原样照搬本方案：实施任务必须以实际 probe shape 和失败阶段删除无证据支持的分支，只保留解决已证实问题所需的最小子集，并删除 P12-A 的临时 marker/receipt/store/router。最终机制不得与 P12-A probe 长期并存。
 
 ## 问题定义
 
