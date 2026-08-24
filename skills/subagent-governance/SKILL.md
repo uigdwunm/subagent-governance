@@ -104,6 +104,7 @@ initial credential 已缺失且超过5分钟时，只有 canonical state 仍精�
 
 - `pending_action` 初始为 prepared，5分钟内由匹配 target 的 PreToolUse 原子认领为 claimed 并绑定 `tool_use_id`。
 - PostToolUse 只按 `tool_use_id` 对账 success、failed 或 unknown。claimed 后20分钟仍无 PostToolUse，才在后续显式读取中记 unknown。
+- 测试版 PostToolUse catch-all 对无关工具完全 inert：不构造 StateStore、不输出消息。只有能精确关联 claimed pending 的事件才保存一条 receipt；receipt 仅保存 ID-match、工具族、固定 response-shape/result 码和时间，不保存 message、contract、response values、child final 或 transcript。
 - normal message 只补充上下文，不改变生命周期。
 - platform recovery 只适用于精确 observation error，同一 attempt 最多一次自动恢复和一次用户授权恢复。
 - business resume 只在精确终态通知已到且父动作是 `decide_disposition`，或前一次 resume delivery failed 时创建新 attempt。它必须提供重新校验的 TaskContract，并在 preparation 与 follow-up claim 两处复核 context manifest。
@@ -119,6 +120,7 @@ initial credential 已缺失且超过5分钟时，只有 canonical state 仍精�
 - 精确目标巡检必须调用 `list_agents({"path_prefix": "<完整 canonical target>"})`；`{}`、父路径或多目标结果都不是 exact observation，也不会写入 canonical state。
 - 精确 running 时继续等待，不读取代码、日志或测试猜进度，不发送心跳。
 - `list_agents` adapter 只读取顶层 `agents`，不扫描 `content`、summary、先前消息或 transcript。
+- adapter 接受后仍须由 current managed identity 路由：closed resume source 与 current attempt 共用 target 时只写 current attempt；多 open candidate、active index/provenance 不符或 closed-only target 返回有界 route reason，不能 silent no-op 或猜测。
 - 每次 exact list 后必须确认对应 attempt 的 `observation_record.source == "list_agents"`；没有该事实时只能记为未执行，不能把原生全量列表冒充 canonical observation。
 - completed、stopped、interrupted 的 list observation 只证明平台终态，不替代原生终态通知，也不生成业务结果。
 - 已看到平台终态但通知未到时，closure 为 `await_notification`，父动作是 `reconcile`。
@@ -168,7 +170,7 @@ stdin：
 
 StateStore 还保存有限 identity、恢复计数、pending operation 和 tombstone。它不保存业务结果正文、验收状态、结果文件引用或结果冲突。
 
-StateStore 只接受严格的 `state_format_version=6`，默认命名空间是 `state-v6`。缺少版本、版本不匹配、`managed=false` 或任何持久化未知字段都会直接拒绝；旧 `state-v1` 不读取、不迁移、不修复、不写回或删除。
+StateStore 只接受严格的 `state_format_version=7`，默认命名空间是 `state-v7`。每个 attempt 最多保存一条不含正文的 PostToolUse receipt；缺少版本、版本不匹配、`managed=false` 或任何持久化未知字段都会直接拒绝；旧 `state-v1` 或 `state-v6` 不读取、不迁移、不修复、不写回或删除。
 
 `parent_action` 只表达生命周期下一步：`wait|reconcile|retry_spawn|recover|decide_disposition|ask_user` 或 JSON `null`。
 

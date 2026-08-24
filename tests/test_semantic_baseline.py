@@ -4,11 +4,11 @@ from scripts import governance_semantics as semantics
 
 
 class SemanticBaselineTests(unittest.TestCase):
-    def test_current_state_format_is_v6(self):
-        self.assertEqual(semantics.STATE_FORMAT_VERSION, 6)
+    def test_current_state_format_is_v7(self):
+        self.assertEqual(semantics.STATE_FORMAT_VERSION, 7)
         self.assertEqual(
             semantics.SEMANTIC_RULES["canonical_record"]["state_format_version"],
-            6,
+            7,
         )
 
     def test_parent_disposition_is_lifecycle_only(self):

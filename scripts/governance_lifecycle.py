@@ -21,6 +21,7 @@ try:
     from scripts.governance_dispatch import initial_task_record
     from scripts.governance_dispatch_identity import select_task_ref
     from scripts.governance_dispatch_rendering import render_list as _render_list, render_verified_context as _render_verified_context
+    from scripts.governance_platform import adapt_lifecycle_response, lifecycle_response_shape
     from scripts.governance_errors import (
         CommunicationPreparationError, ContextVerificationError,
         NotificationObservationError, ParentDispositionConflict,
@@ -58,6 +59,7 @@ except ModuleNotFoundError:
     from governance_dispatch import initial_task_record
     from governance_dispatch_identity import select_task_ref
     from governance_dispatch_rendering import render_list as _render_list, render_verified_context as _render_verified_context
+    from governance_platform import adapt_lifecycle_response, lifecycle_response_shape
     from governance_errors import CommunicationPreparationError, ContextVerificationError, NotificationObservationError, ParentDispositionConflict, ParentDispositionError, ReconciliationError, StateConflictError, StateValidationError, _state_store_exception_category
     from governance_execution import apply_canonical_execution_update as _apply_canonical_execution_update, canonical_execution_for_attempt as _canonical_execution_for_attempt, close_attempt_record as _close_attempt_record, dispatch_target as _dispatch_target, execution_close_reason as _execution_close_reason, execution_is_closed as _execution_is_closed, execution_status as _execution_status, identity_status as _identity_status, iter_task_attempts as _iter_task_attempts, managed_target_admission as _managed_target_admission, observation_is_bound as _observation_is_bound, observation_checked_at as _observation_checked_at, observation_source as _observation_source, parent_action as _parent_action, record_has_target_provenance as _record_has_target_provenance, repair_managed_target_index as _repair_managed_target_index, task_attempt_records as _task_attempt_records, task_record_for_attempt as _task_record_for_attempt, ensure_canonical_task_record as _ensure_canonical_task_record, platform_observation as _platform_observation, spawn_observation as _spawn_observation
     from governance_semantics import CALL_OBSERVATIONS, LIFECYCLE_OPERATION_TYPES, LIST_AGENTS_TERMINAL_STATUSES, MAX_CONTRACT_TEXT, OPERATION_NATIVE_TOOLS, OPERATION_TYPES, PARENT_DISPOSITION_REASON_MAX_LENGTH, PARENT_DISPOSITIONS, RETENTION_SECONDS, RETRY_LIMITS, SEMANTIC_DEFINITIONS
@@ -1036,6 +1038,7 @@ def _apply_action_observation(
             _apply_canonical_execution_update(record, "closure_parent_action", "ask_user")
     elif operation_type == "business_resume":
         if call_observation == "success":
+            _apply_canonical_execution_update(record, "dispatch_response", "success")
             _apply_canonical_execution_update(record, "observed_execution_status", "not_started")
             _apply_canonical_execution_update(record, "closure_parent_action", "wait")
             record["last_lifecycle_operation"] = lifecycle
@@ -1591,11 +1594,8 @@ def _weak_list_agents_observation_preserves_terminal(
 
 
 def _record_exact_absence(
-    state: dict[str, Any], target: str, observed_at: int
+    state: dict[str, Any], mapped: tuple[str, int, dict[str, Any]], observed_at: int
 ) -> None:
-    mapped = _resolve_exact_dispatch_target_attempt(state, target)
-    if mapped is None:
-        return
     task_id, attempt, _record = mapped
     _ensure_canonical_task_record(state, task_id)
     record = _task_record_for_attempt(state, task_id, attempt)
@@ -1625,16 +1625,57 @@ def _record_exact_absence(
     record.pop("last_lifecycle_operation", None)
 
 
-def _resolve_exact_dispatch_target_attempt(
+def resolve_exact_list_observation_target(
     state: dict[str, Any], target: str
-) -> tuple[str, int, dict[str, Any]] | None:
-    matches = [
-        (task_id, attempt, record)
-        for task_id, attempt, record in _iter_task_attempts(state)
-        if isinstance(record.get("dispatch_record"), dict)
-        and record["dispatch_record"].get("dispatch_target") == target
+) -> tuple[tuple[str, int, dict[str, Any]] | None, str | None]:
+    """Route an adapter-proven exact list result to one current execution.
+
+    Historical closed attempts deliberately retain their dispatch target.  They
+    are therefore not candidates for a new list observation; active identity
+    and open provenance are the only authority here.
+    """
+    admission = _managed_target_admission(state, target)
+    if admission.disposition == "managed" and admission.candidate is not None:
+        task_id, attempt, record = admission.candidate
+        if _execution_is_closed(record):
+            return None, "closed_provenance_only"
+        if _dispatch_target(record) != target:
+            return None, "active_index_provenance_mismatch"
+        return (task_id, attempt, record), None
+    if admission.disposition == "closed":
+        return None, "closed_provenance_only"
+    if admission.disposition == "unmanaged":
+        return None, "unmanaged_target"
+    open_retained = [
+        candidate
+        for candidate in _iter_task_attempts(state)
+        if _record_has_target_provenance(candidate[2], target)
+        and not _execution_is_closed(candidate[2])
     ]
-    return matches[0] if len(matches) == 1 else None
+    if len(open_retained) > 1:
+        return None, "current_identity_ambiguous"
+    return None, "active_index_provenance_mismatch"
+
+
+def _mark_exact_list_route_reconcile(state: dict[str, Any], target: str) -> None:
+    """Record only the safe lifecycle consequence of an inconsistent route."""
+    mapping = state.get("agents", {}).get(target) if isinstance(state.get("agents"), dict) else None
+    candidates = [
+        candidate
+        for candidate in _iter_task_attempts(state)
+        if _record_has_target_provenance(candidate[2], target)
+        and not _execution_is_closed(candidate[2])
+    ]
+    if isinstance(mapping, dict):
+        mapped = _task_record_for_attempt(state, mapping.get("task_id"), mapping.get("attempt"))
+        if isinstance(mapped, dict) and not _execution_is_closed(mapped):
+            candidates.append((str(mapping.get("task_id")), int(mapping.get("attempt")), mapped))
+    seen: set[tuple[str, int]] = set()
+    for task_id, attempt, record in candidates:
+        if (task_id, attempt) in seen:
+            continue
+        seen.add((task_id, attempt))
+        _apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
 
 
 def _identity_mapping(task_id: str, attempt: int) -> dict[str, Any]:
@@ -1649,21 +1690,17 @@ def observe_agent_status_post_tool(
     platform_status = getattr(observation, "normalized_status", None)
     if not isinstance(target, str) or not isinstance(platform_status, str):
         return None
-    if platform_status == "absent":
-        try:
-            store.update(
-                session_id,
-                lambda state: _record_exact_absence(
-                    state, target, _event_now(payload)
-                ),
-            )
-        except (OSError, RuntimeError) as exc:
-            return {"systemMessage": f"Subagent Governance 无法记录精确空 Agent 对账，已降级放行：{exc}"}
-        return None
+    route: dict[str, str | None] = {"reason": None}
 
     def reconcile(state: dict[str, Any]) -> None:
-        resolved = _resolve_exact_dispatch_target_attempt(state, target)
+        resolved, reason = resolve_exact_list_observation_target(state, target)
         if resolved is None:
+            route["reason"] = reason or "current_identity_unavailable"
+            if reason in {"current_identity_ambiguous", "active_index_provenance_mismatch"}:
+                _mark_exact_list_route_reconcile(state, target)
+            return
+        if platform_status == "absent":
+            _record_exact_absence(state, resolved, _event_now(payload))
             return
         task_id, mapped_attempt, _record = resolved
         _ensure_canonical_task_record(state, task_id)
@@ -1741,14 +1778,70 @@ def observe_agent_status_post_tool(
         store.update(session_id, reconcile)
     except (OSError, RuntimeError) as exc:
         return {"systemMessage": f"Subagent Governance 无法对账 Agent 平台状态，已降级放行：{exc}"}
+    if route["reason"] is not None:
+        return {
+            "systemMessage": (
+                "Subagent Governance：list_agents adapter 已接受，但 canonical route 被拒绝"
+                f"（{route['reason']}），未写入 canonical observation。"
+            )
+        }
     return None
 
 
+def _receipt_for_tool_use(state: dict[str, Any], tool_use_id: str) -> dict[str, Any] | None:
+    matches = [
+        receipt
+        for _task_id, _attempt, record in _iter_task_attempts(state)
+        if isinstance((receipt := record.get("post_receipt")), dict)
+        and receipt.get("received_tool_use_id") == tool_use_id
+    ]
+    if len(matches) > 1:
+        raise StateConflictError(f"同一 tool_use_id 映射到多个 post_receipt：{tool_use_id}")
+    return matches[0] if matches else None
+
+
+def _receipt_from_claim(
+    session_id: str,
+    task_id: str,
+    attempt: int,
+    pending: dict[str, Any],
+    tool_use_id: str,
+    observation: dict[str, str | None],
+    response_shape: str,
+    observed_at: int,
+) -> dict[str, Any]:
+    operation_type = str(pending["operation_type"])
+    family = "interrupt" if operation_type == "interrupt" else "communication" if operation_type == "normal_message" else "followup"
+    return {
+        "session_id": session_id,
+        "task_id": task_id,
+        "attempt": attempt,
+        "task_ref": pending["task_ref"],
+        "target": pending["target"],
+        "expected_tool_use_id": pending["tool_use_id"],
+        "received_tool_use_id": tool_use_id,
+        "id_match": True,
+        "tool_family": family,
+        "operation_type": operation_type,
+        "response_shape": response_shape,
+        "processing_result": observation["call_observation"],
+        "recorded_at": observed_at,
+    }
+
+
 def observe_lifecycle_post_tool(
-    payload: dict[str, Any], store: StateStore, session_id: str, observation: dict[str, str | None]
+    payload: dict[str, Any], store: StateStore, session_id: str, *, report_unmatched: bool = False
 ) -> dict[str, Any] | None:
+    """Receipt and reconcile a claimed lifecycle PostToolUse exactly once.
+
+    The receipt is written in the same CAS mutation before the lifecycle
+    transition, so it contains no body or response values and cannot be
+    detached from the current pending owner.
+    """
     tool_use_id = str(payload.get("tool_use_id") or "")
     observed_at = _event_now(payload)
+    if not tool_use_id:
+        return {"systemMessage": "Subagent Governance：followup PostToolUse 未提供 tool_use_id（post_tool_use_id_missing），未写入状态。"} if report_unmatched else None
     try:
         state = store.read(session_id)
         claimed = _claimed_action_for_tool_use(state, tool_use_id)
@@ -1761,8 +1854,15 @@ def observe_lifecycle_post_tool(
         }
     if claimed is not None:
         task_id, attempt, _record, pending = claimed
+        operation_type = pending.get("operation_type")
+        if not isinstance(operation_type, str):
+            return {"systemMessage": "Subagent Governance 收到无效 claimed pending operation，已降级放行。"}
+        observation = adapt_lifecycle_response(
+            payload.get("tool_response"), operation_type
+        ).to_record()
         if observation.get("call_observation") not in CALL_OBSERVATIONS:
             return {"systemMessage": "Subagent Governance 收到无效 lifecycle adapter 观察，已降级放行。"}
+        response_shape = lifecycle_response_shape(payload.get("tool_response"))
 
         def predicate(current: dict[str, Any]) -> bool:
             target = _task_record_for_attempt(current, task_id, attempt)
@@ -1778,6 +1878,10 @@ def observe_lifecycle_post_tool(
             target = _task_record_for_attempt(current, task_id, attempt)
             assert target is not None
             current_pending = copy.deepcopy(target["pending_action"])
+            target["post_receipt"] = _receipt_from_claim(
+                session_id, task_id, attempt, current_pending, tool_use_id,
+                observation, response_shape, observed_at,
+            )
             _apply_action_observation(
                 target,
                 current_pending,
@@ -1792,9 +1896,14 @@ def observe_lifecycle_post_tool(
                 "systemMessage": (
                     "Subagent Governance 已观察到原生调用 "
                     f"{observation['call_observation']}，但状态写入失败；"
-                    f"已消耗的预算或 attempt 不回滚，治理状态 degraded：{exc}"
+                    f"post_receipt_write_failed，已消耗的预算或 attempt 不回滚，治理状态 degraded：{exc}"
                 )
             }
         return None
-
-    return None
+    try:
+        duplicate = _receipt_for_tool_use(state, tool_use_id)
+    except Exception as exc:
+        return {"systemMessage": f"Subagent Governance 无法检查 lifecycle receipt，已降级放行：{exc}"}
+    if duplicate is not None:
+        return None
+    return {"systemMessage": "Subagent Governance：followup PostToolUse 的 tool_use_id 未关联 claimed pending（post_tool_use_id_unclaimed），未写入状态。"} if report_unmatched else None

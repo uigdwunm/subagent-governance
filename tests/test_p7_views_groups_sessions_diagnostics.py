@@ -94,6 +94,30 @@ class P7ViewsGroupsSessionsDiagnosticsTests(unittest.TestCase):
         self.assertEqual(before[path], after[path])
         self.assertEqual(before[lock], after[lock])
 
+    def test_receipt_projection_is_mechanical_and_private(self):
+        task_id = self.add_task()
+        def add_receipt(state):
+            record = state["tasks"][task_id]["executions"]["1"]
+            record["post_receipt"] = {
+                "session_id": self.session_id, "task_id": task_id, "attempt": 1,
+                "task_ref": "0123456789ab", "target": "/root/p7",
+                "expected_tool_use_id": "secret-expected", "received_tool_use_id": "secret-received",
+                "id_match": True, "tool_family": "followup", "operation_type": "business_resume",
+                "response_shape": "empty", "processing_result": "success", "recorded_at": 120,
+            }
+        self.store.update(self.session_id, add_receipt)
+        state = self.store.read(self.session_id)
+        snapshot, _issues, _incomplete = views.work_item_view(state, task_id, session_id=self.session_id)
+        receipt = snapshot["execution_candidates"][0]["post_receipt"]
+        self.assertEqual(receipt["response_shape"], "empty")
+        self.assertNotIn("expected_tool_use_id", receipt)
+        document, exit_code = diagnostics.build_diagnostic_document(self.session_id, self.root)
+        self.assertEqual(exit_code, 0)
+        rendered = json.dumps(document, ensure_ascii=False)
+        self.assertNotIn("secret-expected", rendered)
+        self.assertNotIn("secret-received", rendered)
+        self.assertNotIn("response body", rendered)
+
     def test_diagnostics_modules_are_read_only_and_runtime_is_only_adapter(self):
         root = Path(dispatch.__file__).parent
         diagnostics = (root / "governance_diagnostics.py").read_text()

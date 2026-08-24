@@ -36,7 +36,7 @@ flowchart LR
 
 对于不经过原生 `spawn_agent` 的独立任务交接，可以在派发前将 manifest 通过标准输入交给 `python3 scripts/subagent_governance.py --verify-context-manifest`。该命令只返回验证事实，不创建治理状态，也不能硬拦截 `create_thread`。
 
-StateStore 只接受严格的 `state_format_version=6` 与 `state-v6` 命名空间。根记录、task、execution、pending、health、tombstone、agent 和 group 都使用关闭字段集合；缺少版本、版本不匹配、`managed=false` 或任何未知持久化字段都会直接拒绝，且不读取、迁移、删除旧 `state-v1`。
+StateStore 只接受严格的 `state_format_version=7` 与 `state-v7` 命名空间。根记录、task、execution、pending、health、tombstone、agent 和 group 都使用关闭字段集合；缺少版本、版本不匹配、`managed=false` 或任何未知持久化字段都会直接拒绝，且不读取、迁移、删除旧 `state-v1` 或 `state-v6`。
 
 如果 initial PreparedContract 已缺失且超过5分钟，同时 canonical state 仍精确证明派发从未被 claim、没有 target、没有平台观察或终态，SessionStart/SessionEnd 会把这条未启动工作项自动关闭并保留7天 tombstone。它不会伪造 completed 或终态通知；claimed、unknown、并发变化和任何可能已创建 Agent 的状态都会保留给 reconcile。
 

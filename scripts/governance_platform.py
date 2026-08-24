@@ -125,6 +125,22 @@ def adapt_lifecycle_response(response: Any, operation_type: str) -> LifecycleCal
     return LifecycleCallObservation("unknown")
 
 
+def lifecycle_response_shape(response: Any) -> str:
+    """Classify only the opaque top-level envelope, never its values."""
+    if response is None or response == "":
+        return "empty"
+    if isinstance(response, str):
+        try:
+            value = json.loads(response)
+        except json.JSONDecodeError:
+            return "json_decode_failed"
+    else:
+        value = response
+    if not isinstance(value, dict):
+        return "non_object"
+    return "explicit_error" if _failed(value) else "top_level_object"
+
+
 def adapt_list_agents_response_result(tool_input: Any, response: Any) -> AgentStatusAdaptation:
     """Return one exact bound observation or a bounded rejection reason.
 
@@ -178,6 +194,6 @@ def adapt_list_agents_response(tool_input: Any, response: Any) -> AgentStatusObs
 
 __all__ = [
     "AgentStatusAdaptation", "AgentStatusObservation", "LifecycleCallObservation", "SpawnCallObservation",
-    "adapt_lifecycle_response", "adapt_list_agents_response", "adapt_list_agents_response_result",
+    "adapt_lifecycle_response", "lifecycle_response_shape", "adapt_list_agents_response", "adapt_list_agents_response_result",
     "adapt_spawn_response",
 ]

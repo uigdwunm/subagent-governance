@@ -10,7 +10,7 @@ The contract does not scan or score natural-language content. Every input direct
 
 For handoffs outside native `spawn_agent`, pipe the manifest to `python3 scripts/subagent_governance.py --verify-context-manifest` before dispatch. This read-only preflight returns verification facts without creating governance state and cannot hard-intercept `create_thread`.
 
-StateStore accepts only strict `state_format_version=6` in the `state-v6` namespace. Root, task, execution, pending, health, tombstone, agent, and group records have closed field sets; missing or mismatched versions, `managed=false`, and unknown persisted fields are rejected without reading, migrating, or deleting legacy `state-v1` data.
+StateStore accepts only strict `state_format_version=7` in the `state-v7` namespace. Root, task, execution, pending, health, tombstone, agent, and group records have closed field sets; missing or mismatched versions, `managed=false`, and unknown persisted fields are rejected without reading, migrating, or deleting legacy `state-v1` or `state-v6` data.
 
 When an initial PreparedContract has been missing for more than five minutes and canonical state still proves the dispatch was never claimed, targeted, observed, or started, SessionStart/SessionEnd closes that unstarted work item into a seven-day tombstone. This does not synthesize completion or a terminal notification; claimed, unknown, concurrently changed, or possibly created Agents remain open for reconciliation.
 

@@ -556,6 +556,7 @@
         "agent_id": false,
         "canonical_task_path": false,
         "pending_action": {"$ref": "#/$defs/pending_action"},
+        "post_receipt": {"$ref": "#/$defs/post_receipt"},
         "last_lifecycle_operation": {"$ref": "#/$defs/lifecycle_operation"},
         "parent_disposition_record": false,
         "attempt_closed": false,
@@ -580,6 +581,31 @@
         "parent_disposition_at": false,
         "spawn_not_created": false,
         "initial_preparation_rollback": {"$ref": "#/$defs/initial_rollback_marker"}
+      },
+      "additionalProperties": false
+    },
+    "post_receipt": {
+      "type": "object",
+      "required": [
+        "session_id", "task_id", "attempt", "task_ref", "target",
+        "expected_tool_use_id", "received_tool_use_id", "id_match",
+        "tool_family", "operation_type", "response_shape",
+        "processing_result", "recorded_at"
+      ],
+      "properties": {
+        "session_id": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "task_id": {"$ref": "#/$defs/task_id"},
+        "attempt": {"$ref": "#/$defs/attempt"},
+        "task_ref": {"$ref": "#/$defs/task_ref"},
+        "target": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S"},
+        "expected_tool_use_id": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "received_tool_use_id": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "id_match": {"const": true},
+        "tool_family": {"type": "string", "enum": ["followup", "communication", "interrupt"]},
+        "operation_type": {"$ref": "#/$defs/pending_operation_type"},
+        "response_shape": {"type": "string", "enum": ["empty", "top_level_object", "non_object", "json_decode_failed", "explicit_error"]},
+        "processing_result": {"$ref": "#/$defs/call_observation"},
+        "recorded_at": {"$ref": "#/$defs/timestamp"}
       },
       "additionalProperties": false
     },
@@ -740,7 +766,7 @@
         "tombstones", "groups"
       ],
       "properties": {
-        "state_format_version": {"const": 6},
+        "state_format_version": {"const": 7},
         "session_id": {"type": "string", "minLength": 1},
         "tasks": {
           "type": "object",
@@ -803,6 +829,19 @@
       },
       "additionalProperties": false
     },
+    "decision_post_receipt": {
+      "type": "object",
+      "required": ["recorded_at", "id_match", "tool_family", "operation_type", "response_shape", "processing_result"],
+      "properties": {
+        "recorded_at": {"$ref": "#/$defs/timestamp"},
+        "id_match": {"type": "boolean"},
+        "tool_family": {"type": "string", "enum": ["followup", "communication", "interrupt"]},
+        "operation_type": {"$ref": "#/$defs/pending_operation_type"},
+        "response_shape": {"type": "string", "enum": ["empty", "top_level_object", "non_object", "json_decode_failed", "explicit_error"]},
+        "processing_result": {"$ref": "#/$defs/call_observation"}
+      },
+      "additionalProperties": false
+    },
     "decision_candidate_timestamps": {
       "type": "object",
       "properties": {
@@ -816,7 +855,7 @@
       "type": "object",
       "required": [
         "attempt", "role", "dispatch", "target", "identity", "execution", "platform",
-        "notification", "last_lifecycle_observation", "action_required", "timestamps"
+        "notification", "last_lifecycle_observation", "post_receipt", "action_required", "timestamps"
       ],
       "properties": {
         "attempt": {"anyOf": [{"$ref": "#/$defs/attempt"}, {"type": "null"}]},
@@ -847,6 +886,7 @@
             {"type": "null"}
           ]
         },
+        "post_receipt": {"anyOf": [{"$ref": "#/$defs/decision_post_receipt"}, {"type": "null"}]},
         "action_required": {"type": "boolean"},
         "timestamps": {"$ref": "#/$defs/decision_candidate_timestamps"}
       },
@@ -971,10 +1011,29 @@
         "ambiguous_target_binding"
       ],
       "unbound_warning_persists_fact": false,
+      "canonical_route_rejection_reasons": [
+        "current_identity_ambiguous",
+        "active_index_provenance_mismatch",
+        "closed_provenance_only",
+        "unmanaged_target"
+      ],
+      "canonical_route_rejection_persists_observation": false,
       "empty_response": "absent_at_check_only",
       "recursive_content_scan": false,
       "transcript_summary_final_history_scan": false,
       "unknown_or_malformed": "no_exact_bound_fact"
+    },
+    "post_tool_receipt": {
+      "post_matcher": "catch_all_testing_only",
+      "unrelated_post_behavior": "inert_without_state_store_or_output",
+      "association": "claimed_pending_tool_use_id_only",
+      "per_attempt_retention": "latest_only",
+      "response_shape_codes": ["empty", "top_level_object", "non_object", "json_decode_failed", "explicit_error"],
+      "processing_result_codes": ["success", "failed", "unknown"],
+      "forbidden_payload_fields": ["message", "contract", "response_values", "child_final", "transcript", "summary"],
+      "write_order": "receipt_before_lifecycle_transition",
+      "write_failure": "fail_open_with_bounded_degraded_reason",
+      "operation_type_source": "claimed_pending_only"
     },
     "late_event_routing": {
       "execution_identity": ["task_key", "execution_key", "dispatch_target"],
@@ -1128,7 +1187,7 @@
       "schedules_or_cancels_members": false
     },
     "canonical_record": {
-      "state_format_version": 6,
+      "state_format_version": 7,
       "task_key": "task_id",
       "work_item_field": "work_item",
       "executions_field": "executions",

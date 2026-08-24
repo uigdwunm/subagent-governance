@@ -1,4 +1,4 @@
-"""Strict v6 StateStore persistence, independent of the runtime entrypoint."""
+"""Strict v7 StateStore persistence, independent of the runtime entrypoint."""
 
 from __future__ import annotations
 

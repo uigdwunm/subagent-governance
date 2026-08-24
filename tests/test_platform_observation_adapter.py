@@ -123,6 +123,16 @@ class PlatformObservationAdapterTests(unittest.TestCase):
             ],
         )
         self.assertFalse(adapter["unbound_warning_persists_fact"])
+        self.assertEqual(
+            adapter["canonical_route_rejection_reasons"],
+            [
+                "current_identity_ambiguous",
+                "active_index_provenance_mismatch",
+                "closed_provenance_only",
+                "unmanaged_target",
+            ],
+        )
+        self.assertFalse(adapter["canonical_route_rejection_persists_observation"])
         self.assertEqual(adapter["boolean_error_flags"], ["isError", "is_error"])
         self.assertEqual(adapter["explicit_error_field"], "error")
         self.assertEqual(adapter["wrapper_status_fields"], ["status", "state"])
@@ -172,6 +182,90 @@ class PlatformObservationAdapterTests(unittest.TestCase):
         self.assertNotIn("decision", stopped)
         self.assertIn("advisory", stopped["systemMessage"])
         self.assertIn(f"{self.task_id}#1", stopped["systemMessage"])
+
+    def test_resume_shared_target_routes_exact_list_to_open_current_attempt(self):
+        """A retained closed source must not shadow the current resume attempt."""
+        source = self.state["tasks"][self.task_id]["executions"]["1"]
+        execution_domain.apply_canonical_execution_update(
+            source, "closure_reason", "business_resume"
+        )
+        execution_domain.apply_canonical_execution_update(source, "closure_closed_at", 150)
+        execution_domain.apply_canonical_execution_update(source, "closure_parent_action", None)
+        resumed = copy.deepcopy(source)
+        resumed["task_ref"] = "abcdefabcdef"
+        resumed["task_name"] = None
+        execution_domain.apply_canonical_execution_update(
+            resumed, "closure_reason", None
+        )
+        execution_domain.apply_canonical_execution_update(resumed, "closure_closed_at", None)
+        execution_domain.apply_canonical_execution_update(resumed, "closure_parent_action", "wait")
+        resumed["observation_record"] = {
+            "source": "list_agents",
+            "observed_state": "active",
+            "observed_at": 149,
+            "terminal_status": None,
+        }
+        self.state["tasks"][self.task_id]["executions"]["2"] = resumed
+        self.state["tasks"][self.task_id]["work_item"]["current_attempt"] = 2
+        self.state["agents"][self.target] = {"task_id": self.task_id, "attempt": 2}
+        resume_state = copy.deepcopy(self.state)
+        for status in ("running", "completed", "errored", "absent"):
+            with self.subTest(status=status):
+                state_path, _lock = self.store._paths(self.session_id)
+                state_path.write_text(json.dumps(resume_state, ensure_ascii=False), encoding="utf-8")
+                if os.name != "nt":
+                    state_path.chmod(0o600)
+                response = {"agents": []} if status == "absent" else {
+                    "agents": [{"agent_name": self.target, "agent_status": status}]
+                }
+                self.observe(response)
+                state = self.store.read(self.session_id)
+                self.assertEqual(
+                    state["tasks"][self.task_id]["executions"]["2"]["observation_record"]["source"],
+                    "list_agents",
+                )
+                self.assertNotEqual(
+                    state["tasks"][self.task_id]["executions"]["1"]["observation_record"]["source"],
+                    "list_agents",
+                )
+
+    def test_exact_list_unsafe_identity_is_rejected_with_bounded_route_reason(self):
+        response = {"agents": [{"agent_name": self.target, "agent_status": "running"}]}
+        for scenario, expected in (
+            ("index_mismatch", "active_index_provenance_mismatch"),
+            ("two_open", "current_identity_ambiguous"),
+            ("closed_only", "closed_provenance_only"),
+        ):
+            with self.subTest(scenario=scenario):
+                state = copy.deepcopy(self.state)
+                first = state["tasks"][self.task_id]["executions"]["1"]
+                if scenario == "index_mismatch":
+                    other = copy.deepcopy(first)
+                    other["task_ref"] = "abcdefabcdef"
+                    other["dispatch_record"]["dispatch_target"] = "/root/other"
+                    state["tasks"][self.task_id]["executions"]["2"] = other
+                    state["agents"][self.target] = {"task_id": self.task_id, "attempt": 2}
+                elif scenario == "two_open":
+                    other = copy.deepcopy(first)
+                    other["task_ref"] = "abcdefabcdef"
+                    state["tasks"][self.task_id]["executions"]["2"] = other
+                    state["agents"].pop(self.target)
+                else:
+                    execution_domain.apply_canonical_execution_update(first, "closure_reason", "close_task:test")
+                    execution_domain.apply_canonical_execution_update(first, "closure_closed_at", 150)
+                    execution_domain.apply_canonical_execution_update(first, "closure_parent_action", None)
+                path, _lock = self.store._paths(self.session_id)
+                path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+                if os.name != "nt":
+                    path.chmod(0o600)
+                result = self.observe(response, now=210)
+                self.assertTrue(result["continue"])
+                self.assertIn(expected, result["systemMessage"])
+                current = self.store.read(self.session_id)
+                self.assertNotEqual(
+                    current["tasks"][self.task_id]["executions"]["1"]["observation_record"]["source"],
+                    "list_agents",
+                )
 
     def test_nested_or_summary_agents_are_not_scanned(self):
         self.write_state()

@@ -17,7 +17,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "(^Agent$|.*spawn_agent$|.*send_message$|.*followup_task$|.*interrupt_agent$|.*list_agents$)",
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",

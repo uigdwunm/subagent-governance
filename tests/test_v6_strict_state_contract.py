@@ -1,4 +1,5 @@
 import copy
+import json
 import os
 import tempfile
 import unittest
@@ -97,7 +98,7 @@ class V6StrictStateContractTests(unittest.TestCase):
 
     def test_v6_corpus_is_accepted_by_runtime_and_schema(self):
         state = self.canonical_state()
-        self.assertEqual(semantics.STATE_FORMAT_VERSION, 6)
+        self.assertEqual(semantics.STATE_FORMAT_VERSION, 7)
         self.assertEqual(self.schema_errors(state), [])
         self.assertEqual(state_domain.validate_current_state_format(state), [])
         self.assertIs(state_domain.require_current_state_format(state), state)
@@ -163,20 +164,47 @@ class V6StrictStateContractTests(unittest.TestCase):
         self.assertEqual(self.schema_errors(state), [])
         self.assertEqual(state_domain.validate_current_state_format(state), [])
 
-    def test_default_namespace_uses_state_v6_without_touching_state_v1(self):
+    def test_default_namespace_uses_state_v7_without_touching_old_namespaces(self):
         with tempfile.TemporaryDirectory() as directory:
             plugin_root = Path(directory)
-            old_root = plugin_root / "state-v1"
-            old_root.mkdir()
-            old_file = old_root / "legacy.json"
-            old_file.write_text('{"legacy": true}', encoding="utf-8")
-            before = old_file.stat().st_mtime_ns
+            old_files = []
+            for name in ("state-v1", "state-v6"):
+                old_root = plugin_root / name
+                old_root.mkdir()
+                old_file = old_root / "legacy.json"
+                old_file.write_text('{"legacy": true}', encoding="utf-8")
+                old_files.append((old_file, old_file.stat().st_mtime_ns))
             with mock.patch.dict(os.environ, {"SUBAGENT_GOVERNANCE_DATA": "", "PLUGIN_DATA": str(plugin_root)}):
                 data_root = store_support.data_root_path(state_store_module.__file__)
-                self.assertEqual(data_root, plugin_root / "state-v6")
-                state_store_module.StateStore().read("namespace-v6")
-            self.assertEqual(old_file.read_text(encoding="utf-8"), '{"legacy": true}')
-            self.assertEqual(old_file.stat().st_mtime_ns, before)
+                self.assertEqual(data_root, plugin_root / "state-v7")
+                state_store_module.StateStore().read("namespace-v7")
+            for old_file, before in old_files:
+                self.assertEqual(old_file.read_text(encoding="utf-8"), '{"legacy": true}')
+                self.assertEqual(old_file.stat().st_mtime_ns, before)
+
+    def test_post_receipt_is_bounded_private_and_current_format_only(self):
+        state = self.canonical_state()
+        state["tasks"]["v6-state-task"]["executions"]["1"]["post_receipt"] = {
+            "session_id": "v6-state", "task_id": "v6-state-task", "attempt": 1,
+            "task_ref": "0123456789ab", "target": "/root/v6-state",
+            "expected_tool_use_id": "expected", "received_tool_use_id": "received",
+            "id_match": True, "tool_family": "followup",
+            "operation_type": "business_resume", "response_shape": "empty",
+            "processing_result": "success", "recorded_at": 101,
+        }
+        self.assertEqual(self.schema_errors(state), [])
+        self.assertEqual(state_domain.validate_current_state_format(state), [])
+        serialized = json.dumps(state, ensure_ascii=False)
+        for forbidden in ("secret message", "response body", "contract/body", "transcript", "child final"):
+            self.assertNotIn(forbidden, serialized)
+        for field, value in (("message", "secret"), ("response_shape", "nested_content"), ("id_match", False), ("received_tool_use_id", "x" * 1025)):
+            with self.subTest(field=field):
+                invalid = copy.deepcopy(state)
+                invalid["tasks"]["v6-state-task"]["executions"]["1"]["post_receipt"][field] = value
+                self.assert_rejected_by_both(invalid)
+        old = copy.deepcopy(state)
+        old["state_format_version"] = 6
+        self.assert_rejected_by_both(old)
 
     def test_task_and_prepared_contracts_are_closed_and_share_semantics(self):
         contract = self.contract().to_record()

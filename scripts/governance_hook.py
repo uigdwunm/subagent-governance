@@ -21,7 +21,7 @@ try:
         observe_lifecycle_post_tool,
     )
     from scripts.governance_platform import (
-        adapt_lifecycle_response, adapt_list_agents_response_result,
+        adapt_list_agents_response_result,
         adapt_spawn_response,
     )
     from scripts.governance_prepared_store import PreparedContractStore, prepared_root_for_store
@@ -34,7 +34,7 @@ except ModuleNotFoundError:
     from governance_dispatch import claim_spawn, observe_spawn_post_tool
     from governance_dispatch_identity import parse_task_name
     from governance_lifecycle import _claim_pending_action, observe_agent_status_post_tool, observe_lifecycle_post_tool
-    from governance_platform import adapt_lifecycle_response, adapt_list_agents_response_result, adapt_spawn_response
+    from governance_platform import adapt_list_agents_response_result, adapt_spawn_response
     from governance_prepared_store import PreparedContractStore, prepared_root_for_store
     from governance_semantics import RETENTION_SECONDS
     from governance_sessions import session_end, session_start, stop_advisory
@@ -154,6 +154,8 @@ def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | N
 def _post(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | None:
     kind = tool_kind(str(payload.get("tool_name") or ""))
     if kind is None:
+        # PostToolUse is catch-all for transport observability.  Unknown tools
+        # are still entirely inert: do not construct StateStore or emit output.
         return None
     store = state_store if state_store is not None else _store_or_unavailable()
     session_id = _session_id(payload)
@@ -182,9 +184,11 @@ def _post(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | 
                 )
             )
         if kind in {"communication", "followup", "interrupt"}:
-            operation = "interrupt" if kind == "interrupt" else "normal_message"
-            observation = adapt_lifecycle_response(payload.get("tool_response"), operation).to_record()
-            return _post_result(observe_lifecycle_post_tool(payload, store, session_id, observation))
+            return _post_result(
+                observe_lifecycle_post_tool(
+                    payload, store, session_id, report_unmatched=kind == "followup"
+                )
+            )
     except Exception as exc:
         return _continue(f"Subagent Governance PostToolUse 记录失败，原生调用已发生，已降级放行：{exc}")
     return None

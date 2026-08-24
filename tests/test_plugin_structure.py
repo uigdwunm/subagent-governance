@@ -67,7 +67,7 @@ class PluginStructureTests(unittest.TestCase):
                 "statusMessage": "检查子 Agent 派发与通信",
             },
             "PostToolUse": {
-                "matcher": "(^Agent$|.*spawn_agent$|.*send_message$|.*followup_task$|.*interrupt_agent$|.*list_agents$)",
+                "matcher": ".*",
                 "timeout": 10,
                 "statusMessage": "记录子 Agent 生命周期",
             },

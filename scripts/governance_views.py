@@ -114,6 +114,7 @@ def _candidate(state: dict[str, Any], task_id: str, attempt: int, record: dict[s
     dispatch = record.get("dispatch_record") if isinstance(record.get("dispatch_record"), dict) else {}
     observation = record.get("observation_record") if isinstance(record.get("observation_record"), dict) else {}
     lifecycle = record.get("last_lifecycle_operation") if isinstance(record.get("last_lifecycle_operation"), dict) else None
+    receipt = record.get("post_receipt") if isinstance(record.get("post_receipt"), dict) else None
     notification = bool(observation.get("source") == "terminal_notification" and observation.get("observed_state") == "terminal" and observation_is_bound(record))
     closed = _attempt_closed(state, task_id, attempt, record)
     return {
@@ -134,6 +135,14 @@ def _candidate(state: dict[str, Any], task_id: str, attempt: int, record: dict[s
             "call_observation": lifecycle.get("call_observation"),
             **({"target_observation": lifecycle.get("target_observation")} if isinstance(lifecycle.get("target_observation"), str) else {}),
         } if lifecycle is not None else None),
+        "post_receipt": ({
+            "recorded_at": receipt.get("recorded_at"),
+            "id_match": receipt.get("id_match"),
+            "tool_family": receipt.get("tool_family"),
+            "operation_type": receipt.get("operation_type"),
+            "response_shape": receipt.get("response_shape"),
+            "processing_result": receipt.get("processing_result"),
+        } if receipt is not None else None),
         "action_required": attempt_action_required(state, task_id, attempt, record),
         "timestamps": {key: value for key, value in (("activity_at", activity_at(record)), ("platform_checked_at", observation_checked_at(record)), ("attempt_closed_at", execution_closed_at(record))) if isinstance(value, int) and not isinstance(value, bool)},
     }

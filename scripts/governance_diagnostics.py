@@ -1,4 +1,4 @@
-"""Strictly read-only diagnostics for current v6 state files.
+"""Strictly read-only diagnostics for current v7 state files.
 
 No StateStore is imported here: diagnostics must not create a lock, directory,
 or state file as a side effect of inspection.
@@ -59,11 +59,11 @@ def _read_session_file_read_only(path: Path, *, requested_session: str | None = 
     # v5 and every historical format are deliberately unsupported.  We do not
     # construct a partial current model from them.
     if value.get("state_format_version") != STATE_FORMAT_VERSION:
-        raise DiagnosticReadError("unsupported_format", "仅支持当前 state-v6 格式；历史状态不会被解释或迁移", context={"path": str(path), "session_id": stored})
+        raise DiagnosticReadError("unsupported_format", "仅支持当前 state-v7 格式；历史状态不会被解释或迁移", context={"path": str(path), "session_id": stored})
     violations = validate_current_state_format(value)
     if violations:
         paths = ", ".join(str(issue.path) for issue in violations[:8])
-        raise DiagnosticReadError("current_format_invalid", "当前 v6 状态格式非法：" + paths, context={"path": str(path), "session_id": stored})
+        raise DiagnosticReadError("current_format_invalid", "当前 v7 状态格式非法：" + paths, context={"path": str(path), "session_id": stored})
     return value
 
 

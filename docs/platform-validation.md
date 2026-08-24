@@ -18,6 +18,13 @@
 - V4 `followup_task` 的 PreToolUse 已 claim，child 的 attempt-2 final 也真实可见；但其 PostToolUse 未落账（`dispatch.state=claimed`、`post_observed=false`）。之后按完整 canonical target 执行的 exact list 未写入 `observation_record.source=list_agents`，所以 V4 为 `failed`，依 P10 立即停止 V5–V7。此结论不把 terminal notification 反推为 PostToolUse 或 exact-list 通过。
 - Hook trust 与 Codex registration 仍为 `not_checked`；未从安装文件、Skill 可见性或 plugin list 推断。restart/compact、interrupt/controlled reconciliation、Stop/SessionStart/SessionEnd 亦未真实执行。详见 `docs/validation/current-only-real-platform-validation.md`。
 
+### P11 本地修复（尚未重新安装或真实复验）
+
+- 开发仓库将 current state 升级为严格 `state_format_version=7` / `state-v7`；旧 `state-v6` 不读取、迁移或修复。
+- 同一 target 的已关闭 resume source 不再遮蔽 current/open attempt；adapter 已接受但 canonical route 不安全时返回有界 route reason，且不写 observation。
+- PostToolUse 现只为能按 claimed pending 的精确 `tool_use_id` 安全关联的 lifecycle 调用保留每 attempt 一条机械 receipt。receipt 不保存 message、contract、response values、child final、transcript 或 summary；无关 catch-all 事件不构造 StateStore 且无输出。
+- 这些是本地单元测试结论，未重新安装测试版，也未重新执行 P10-B V1–V4；真实 Post 投递、Hook matcher 行为和桌面 UI 仍为 `not_checked`。
+
 ## 已由本地测试覆盖
 
 - PreparedContract 与 governed spawn 的发送前门禁。
@@ -42,7 +49,7 @@
 
 ## 尚待真实插件验证
 
-- V4 follow-up 的 PostToolUse 事件投递与 attempt-2 exact-list canonical binding（当前为真实 failure，须先开发修复和本地门禁）。
+- P11 后重新安装测试版并从 V1 开始重跑 V4 follow-up 的 PostToolUse receipt 与 attempt-2 exact-list canonical binding。
 - V5 interrupt/controlled reconciliation、V6 Stop/SessionStart/SessionEnd 及 V7 restart/compact 后的 mailbox/retained-target 恢复。
 - Hook trust、Codex registration 与桌面 UI 的独立实际状态。
 

@@ -135,13 +135,13 @@ class StateStoreModuleBoundaryTests(unittest.TestCase):
         )
 
         self.assertEqual(explicit, Path("/tmp/explicit-state"))
-        self.assertEqual(installed, Path("/tmp/plugin-data/state-v6"))
+        self.assertEqual(installed, Path("/tmp/plugin-data/state-v7"))
         self.assertEqual(
             cache,
-            Path("/tmp/codex/plugins/data/example-personal/state-v6").resolve(),
+            Path("/tmp/codex/plugins/data/example-personal/state-v7").resolve(),
         )
         self.assertEqual(developer.parent, Path("/tmp/developer-state") / developer.parent.name)
-        self.assertEqual(developer.name, "state-v6")
+        self.assertEqual(developer.name, "state-v7")
         self.assertNotIn("state-v1", str(developer))
         self.assertTrue(store_support.is_developer_module(ROOT / "scripts" / "governance_state_store.py"))
 

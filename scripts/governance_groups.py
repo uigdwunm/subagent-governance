@@ -1,4 +1,4 @@
-"""Strict v6 group persistence and read projections."""
+"""Strict v7 group persistence and read projections."""
 from __future__ import annotations
 
 from typing import Any
@@ -54,7 +54,7 @@ def upsert_group(value: Any, session_id: str, *, state_store: StateStore | None 
     def update(state: dict[str, Any]) -> dict[str, Any]:
         tasks, groups = state.get("tasks"), state.get("groups")
         if not isinstance(tasks, dict): raise GroupValidationError("治理状态缺少 group 引用所需的 tasks 对象")
-        # v6 always contains a groups root.  Do not repair a missing root.
+        # v7 always contains a groups root.  Do not repair a missing root.
         if not isinstance(groups, dict): raise GroupValidationError("治理状态 groups 字段必须是对象")
         missing = [item["task_id"] for item in normalized["members"] if not isinstance(tasks.get(item["task_id"]), dict)]
         if missing: raise GroupValidationError(f"group 引用的 task 不存在：{', '.join(missing)}")

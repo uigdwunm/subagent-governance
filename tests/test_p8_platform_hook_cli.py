@@ -77,6 +77,14 @@ class HookRouterTests(unittest.TestCase):
         self.assertTrue(result["continue"])
         self.assertNotIn("hookSpecificOutput", result)
 
+    def test_post_catch_all_keeps_unrelated_tools_fully_inert(self):
+        with mock.patch.object(governance_hook, "_store_or_unavailable") as constructor:
+            result = governance_hook.handle_hook(
+                {"hook_event_name": "PostToolUse", "tool_name": "filesystem.write_file", "tool_use_id": "irrelevant"}
+            )
+        self.assertIsNone(result)
+        constructor.assert_not_called()
+
     def test_unmanaged_spawn_does_not_create_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "sessions"
@@ -148,7 +156,7 @@ class EntrypointAndManifestTests(unittest.TestCase):
         post = hooks["PostToolUse"][0]["matcher"]
         for tool in ("spawn_agent", "send_message", "followup_task", "interrupt_agent"):
             self.assertIn(tool, pre)
-        self.assertIn("list_agents", post)
+        self.assertEqual(post, ".*")
         start = hooks["SessionStart"][0]["hooks"][0]
         self.assertEqual(start["additionalContextLimit"], 1800)
         self.assertIn("subagent_governance.py", start["command"])

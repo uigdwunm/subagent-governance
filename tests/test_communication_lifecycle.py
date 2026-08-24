@@ -220,6 +220,23 @@ class CommunicationLifecycleTests(unittest.TestCase):
         self.assertNotIn("reason", pending)
         self.assertNotIn("authorized_recovery", pending)
 
+    def test_normal_message_post_receipt_uses_claimed_operation_type(self):
+        task_id, target = self.add_managed()
+        prepared = governance.prepare_communication(
+            self.communication("normal_message", target), self.session_id,
+            state_store=self.store, now=110,
+        )
+        governance.handle(
+            {"session_id": self.session_id, "hook_event_name": "PreToolUse", "tool_name": "send_message", "tool_use_id": "normal-post", "tool_input": prepared["native_args"], "now": 111}, self.store,
+        )
+        self.assertIsNone(governance.handle(
+            {"session_id": self.session_id, "hook_event_name": "PostToolUse", "tool_name": "send_message", "tool_use_id": "normal-post", "tool_response": {"success": True}, "now": 112}, self.store,
+        ))
+        record = self.execution(task_id)
+        self.assertNotIn("pending_action", record)
+        self.assertEqual(record["post_receipt"]["operation_type"], "normal_message")
+        self.assertEqual(record["post_receipt"]["tool_family"], "communication")
+
     def test_prepared_pending_expiry_derives_from_created_at(self):
         task_id, target = self.add_managed()
         prepared = governance.prepare_communication(
@@ -415,6 +432,103 @@ class CommunicationLifecycleTests(unittest.TestCase):
         self.assertNotIn("task_id", task["executions"]["2"]["pending_action"])
         self.assertNotIn("reason", task["executions"]["2"]["pending_action"])
 
+    def test_followup_post_receipt_closes_current_resume_only_once(self):
+        task_id, target = self.add_managed()
+        self.notify(task_id, target)
+        prepared = governance.prepare_communication(
+            self.communication("business_resume", target, task_contract=self.contract("继续执行")),
+            self.session_id, state_store=self.store, now=160,
+        )
+        governance.handle(
+            {
+                "session_id": self.session_id, "hook_event_name": "PreToolUse",
+                "tool_name": "followup_task", "tool_use_id": "resume-post-tool",
+                "tool_input": prepared["native_args"], "now": 161,
+            }, self.store,
+        )
+
+        result = governance.handle(
+            {
+                "session_id": self.session_id, "hook_event_name": "PostToolUse",
+                "tool_name": "followup_task", "tool_use_id": "resume-post-tool",
+                "tool_response": "", "now": 162,
+            }, self.store,
+        )
+        self.assertIsNone(result)
+        source = self.execution(task_id, 1)
+        resumed = self.execution(task_id, 2)
+        self.assertTrue(execution_domain.execution_is_closed(source))
+        self.assertEqual(resumed["dispatch_record"]["dispatch_state"], "acknowledged")
+        self.assertNotIn("pending_action", resumed)
+        self.assertEqual(
+            resumed["post_receipt"],
+            {
+                "session_id": self.session_id, "task_id": task_id, "attempt": 2,
+                "task_ref": resumed["task_ref"], "target": target,
+                "expected_tool_use_id": "resume-post-tool",
+                "received_tool_use_id": "resume-post-tool", "id_match": True,
+                "tool_family": "followup", "operation_type": "business_resume",
+                "response_shape": "empty", "processing_result": "success",
+                "recorded_at": 162,
+            },
+        )
+        before = copy.deepcopy(self.store.read(self.session_id))
+        self.assertIsNone(governance.handle(
+            {
+                "session_id": self.session_id, "hook_event_name": "PostToolUse",
+                "tool_name": "followup_task", "tool_use_id": "resume-post-tool",
+                "tool_response": "", "now": 163,
+            }, self.store,
+        ))
+        self.assertEqual(self.store.read(self.session_id), before)
+
+    def test_followup_post_missing_or_different_id_never_guesses_pending(self):
+        task_id, target = self.add_managed()
+        task_ref = self.execution(task_id)["task_ref"]
+        # Construct a claimed pending directly to isolate the Post ID binding
+        # boundary from preparation policy.
+        self.store.update(self.session_id, lambda state: state["tasks"][task_id]["executions"]["1"].update({
+            "pending_action": lifecycle_domain._pending_action_record(
+                target=target, attempt=1, task_ref=task_ref,
+                operation_type="business_resume", created_at=111,
+                resume_contract=contracts.contract_from_input(self.contract()),
+                resume_context_verification={"mode": "none"}, prepared_on_attempt=1,
+            )
+        }))
+        self.store.update(self.session_id, lambda state: state["tasks"][task_id]["executions"]["1"]["pending_action"].update({"phase": "claimed", "tool_use_id": "expected-followup", "claimed_at": 112}))
+        for tool_use_id, code in (("different-followup", "post_tool_use_id_unclaimed"), ("", "post_tool_use_id_missing")):
+            with self.subTest(tool_use_id=tool_use_id):
+                result = governance.handle(
+                    {"session_id": self.session_id, "hook_event_name": "PostToolUse", "tool_name": "followup_task", "tool_use_id": tool_use_id, "tool_response": "", "now": 113}, self.store,
+                )
+                self.assertTrue(result["continue"])
+                self.assertIn(code, result["systemMessage"])
+                pending = self.execution(task_id)["pending_action"]
+                self.assertEqual(pending["tool_use_id"], "expected-followup")
+                self.assertNotIn("post_receipt", self.execution(task_id))
+
+    def test_followup_post_write_failure_is_degraded_without_false_receipt(self):
+        task_id, target = self.add_managed()
+        task_ref = self.execution(task_id)["task_ref"]
+        self.store.update(self.session_id, lambda state: state["tasks"][task_id]["executions"]["1"].update({
+            "pending_action": {
+                **lifecycle_domain._pending_action_record(
+                    target=target, attempt=1, task_ref=task_ref,
+                    operation_type="business_resume", created_at=111,
+                    resume_contract=contracts.contract_from_input(self.contract()),
+                    resume_context_verification={"mode": "none"}, prepared_on_attempt=1,
+                ),
+                "phase": "claimed", "tool_use_id": "write-failure", "claimed_at": 112,
+            }
+        }))
+        with mock.patch.object(self.store, "compare_and_set", side_effect=errors.StateWriteError("disk full")):
+            result = governance.handle(
+                {"session_id": self.session_id, "hook_event_name": "PostToolUse", "tool_name": "followup_task", "tool_use_id": "write-failure", "tool_response": "", "now": 113}, self.store,
+            )
+        self.assertTrue(result["continue"])
+        self.assertIn("post_receipt_write_failed", result["systemMessage"])
+        self.assertIn("pending_action", self.execution(task_id))
+        self.assertNotIn("post_receipt", self.execution(task_id))
     def test_business_resume_rechecks_working_tree_context_before_claim(self):
         task_id, target = self.add_managed()
         self.notify(task_id, target)

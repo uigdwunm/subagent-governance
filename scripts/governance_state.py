@@ -168,6 +168,41 @@ def _validate_pending(issues: list[StateFormatIssue], value: Any, path: str) -> 
             issues.append(StateFormatIssue(f"{path}.resume_context_verification", "必须是对象"))
 
 
+def _validate_post_receipt(issues: list[StateFormatIssue], value: Any, path: str) -> None:
+    required = {
+        "session_id", "task_id", "attempt", "task_ref", "target",
+        "expected_tool_use_id", "received_tool_use_id", "id_match",
+        "tool_family", "operation_type", "response_shape", "processing_result",
+        "recorded_at",
+    }
+    receipt = _fields(issues, value, path, required)
+    if receipt is None:
+        return
+    if not _text(receipt.get("session_id"), 4000):
+        issues.append(StateFormatIssue(f"{path}.session_id", "无效"))
+    if not _text(receipt.get("task_id"), int(SEMANTIC_DEFINITIONS["task_id"]["maxLength"])):
+        issues.append(StateFormatIssue(f"{path}.task_id", "无效"))
+    if isinstance(receipt.get("attempt"), bool) or not isinstance(receipt.get("attempt"), int) or receipt.get("attempt", 0) < 1:
+        issues.append(StateFormatIssue(f"{path}.attempt", "无效"))
+    if not isinstance(receipt.get("task_ref"), str) or re.fullmatch(r"[a-f0-9]{12}(?:[a-f0-9]{4}){0,5}", receipt["task_ref"]) is None:
+        issues.append(StateFormatIssue(f"{path}.task_ref", "无效"))
+    for field, maximum in (("target", 1024), ("expected_tool_use_id", 1024), ("received_tool_use_id", 1024)):
+        if not _text(receipt.get(field), maximum):
+            issues.append(StateFormatIssue(f"{path}.{field}", "无效"))
+    if receipt.get("id_match") is not True:
+        issues.append(StateFormatIssue(f"{path}.id_match", "必须为 true"))
+    if receipt.get("tool_family") not in {"followup", "communication", "interrupt"}:
+        issues.append(StateFormatIssue(f"{path}.tool_family", "无效"))
+    if receipt.get("operation_type") not in {"normal_message", "platform_recovery", "business_resume", "interrupt"}:
+        issues.append(StateFormatIssue(f"{path}.operation_type", "无效"))
+    if receipt.get("response_shape") not in {"empty", "top_level_object", "non_object", "json_decode_failed", "explicit_error"}:
+        issues.append(StateFormatIssue(f"{path}.response_shape", "无效"))
+    if receipt.get("processing_result") not in {"success", "failed", "unknown"}:
+        issues.append(StateFormatIssue(f"{path}.processing_result", "无效"))
+    if not _timestamp(receipt.get("recorded_at")):
+        issues.append(StateFormatIssue(f"{path}.recorded_at", "无效"))
+
+
 def validate_current_execution_planes(execution: dict[str, Any]) -> None:
     """Compatibility helper for bounded diagnostics of one canonical execution."""
     issues: list[StateFormatIssue] = []
@@ -215,7 +250,7 @@ def validate_current_state_format(value: Any) -> list[StateFormatIssue]:
                 execution_path = f"{task_path}.executions.{key!r}"
                 if _execution_key(key) is None:
                     issues.append(StateFormatIssue(execution_path, "execution key 无效"))
-                record = _fields(issues, execution, execution_path, set(REQUIRED_EXECUTION_FIELDS), set(REQUIRED_EXECUTION_FIELDS) | {"pending_action", "last_lifecycle_operation", "initial_preparation_rollback"})
+                record = _fields(issues, execution, execution_path, set(REQUIRED_EXECUTION_FIELDS), set(REQUIRED_EXECUTION_FIELDS) | {"pending_action", "post_receipt", "last_lifecycle_operation", "initial_preparation_rollback"})
                 if record is None:
                     continue
                 if not isinstance(record.get("task_ref"), str) or re.fullmatch(r"[a-f0-9]{12}(?:[a-f0-9]{4}){0,5}", record["task_ref"]) is None:
@@ -240,6 +275,18 @@ def validate_current_state_format(value: Any) -> list[StateFormatIssue]:
                 _validate_planes(issues, record, execution_path)
                 if "pending_action" in record:
                     _validate_pending(issues, record["pending_action"], f"{execution_path}.pending_action")
+                if "post_receipt" in record:
+                    _validate_post_receipt(issues, record["post_receipt"], f"{execution_path}.post_receipt")
+                    receipt = record["post_receipt"]
+                    if isinstance(receipt, dict):
+                        if receipt.get("session_id") != root.get("session_id"):
+                            issues.append(StateFormatIssue(f"{execution_path}.post_receipt.session_id", "必须匹配 root session_id"))
+                        if receipt.get("task_id") != task_id:
+                            issues.append(StateFormatIssue(f"{execution_path}.post_receipt.task_id", "必须匹配 task key"))
+                        if receipt.get("attempt") != _execution_key(key):
+                            issues.append(StateFormatIssue(f"{execution_path}.post_receipt.attempt", "必须匹配 execution key"))
+                        if receipt.get("task_ref") != record.get("task_ref"):
+                            issues.append(StateFormatIssue(f"{execution_path}.post_receipt.task_ref", "必须匹配 execution task_ref"))
                 if "last_lifecycle_operation" in record:
                     lifecycle = _fields(issues, record["last_lifecycle_operation"], f"{execution_path}.last_lifecycle_operation", {"operation_type", "tool_use_id", "call_observation"}, {"operation_type", "tool_use_id", "call_observation", "target_observation"})
                     if lifecycle is not None and lifecycle.get("operation_type") not in {"platform_recovery", "business_resume", "interrupt"}:
