@@ -13,17 +13,17 @@
 
 ### P10-B 全新真实平台复验（2026-08-24）
 
-- 独立 `gpt-5.6-terra` / `high` 任务的 checkout 为 `46b13b7c9999aad51df5c20e6d6f7e0d5dbc1be7`，目标完整版本为 `0.4.0-rc.13+codex.20260824094559`。只读安装检查确认 stable/cache digest 都为 `fc1ee1e029bca90e8cc4fd7a7179fb7f2df73dc0a372e2733899ffa5101255f3`，路径隔离和 single-current-cache 均通过，且 `codex plugin list` 显示 installed/enabled。
-- V1 实际获得 unmanaged native spawn 的 Hook allow/no-state 输出、exact target 和 child final。V2 已真实取得 governed spawn、wait 和正确的 `list_agents({"path_prefix":"<完整 canonical target>"})` 证据；状态确认 dispatch acknowledged、post-observed、target-bound 且 observation source 为 `list_agents`。V3 已真实验证 normal-message、exact terminal notification、重放、sender-mismatch 拒绝和 parent close/tombstone。
-- V4 `followup_task` 的 PreToolUse 已 claim，child 的 attempt-2 final 也真实可见；但其 PostToolUse 未落账（`dispatch.state=claimed`、`post_observed=false`）。之后按完整 canonical target 执行的 exact list 未写入 `observation_record.source=list_agents`，所以 V4 为 `failed`，依 P10 立即停止 V5–V7。此结论不把 terminal notification 反推为 PostToolUse 或 exact-list 通过。
-- Hook trust 与 Codex registration 仍为 `not_checked`；未从安装文件、Skill 可见性或 plugin list 推断。restart/compact、interrupt/controlled reconciliation、Stop/SessionStart/SessionEnd 亦未真实执行。详见 `docs/validation/current-only-real-platform-validation.md`。
+- 独立 `gpt-5.6-terra` / `high` 任务的 checkout 为 `37a3c9a02712fc5bc4ff026d31fcb24b892e3e61`，目标完整版本为 `0.4.0-rc.13+codex.20260824114902`。只读安装检查确认 stable/cache digest 都为 `8d4f05e2b61bf62af6bb86c55d0f1b7ec05febbe33c4c50ed7df9204b4e1f004`，路径隔离和 single-current-cache 均通过，且 `codex plugin list` 显示 installed/enabled。
+- 新任务从 V1 重新取证：unmanaged native spawn 实际收到 Hook allow/no-state、exact target 和 child terminal。V2 的 governed spawn 实际收到 PreToolUse claim，并完成真实 wait 及完整 target 的 `list_agents({"path_prefix":"<完整 canonical target>"})`；但安装版诊断仍显示 `dispatch.state=claimed`、`post_observed=false`、`target_bound=false`，且 observation source 为空。
+- 因此 V2 为 `failed`，其 raw list 不能冒充 canonical observation，也不以 child terminal 反推 PostToolUse 或 exact-list 成功。依 P10 停止 V3–V7；V4 business-resume、interrupt、Session event 与 restart/compact 均未执行。
+- Skill 实际从目标 runtime cache 路径读取。Hook trust 和 Codex registration 的独立状态仍为 `not_checked`：PreToolUse Hook 实际工作不等于已确认 trust，`installed/enabled` 也不等于 Registry 结论。详见 `docs/validation/current-only-real-platform-validation.md`。
 
-### P11 本地修复（尚未重新安装或真实复验）
+### P11 本地修复（已重新安装；真实复验在 V2 失败）
 
 - 开发仓库将 current state 升级为严格 `state_format_version=8` / `state-v8`；旧 `state-v6` 和 `state-v7` 不读取、迁移或修复。
 - 同一 target 的已关闭 resume source 不再遮蔽 current/open attempt；adapter 已接受但 canonical route 不安全时返回有界 route reason，且不写 observation。
 - PostToolUse 以私有 current-namespace claimed-ID 索引先筛选 `session_id + tool_use_id`；命中后才构造 StateStore 并重验 canonical claimed pending。未知工具名命中仅记录 `unrecognized` 分类。receipt 的 expected/received ID 必须相等，先持久化 receipt 时刻的 parent-action 枚举/null、再可重入地执行 lifecycle transition；重试会先恢复该动作，随后由 operation-specific 规则覆盖。中间失败保留 receipt、claimed/reconcile 证据，完成后的重复 Post inert。索引发布/重建使用当前时间，过期 canonical claim 不会重新发布。receipt 不保存 message、原始工具名、contract、response values、child final、transcript 或 summary；无 ID、未命中和无关 catch-all 事件不构造 StateStore 且无输出。
-- 这些是本地单元测试结论，未重新安装测试版，也未重新执行 P10-B V1–V4；真实 Post 投递、Hook matcher 行为和桌面 UI 仍为 `not_checked`。
+- 这些仍是本地单元测试结论。目标测试版已重新安装并在新任务从 V1 开始复验；V2 已实际暴露 PostToolUse / target binding 未收口，故 V3–V7（含 P11 重点 V4）均未执行。真实 Post 投递、Hook matcher 行为和桌面 UI 仍未获得通过证据。
 
 ## 已由本地测试覆盖
 
@@ -49,10 +49,10 @@
 
 ## 尚待真实插件验证
 
-- P11 后重新安装测试版并从 V1 开始重跑 V4 follow-up 的 PostToolUse receipt 与 attempt-2 exact-list canonical binding。
-- V5 interrupt/controlled reconciliation、V6 Stop/SessionStart/SessionEnd 及 V7 restart/compact 后的 mailbox/retained-target 恢复。
+- 修复并重新安装后，从 V1 开始先重新验证 V2 governed spawn 的 PostToolUse receipt、target binding 与 exact-list canonical observation；只有此前置通过，才可继续 P11 重点 V4 follow-up receipt 与 attempt-2 exact-list binding。
+- V3 normal message/terminal/close，随后 V5 interrupt/controlled reconciliation、V6 Stop/SessionStart/SessionEnd 及 V7 restart/compact 后的 mailbox/retained-target 恢复。
 - Hook trust、Codex registration 与桌面 UI 的独立实际状态。
 
-V4 failure 后必须在开发仓库新任务复现和修复，重新完成相应本地门禁、重新获得安装授权并创建另一个全新 P10-B 任务；不得在当前验证环境热修后继续验收。
+真实 correctness failure 后必须在开发仓库新任务复现和修复，重新完成相应本地门禁、重新获得安装授权并创建另一个全新 P10-B 任务；不得在当前验证环境热修后继续验收。
 
 真实测试必须遵循项目 `AGENTS.md`：先完成开发仓库验收，取得安装授权并更新用于测试的本地插件，然后新建独立任务。未完成上述步骤时只能报告本地可验证边界。
