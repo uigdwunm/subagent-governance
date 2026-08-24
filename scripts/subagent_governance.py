@@ -565,6 +565,35 @@ def _now() -> int:
     return int(time.time())
 
 
+# Canonical execution semantics are owned by the pure P5 kernel.  The aliases
+# keep the public/runtime compatibility surface stable while later lifecycle
+# plans finish moving their callers out of this facade.
+try:
+    from scripts import governance_execution as _execution
+    from scripts import governance_dispatch as _dispatch
+except ModuleNotFoundError:
+    import governance_execution as _execution
+    import governance_dispatch as _dispatch
+
+_closure_has_complete_facts = _execution.closure_has_complete_facts
+_spawn_observation = _execution.spawn_observation
+_execution_status = _execution.execution_status
+_identity_status = _execution.identity_status
+_platform_observation = _execution.platform_observation
+_execution_is_closed = _execution.execution_is_closed
+_execution_close_reason = _execution.execution_close_reason
+_execution_closed_at = _execution.execution_closed_at
+_parent_action = _execution.parent_action
+_dispatch_tool_use_id = _execution.dispatch_tool_use_id
+_dispatch_target = _execution.dispatch_target
+_observation_checked_at = _execution.observation_checked_at
+_observation_source = _execution.observation_source
+_observation_is_bound = _execution.observation_is_bound
+_has_canonical_positive_execution_evidence = _execution.has_canonical_positive_execution_evidence
+_dispatch_reliably_not_created = _execution.dispatch_reliably_not_created
+_apply_canonical_execution_update = _execution.apply_canonical_execution_update
+
+
 try:
     from scripts.governance_state_store import StateStore, UnavailableStateStore
     from scripts.governance_store_support import (
@@ -854,6 +883,23 @@ def _ensure_canonical_task_record(
     return task
 
 
+# State traversal, retained identity admission, and close/tombstone mutations
+# are also canonical kernel operations.  Keep legacy private spellings as a
+# compatibility facade until P6 removes the remaining lifecycle callers.
+_task_record_for_attempt = _execution.task_record_for_attempt
+_iter_task_attempts = _execution.iter_task_attempts
+_task_attempt_records = _execution.task_attempt_records
+_canonical_execution_for_attempt = _execution.canonical_execution_for_attempt
+_ensure_canonical_task_record = _execution.ensure_canonical_task_record
+_record_has_target_provenance = _execution.record_has_target_provenance
+_retained_target_attempts = _execution.retained_target_attempts
+_managed_target_admission = _execution.managed_target_admission
+_repair_managed_target_index = _execution.repair_managed_target_index
+_tombstone_record = _execution.tombstone_record
+_close_attempt_record = _execution.close_attempt_record
+ManagedTargetAdmission = _execution.ManagedTargetAdmission
+
+
 def record_terminal_notification(
     envelope: Any,
     session_id: str,
@@ -1019,6 +1065,10 @@ def _close_attempt_record(
     state.setdefault("tombstones", {})[key] = _tombstone_record(record, reason, closed_at)
 
 
+_tombstone_record = _execution.tombstone_record
+_close_attempt_record = _execution.close_attempt_record
+
+
 def _validate_parent_disposition(value: Any) -> tuple[str, int, str, str]:
     if not isinstance(value, dict):
         raise ParentDispositionError("parent disposition 必须是对象")
@@ -1163,6 +1213,10 @@ def _initial_task_post_state(prepared: dict[str, Any]) -> dict[str, Any]:
             "initial PreparedContract 无法确定性绑定 canonical task post-state"
         )
     return expected
+
+
+_initial_task_record = _dispatch.initial_task_record
+_initial_task_post_state = _dispatch.initial_task_post_state
 
 
 def _exception_chain_text(error: BaseException) -> str:
@@ -1369,6 +1423,9 @@ def _dispatch_admission_error(
     if _execution_is_closed(source) is True:
         return "来源 execution 已关闭，禁止新增或重派 execution"
     return None
+
+
+_dispatch_admission_error = _dispatch.dispatch_admission_error
 
 
 def _restore_prepared_spawn_claim(
@@ -1598,13 +1655,10 @@ def prepare_dispatch(
         created_at,
     )
     try:
-        active_prepared_store.create(prepared)
-        active_state_store.compare_and_set(
-            session_id,
-            lambda state: task_id not in state["tasks"] and not _task_ref_occupied(state, task_ref),
-            lambda state: state["tasks"].update({task_id: copy.deepcopy(initial)}),
-            required_fields=("tasks", "tombstones"),
-            admission="new_task",
+        _dispatch.prepare_initial_transaction(
+            session_id, prepared, task_id, initial, active_state_store,
+            active_prepared_store,
+            lambda state: _task_ref_occupied(state, task_ref),
         )
         verified_prepared = active_prepared_store.read(session_id, task_ref)
         verified_state = active_state_store.read(session_id, required_fields=("tasks", "tombstones"))
@@ -1758,7 +1812,6 @@ def prepare_spawn_retry(
         dispatch_operation="spawn_retry",
     )
     try:
-        active_prepared_store.create(prepared, replace=True)
         def validate_retry_state(current: dict[str, Any]) -> None:
             retry_task = _ensure_canonical_task_record(current, task_id)
             retry_execution = _canonical_execution_for_attempt(
@@ -1771,10 +1824,9 @@ def prepare_spawn_retry(
             ):
                 raise StateConflictError("spawn retry 前置状态已变化")
 
-        active_state_store.update(
-            session_id,
+        _dispatch.prepare_retry_transaction(
+            session_id, prepared, active_state_store, active_prepared_store,
             validate_retry_state,
-            required_fields=("tasks", "tombstones"),
         )
         verified_prepared = active_prepared_store.read(session_id, task_ref)
         verified_state = active_state_store.read(session_id)
@@ -1797,7 +1849,12 @@ def prepare_spawn_retry(
     except Exception as exc:
         rollback_errors: list[str] = []
         try:
-            active_prepared_store.delete(session_id, task_ref, missing_ok=False)
+            active_prepared_store.delete_if(
+                session_id,
+                task_ref,
+                lambda value: value == prepared,
+                missing_ok=False,
+            )
         except Exception as cleanup_exc:
             rollback_errors.append(f"PreparedContract 回滚失败：{cleanup_exc}")
         if rollback_errors:
@@ -2011,45 +2068,15 @@ def reconcile_prepared_dispatches(
                         "过期 PreparedContract 对应 execution 已发生并发变化，"
                         f"无法安全回滚：task_id={task_id}, attempt={attempt}"
                     ) from exc
-                prepared_store.delete(session_id, task_ref)
+                prepared_store.delete_if(
+                    session_id, task_ref, lambda value: value == prepared
+                )
                 expired += 1
             continue
-        claimed_at = prepared.get("claimed_at")
-        if (
-            isinstance(claimed_at, int)
-            and prepared.get("post_observed_at") is None
-            and claimed_at <= current_time - int(RETENTION_SECONDS["claimed_reconcile"])
+        if _dispatch.reconcile_claimed_spawn(
+            session_id, prepared, current_time,
+            int(RETENTION_SECONDS["claimed_reconcile"]), state_store, prepared_store,
         ):
-            tool_use_id = prepared.get("tool_use_id")
-
-            def predicate(state: dict[str, Any]) -> bool:
-                record = _task_record_for_attempt(state, task_id, attempt)
-                return bool(
-                    record
-                    and record.get("task_ref") == task_ref
-                    and _dispatch_tool_use_id(record) == tool_use_id
-                    and _spawn_observation(record) is None
-                )
-
-            def mark_unknown(state: dict[str, Any]) -> None:
-                _ensure_canonical_task_record(state, task_id)
-                record = _task_record_for_attempt(state, task_id, attempt)
-                assert record is not None
-                _apply_canonical_execution_update(record, "dispatch_response", "unknown")
-                _apply_canonical_execution_update(record, "observed_execution_status", "not_started")
-                _apply_canonical_execution_update(record, "closure_parent_action", "reconcile")
-                record["updated_at"] = current_time
-
-            try:
-                state_store.compare_and_set(session_id, predicate, mark_unknown)
-            except StateConflictError:
-                continue
-            prepared_store.compare_and_set(
-                session_id,
-                task_ref,
-                lambda value: value.get("tool_use_id") == tool_use_id,
-                lambda value: value.update({"post_observed_at": current_time}),
-            )
             reconciled += 1
     expired += _close_expired_unclaimed_initials_without_credentials(
         session_id,
@@ -3103,7 +3130,9 @@ def _handle_spawn(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
     if prepared.get("created_at", 0) <= current_time - int(RETENTION_SECONDS["prepared_unclaimed"]):
         try:
             _cleanup_unclaimed_prepared_dispatch(session_id, prepared, store)
-            prepared_store.delete(session_id, task_ref)
+            prepared_store.delete_if(
+                session_id, task_ref, lambda value: value == prepared
+            )
         except Exception as exc:
             return _deny(f"子 Agent 派发被阻止：过期 PreparedContract 清理失败：{exc}")
         return _deny("子 Agent 派发被阻止：PreparedContract 已超过5分钟，请重新生成派发。")
@@ -3140,135 +3169,11 @@ def _handle_spawn(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
     tool_use_id = str(payload.get("tool_use_id") or "")
     if not tool_use_id:
         return _deny("子 Agent 派发被阻止：缺少 tool_use_id，无法单次消费 PreparedContract。")
-    claim_snapshot: dict[str, Any] = {}
     try:
-        claimed_prepared = _claim_prepared_spawn_contract(
-            session_id,
-            task_ref,
-            tool_use_id,
-            current_time,
-            prepared,
-            prepared_store,
+        _dispatch.claim_spawn(
+            session_id, task_ref, tool_use_id, current_time, prepared,
+            store, prepared_store,
         )
-
-        def claim(current: dict[str, Any]) -> None:
-            claim_snapshot["callback_entered"] = True
-            task = _ensure_canonical_task_record(current, task_id)
-            target = _task_record_for_attempt(current, task_id, attempt)
-            if (
-                target is None
-                or target.get("task_ref") != task_ref
-                or target.get("task_name") != task_name
-                or target.get("resolved_mode") != mode
-            ):
-                raise StateConflictError(
-                    "StateStore 中不存在匹配的 task/attempt/task_ref"
-                )
-            admission_error = _dispatch_admission_error(task, attempt)
-            if admission_error:
-                raise StateConflictError(admission_error)
-            claim_snapshot["before_task"] = copy.deepcopy(task)
-
-            if dispatch_operation == "spawn_retry":
-                if not (
-                    _spawn_observation(target) == "failed"
-                    and _identity_status(target) == "unconfirmed"
-                    and _dispatch_reliably_not_created(target)
-                    and target.get("spawn_retry_count") == desired_retry_count - 1
-                ):
-                    raise StateConflictError("spawn retry 状态或计数不匹配")
-            elif dispatch_operation == "initial_spawn":
-                if (
-                    _spawn_observation(target) is not None
-                    or target.get("spawn_retry_count") != 0
-                ):
-                    raise StateConflictError("初始 spawn 状态已变化")
-            else:
-                raise StateConflictError(
-                    f"未知 dispatch operation：{dispatch_operation}"
-                )
-            _apply_canonical_execution_update(target, "dispatch_tool_use_id", tool_use_id)
-            target["spawn_retry_count"] = desired_retry_count
-            _apply_canonical_execution_update(target, "dispatch_response", None)
-            _apply_canonical_execution_update(
-                target,
-                "closure_parent_action",
-                "retry_spawn" if dispatch_operation == "spawn_retry" else None,
-            )
-            target["updated_at"] = current_time
-            claim_snapshot["claimed_task"] = copy.deepcopy(task)
-
-        try:
-            pre_update_state = store.read(
-                session_id, required_fields=("tasks", "tombstones")
-            )
-            pre_update_task = pre_update_state.get("tasks", {}).get(task_id)
-            if not isinstance(pre_update_task, dict):
-                raise StateConflictError("StateStore 中不存在匹配的 claim task")
-            claim_snapshot["pre_update_task"] = copy.deepcopy(pre_update_task)
-            store.update(
-                session_id,
-                claim,
-                required_fields=("tasks", "tombstones"),
-            )
-        except Exception as claim_exc:
-            rollback_errors: list[str] = []
-            claim_recovery = "not_observed"
-            try:
-                claim_recovery = _rollback_persisted_spawn_claim(
-                    session_id, task_id, store, claim_snapshot
-                )
-                if claim_recovery == "not_observed":
-                    expected_pre_update = claim_snapshot.get("pre_update_task")
-                    current_state = store.read(
-                        session_id, required_fields=("tasks", "tombstones")
-                    )
-                    if (
-                        not isinstance(expected_pre_update, dict)
-                        or current_state.get("tasks", {}).get(task_id)
-                        != expected_pre_update
-                    ):
-                        raise StateConflictError(
-                            "spawn claim 失败后 StateStore 已发生并发变化，无法安全恢复凭证"
-                        )
-            except Exception as rollback_exc:
-                rollback_errors.append(f"StateStore claim 回滚失败：{rollback_exc}")
-            if not rollback_errors:
-                try:
-                    _restore_prepared_spawn_claim(
-                        session_id,
-                        task_ref,
-                        prepared_store,
-                        prepared,
-                        claimed_prepared,
-                    )
-                except Exception as rollback_exc:
-                    rollback_errors.append(f"PreparedContract unclaim 失败：{rollback_exc}")
-            reusable_prepared = claim_recovery in {"restored", "not_persisted"} or (
-                claim_recovery == "not_observed"
-                and claim_snapshot.get("callback_entered") is not True
-            )
-            if not rollback_errors and reusable_prepared:
-                raise claim_exc
-            if not rollback_errors and dispatch_operation == "spawn_retry":
-                try:
-                    prepared_store.delete(session_id, task_ref, missing_ok=False)
-                except Exception as rollback_exc:
-                    rollback_errors.append(
-                        f"spawn retry PreparedContract 回滚失败：{rollback_exc}"
-                    )
-            elif not rollback_errors and dispatch_operation == "initial_spawn":
-                try:
-                    prepared_store.delete(session_id, task_ref, missing_ok=False)
-                except Exception as rollback_exc:
-                    rollback_errors.append(
-                        f"initial PreparedContract 回滚失败：{rollback_exc}"
-                    )
-            if rollback_errors:
-                raise StateConflictError(
-                    f"{claim_exc}；治理状态 degraded：{'；'.join(rollback_errors)}"
-                ) from claim_exc
-            raise
     except Exception as exc:
         return _deny(f"子 Agent 派发被阻止：StateStore/PreparedContract 认领失败：{exc}")
     return _allow_updated(
@@ -3997,7 +3902,9 @@ def _handle_post_tool_spawn(
     )
     try:
         if delete_prepared:
-            prepared_store.delete(session_id, task_ref)
+            prepared_store.delete_if(
+                session_id, task_ref, lambda value: value == prepared
+            )
         else:
             prepared_store.compare_and_set(
                 session_id,
@@ -4007,6 +3914,34 @@ def _handle_post_tool_spawn(
             )
     except Exception as exc:
         warning = f"派发状态已记录，但 PreparedContract 收缩失败：{exc}"
+    if warning or getattr(store, "last_warning", None):
+        return {"systemMessage": warning or str(store.last_warning)}
+    return None
+
+
+def _handle_post_tool_spawn(
+    payload: dict[str, Any], store: StateStore, session_id: str
+) -> dict[str, Any] | None:
+    """Hook adapter: normalize platform output and format dispatch-domain facts."""
+    tool_use_id = str(payload.get("tool_use_id") or "")
+    try:
+        prepared_store = PreparedContractStore(_prepared_root_for_store(store))
+        prepared = prepared_store.find_claimed(session_id, tool_use_id)
+    except Exception as exc:
+        return {"systemMessage": f"Subagent Governance 无法读取派发凭证，需人工对账：{exc}"}
+    if prepared is None:
+        return None
+    try:
+        warning = _dispatch.observe_spawn_post_tool(
+            session_id, prepared, adapt_spawn_response(payload.get("tool_response")),
+            _now(), store, prepared_store,
+        )
+    except StateConflictError:
+        return {"systemMessage": "Subagent Governance 派发结果与当前 claim 不匹配，已保留较新状态并要求人工对账。"}
+    except (OSError, RuntimeError) as exc:
+        return {"systemMessage": f"Subagent Governance 无法记录派发生命周期，已降级放行：{exc}"}
+    except Exception as exc:
+        return {"systemMessage": f"派发状态已记录或保留，但 PreparedContract 收缩失败：{exc}"}
     if warning or getattr(store, "last_warning", None):
         return {"systemMessage": warning or str(store.last_warning)}
     return None
