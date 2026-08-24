@@ -6,11 +6,10 @@
 
 ### P9 local acceptance（2026-08-24）
 
-- 对 `codex/current-only-improvements` 的 `57f270e489f16158efd0e8f94479509465ec9030`，三套最终工作树完整 unittest（Python 3.9、3.11、3.12）均通过，各 267 tests；三版本编译、development preflight、Plugin/Skill validator、当前 P9 报告白名单/未知 validation 文档拒绝门禁和 archive preflight 均通过。
-- P9 本地综合结论仍为 `failed`：独立 mutation matrix 发现 canonical execution `task_name="bad name"` 被 runtime 按严格语义拒绝，却被 JSON Schema 接受。详见 `docs/validation/current-only-local-acceptance.md`。P9 不修改 Schema、实现或测试，因此停止于失败报告。
-- runtime/Schema 的 producer corpus 仍同时接受；33/33 定义必填字段删除、7/7 未知字段注入及 5/6 非法 enum/count/digest/ref/name mutation 得到两者共同拒绝。唯一不一致即 execution `task_name` 格式。
-- `ruff` 与 `coverage` 在验收环境中不存在，未安装，故相应可选命令未运行；这不代表它们通过。
-- 这仍是本地验证。真实 native spawn/wait/notification、Hook trust、事件顺序、桌面 UI、restart/compact 恢复及真实 business-resume 都是 `not_checked`；只有在 P10 获得安装授权后，以新 task 单独验证。
+- 精确目标 `166fa492c5f6a053d25a791f9033f748ca84bded`（`codex/current-only-improvements`）的 archive preflight、三套完整 unittest（Python 3.9、3.11、3.12，各 271 tests）、三套编译、development preflight、Plugin/Skill validator 与 P9 A–F 180-test focused suite 均通过。
+- P9 本地综合结论为 `passed`。task-name 修复已独立复验：execution 接受合法 initial 名与 `null` same-Agent resume；空格、错误 mode/semantic/ref/长度/字符和超长值同时被 runtime/Schema 拒绝；Prepared/native 同时拒绝非法值和 `null`。详见 `docs/validation/current-only-local-acceptance.md`。
+- `ruff` 与 `coverage` 在验收环境中不存在，未安装；相关可选命令未运行，未被记为通过。该环境事实不改变本地 P9 结论。
+- 这仍是本地验证。真实 native spawn/wait/notification、Hook trust、事件顺序、桌面 UI、restart/compact 恢复及真实 business-resume 都是 `not_checked`；只有在 P10 获得安装授权后，才可在新 task 中单独验证。
 
 ## 已由本地测试覆盖
 
