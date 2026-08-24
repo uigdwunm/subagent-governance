@@ -18,12 +18,10 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
-from typing import Callable
 
 try:
     from scripts.check_installation import manifest_version, tree_digest
     from scripts.reinstall_plugin import (
-        LOCK_FILE,
         TRANSACTION_PREFIX,
         operation_lock,
         ordinary_directory,
@@ -34,7 +32,6 @@ try:
 except ModuleNotFoundError:
     from check_installation import manifest_version, tree_digest
     from reinstall_plugin import (
-        LOCK_FILE,
         TRANSACTION_PREFIX,
         operation_lock,
         ordinary_directory,
@@ -120,18 +117,30 @@ def _safe_roots(source: Path, stable: Path, transaction_parent: Path) -> tuple[P
     stable = stable.expanduser().absolute()
     transaction_parent = transaction_parent.expanduser().absolute()
     ordinary_directory(source, "source root")
-    ordinary_directory(stable, "stable root")
     ordinary_directory(stable.parent, "stable parent")
     ordinary_directory(transaction_parent, "transaction parent")
     if stable.name != PLUGIN_NAME:
         raise RuntimeError(f"stable root basename 必须是 {PLUGIN_NAME}：{stable}")
     if stable.is_symlink() or source.is_symlink():
         raise RuntimeError("source root 与 stable root 不能是符号链接")
-    source_real, stable_real = source.resolve(), stable.resolve()
-    if source_real == stable_real:
-        raise RuntimeError("source root 与 stable root 不能相同")
-    if source_real in stable_real.parents or stable_real in source_real.parents:
-        raise RuntimeError("source root 与 stable root 不能互为父子目录")
+    if stable.exists() and not stable.is_dir():
+        raise RuntimeError(f"stable root 必须是普通目录：{stable}")
+    source_real = source.resolve()
+    stable_real = stable.resolve()
+    transaction_real = transaction_parent.resolve()
+    roots = {
+        "source root": source_real,
+        "stable root": stable_real,
+        "transaction parent": transaction_real,
+    }
+    names = list(roots)
+    for index, left_name in enumerate(names):
+        for right_name in names[index + 1 :]:
+            left, right = roots[left_name], roots[right_name]
+            if left == right or left in right.parents or right in left.parents:
+                raise RuntimeError(
+                    f"{left_name} 与 {right_name} 不能重叠或互为父子目录"
+                )
     return source, stable, transaction_parent
 
 
@@ -341,6 +350,7 @@ def sync_stable_plugin(
         with operation_lock(parent):
             lock_acquired = True
             recovered = _recover_interrupted(stable, parent)
+            ordinary_directory(stable, "stable root")
             actual_head = _clean_head(source, expected_head)
             if manifest_version(source) != expected_version:
                 raise RuntimeError("source Manifest full version 与 --expected-version 不一致")

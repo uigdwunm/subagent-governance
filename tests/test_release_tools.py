@@ -226,6 +226,124 @@ class ReleaseToolTests(unittest.TestCase):
             self.assertIn("无法绑定", report["error"])
             self.assertEqual(sync_tool.tree_digest(stable), before)
 
+    def test_stable_sync_rejects_transaction_parent_overlaps_before_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.create_git_source(root)
+            stable = root / "stable-parent" / "subagent-governance"
+            self.create_plugin(stable, version="old")
+            baseline = sync_tool.tree_digest(stable)
+            cases = {
+                "inside-stable": stable / "transactions",
+                "inside-source": source / "transactions",
+                "contains-stable": root / "stable-parent",
+            }
+            for label, transactions in cases.items():
+                with self.subTest(label=label):
+                    transactions.mkdir(exist_ok=True)
+                    returncode, report = sync_tool.sync_stable_plugin(
+                        source_root=source,
+                        stable_root=stable,
+                        transaction_parent=transactions,
+                        expected_head=self.git_head(source),
+                        expected_version="0.4.0",
+                    )
+                    self.assertEqual(returncode, 2)
+                    self.assertIn("不能重叠", report["error"])
+                    self.assertEqual(sync_tool.tree_digest(stable), baseline)
+                    self.assertFalse(any(path.name.startswith("stable-sync-") for path in transactions.iterdir()))
+
+    def test_stable_sync_admission_mismatches_do_not_touch_stable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.create_git_source(root)
+            stable = root / "stable-parent" / "subagent-governance"
+            self.create_plugin(stable, version="old")
+            transactions = root / "transactions"
+            transactions.mkdir()
+            baseline = sync_tool.tree_digest(stable)
+            for label, head, version in (
+                ("head", "0" * 40, "0.4.0"),
+                ("version", self.git_head(source), "not-the-manifest-version"),
+            ):
+                with self.subTest(label=label):
+                    returncode, report = sync_tool.sync_stable_plugin(
+                        source_root=source,
+                        stable_root=stable,
+                        transaction_parent=transactions,
+                        expected_head=head,
+                        expected_version=version,
+                    )
+                    self.assertEqual(returncode, 2)
+                    self.assertEqual(report["state"], "sync_failed")
+                    self.assertEqual(sync_tool.tree_digest(stable), baseline)
+
+    def test_stable_sync_detects_concurrent_stable_change_before_rename(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.create_git_source(root)
+            stable = root / "stable-parent" / "subagent-governance"
+            self.create_plugin(stable, version="old")
+            transactions = root / "transactions"
+            transactions.mkdir()
+
+            def mutate_stable_after_stage(stage):
+                if stage == "after_stage":
+                    (stable / "concurrent-change").write_text("new owner", encoding="utf-8")
+
+            with mock.patch.object(sync_tool, "_failpoint", side_effect=mutate_stable_after_stage):
+                returncode, report = self.stable_sync(source, stable, transactions, "0.4.0")
+
+            self.assertEqual(returncode, 2)
+            self.assertEqual(report["state"], "sync_failed")
+            self.assertIn("admission 后发生变化", report["error"])
+            self.assertEqual((stable / "concurrent-change").read_text(encoding="utf-8"), "new owner")
+            self.assertFalse(any(path.name.startswith("stable-sync-") for path in transactions.iterdir()))
+
+    def test_stable_sync_refuses_multiple_or_unrecoverable_transactions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.create_git_source(root)
+            stable = root / "stable-parent" / "subagent-governance"
+            self.create_plugin(stable, version="old")
+            transactions = root / "transactions"
+            transactions.mkdir()
+            (transactions / "stable-sync-one").mkdir()
+            (transactions / "stable-sync-two").mkdir()
+            returncode, report = self.stable_sync(source, stable, transactions, "0.4.0")
+            self.assertEqual(returncode, 2)
+            self.assertIn("多个未完成", report["error"])
+            self.assertTrue((transactions / "stable-sync-one").exists())
+            self.assertTrue((transactions / "stable-sync-two").exists())
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.create_git_source(root)
+            stable = root / "stable-parent" / "subagent-governance"
+            self.create_plugin(stable, version="old")
+            transactions = root / "transactions"
+            transactions.mkdir()
+            original_replace = sync_tool.os.replace
+
+            def fail_rollback(source_path, target_path):
+                if Path(source_path).name.startswith(sync_tool.BACKUP_PREFIX):
+                    raise OSError("rollback rename failed")
+                return original_replace(source_path, target_path)
+
+            with mock.patch.object(sync_tool, "_failpoint", side_effect=lambda stage: (_ for _ in ()).throw(OSError("activate fault")) if stage == "after_activate" else None), mock.patch.object(sync_tool.os, "replace", side_effect=fail_rollback):
+                returncode, report = self.stable_sync(source, stable, transactions, "0.4.0")
+                self.assertEqual(returncode, 2)
+                self.assertEqual(report["state"], "rollback_failed")
+                transaction = next(path for path in transactions.iterdir() if path.name.startswith("stable-sync-"))
+                manifest = json.loads((transaction / "sync-manifest.json").read_text(encoding="utf-8"))
+                self.assertEqual(manifest["state"], "rollback_failed")
+                self.assertTrue(Path(manifest["backup_path"]).exists())
+
+                retry_code, retry_report = self.stable_sync(source, stable, transactions, "0.4.0")
+                self.assertEqual(retry_code, 2)
+                self.assertIn("rollback rename failed", retry_report["error"])
+                self.assertTrue(transaction.exists())
+
     @staticmethod
     def managed_block(content="entry"):
         return (

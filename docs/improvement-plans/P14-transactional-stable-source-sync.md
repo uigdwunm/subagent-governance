@@ -75,6 +75,7 @@ python3 scripts/sync_stable_plugin.py \
 - source Manifest full version 必须等于 `--expected-version`；
 - stable root 必须是普通目录且不能是 source root、其父子目录、symlink 或同一真实路径；
 - stable parent 与 transaction parent 必须通过已有 owner/permission 安全检查；
+- source root、stable root 与 transaction parent 必须两两独立，不能相同或互为父子目录；否则 lock/manifest 可能随 stable rename 移动或使 source 变脏；
 - stable root basename 必须是 `subagent-governance`，避免误指向宽泛目录。
 
 不提供隐式“当前目录同步到默认 HOME 路径”执行模式。真实外部写入时必须把 source/stable/transaction/HEAD/version 全部显式传入，使审计日志能复原目标。
