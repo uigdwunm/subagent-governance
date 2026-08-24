@@ -84,14 +84,15 @@
   "attempt": 1,
   "task_ref": "…",
   "operation": "initial_spawn | spawn_retry | normal_message | platform_recovery | business_resume | interrupt",
+  "dispatch_generation": "0 | 1 | 2 | null",
   "claimed_at": 0,
   "expires_at": 0
 }
 ```
 
-字段只是机械关联键；不得加入 target（spawn receipt 前未知）、task prompt、message、response、原工具名或业务结果。保留 SHA-256 `(session_id + NUL + tool_use_id)` 文件名、私有权限、512 条容量和 20 分钟 TTL；lookup 保持只读且不创建目录、锁或 StateStore。
+字段只是机械关联键；`dispatch_generation` 对 spawn 等于 `spawn_retry_count`，对 lifecycle 固定为 null，用来区分同一 execution attempt 内最多三次原生 spawn。不得加入 target（spawn receipt 前未知）、task prompt、message、response、原工具名或业务结果。保留 SHA-256 `(session_id + NUL + tool_use_id)` 文件名、私有权限、512 条容量和 20 分钟 TTL；lookup 保持只读且不创建目录、锁或 StateStore。
 
-`claim_spawn()` 在 canonical state 和 PreparedContract 都精确回读为 claimed 后发布 spawn index。发布失败不撤销已许可的原生调用、不重派；Pre output 给出 `spawn_post_index_unavailable`。dispatch record 增加显式 `claimed_at`，SessionStart 才能从 current `dispatch_state=claimed + tool_use_id + claimed_at` 重建未过期 index；重建还必须精确确认 current PreparedContract 同 session/task/attempt/ref/ID 且 consumed、未观察 Post。旧 PreparedContract 不读。
+`claim_spawn()` 在 canonical state 和 PreparedContract 都精确回读为 claimed 后发布 spawn index。发布失败不撤销已许可的原生调用、不重派；Pre output 给出 `spawn_post_index_unavailable`。dispatch record 增加显式 `claimed_at`，SessionStart 才能从 current `dispatch_state=claimed + tool_use_id + claimed_at + dispatch_generation` 重建未过期 index；重建还必须精确确认 current PreparedContract 同 session/task/attempt/ref/ID/generation 且 consumed、未观察 Post。旧 PreparedContract 不读。
 
 index 只是 admission hint。命中后仍须在 current StateStore 和 current PreparedContract exact CAS recheck。无 ID、过期/未命中 hint、无关 catch-all 事件保持完全 inert：不构造 StateStore、不输出、不写 state。
 
@@ -108,27 +109,28 @@ post_receipt = lifecycle_receipt | spawn_receipt
 `spawn_receipt` 还包含：
 
 - `origin="spawn"`，`operation="initial_spawn|spawn_retry"`；
+- `dispatch_generation=0|1|2`，必须与 receipt 对应 claim 的 `spawn_retry_count` 相等；
 - `identity_result="bound|not_present|adapter_unknown|adapter_failed"`；
 - `target_present` boolean（仅表示 adapter 接受的 top-level target 是否存在）；
-- `prepared_sync_state="not_needed|pending|applied|failed"`；
+- `prepared_settlement="mark_observed|delete_failed"` 与 `prepared_settlement_state="pending|applied|failed"`；
 - receipt 时刻的 `previous_parent_action`（固定 enum/null）。
 
-target 字符串只在 adapter 成功、exact owner recheck 后写入 `dispatch_record.dispatch_target` 和 `agents[target]`；receipt 本身不存 target。每 attempt 至多一个 receipt；不同 ID 不可覆盖。
+target 字符串只在 adapter 成功、exact owner recheck 后写入 `dispatch_record.dispatch_target` 和 `agents[target]`；receipt 本身不存 target。每个 execution attempt 仍只保留一个 current receipt slot，以延续 P11 的 bounded state：同一 generation 的不同 ID 永不覆盖；未完成的 receipt 永不覆盖；只有上一个 receipt 已 `transition_applied` 且 Prepared settlement 已 `applied`，并且新的同-attempt retry 已按更高 `dispatch_generation` 完成 exact claim 时，才允许用新 receipt 替换旧 receipt。旧 receipt 不作为历史 ledger 保留，retry count 与当前 receipt generation 提供当前诊断边界。
 
 建议升为 `state_format_version=9`、新的 `state-v9` namespace，配套 schema、手写 validator、views 和 diagnostics；state-v8 和任何旧 PreparedContract 直接拒绝、不迁移、不删除。
 
 ### C. spawn Post router 的 index-first / receipt-first 协议
 
-1. 取非空 `session_id`/`tool_use_id`。unknown-name catch-all 先查 index；miss 完全 inert。recognized spawn 使用同一 resolver；如果 index 发布已知失败，只可在 `PreparedContract.find_claimed` 返回唯一同 ID current claim 时 fallback，并输出 `spawn_index_fallback_used`，绝不按 task name/target查找。
-2. index hit 后才建 StateStore，重验 attempt open、`dispatch_state=claimed`、stored ID、task/attempt/ref/operation/claimed-at 全等；再读取 PreparedContract 并重验 consumed、同 session/task/attempt/ref/ID/dispatch operation。任何不符不写 receipt/identity，输出 `spawn_index_state_mismatch` 或 `spawn_prepared_lookup_miss`。
+1. 取非空 `session_id`/`tool_use_id`。unknown-name catch-all 先查 index；miss 完全 inert。recognized spawn 使用同一 resolver；index miss 时允许直接以 `PreparedContract.find_claimed` 返回的唯一同 ID current claim 作为 fallback，并输出 `spawn_index_fallback_used`，随后仍执行完整 StateStore/PreparedContract exact recheck。这个 fallback 只属于已识别 spawn，不向 unknown-name catch-all 开放，也绝不按 task name/target 查找。
+2. index hit 或 recognized exact-Prepared fallback 后才建 StateStore，重验 attempt open、`dispatch_state=claimed`、stored ID、task/attempt/ref/operation/generation/claimed-at 全等；再读取 PreparedContract 并重验 consumed、同 session/task/attempt/ref/ID/dispatch operation/generation。任何不符不写 receipt/identity，输出 `spawn_index_state_mismatch` 或 `spawn_prepared_lookup_miss`。
 3. 只调用一次严格 `adapt_spawn_response()` 与新增 `spawn_response_shape()`。只解析一个顶层 JSON value 和允许的 documented top-level/`structuredContent` 字段；不得读 nested `content`、text、message 或 agent output，原始 response/字段值不落盘。
-4. CAS 先写 `spawn_receipt.transition_state=receipt_recorded`。predicate 只接受 exact claimed dispatch 或同 ID 已有 spawn receipt。写失败返回 `spawn_post_receipt_write_failed`，保留 claimed/reconcile。
+4. CAS 先写 `spawn_receipt.transition_state=receipt_recorded`。predicate 接受 exact claimed dispatch、同 ID/同 generation 已有 spawn receipt，或满足上一节严格替换条件的新 retry generation；其他不同 ID/generation 一律拒绝。写失败返回 `spawn_post_receipt_write_failed`，保留 claimed/reconcile。
 5. 第二个 CAS 从 receipt 重入 transition：先恢复 receipt 的 `previous_parent_action`，再按 normalized result 更新 dispatch。
    - `success`：`acknowledged`；只有 adapter 提供合规 absolute canonical path 时绑定 target/index、`identity_result=bound`；success 无 path 保持 unconfirmed、`not_present/reconcile`。
    - `failed`：走现有受限 spawn retry；不得因为 child/list 事实改成功。
    - `unknown`：`indeterminate/reconcile`，不绑定 target。
    成功后写 `transition_applied`。写失败写 `transition_failed` 并保持 reconcile；same-ID duplicate 仅重入此 CAS。
-6. transition 后用 receipt `recorded_at` exact 同步 PreparedContract 的 `post_observed_at`。同步失败不回滚 canonical dispatch/identity、不重派；receipt 写 `prepared_sync_state=failed`、输出 `spawn_prepared_post_sync_failed`。duplicate 或 SessionStart maintenance 仅重试该 exact sync。全成功才删 index；完整完成后的 duplicate inert。
+6. transition 后按 receipt 的固定 settlement exact 收敛 PreparedContract：`success|unknown` 用 `recorded_at` 写 `post_observed_at`；明确 `failed` 则 exact 删除该 claimed PreparedContract，为同 attempt 的受限 retry 让出相同 `task_ref` 路径。settlement 失败不回滚 canonical dispatch/identity、不重派；receipt 写 `prepared_settlement_state=failed`，分别输出 `spawn_prepared_mark_observed_failed` 或 `spawn_prepared_delete_failed`。duplicate 或 SessionStart maintenance 只对同 session/task/attempt/ref/ID/generation 的 current record 重试相同 settlement。settlement 成功才删 index；完整完成后的 duplicate inert。
 
 `post_observed` 诊断从 spawn receipt 已记录派生，`target_bound` 只从同一 Post transition 的 dispatch target 派生。这样 receipt 存在但 identity 未知，与 Post 完全未关联，成为不同的状态。
 
@@ -147,11 +149,11 @@ target 字符串只在 adapter 成功、exact owner recheck 后写入 `dispatch_
 | explicit failure | receipt-first 后既有 retry budget | 以 child/list 覆盖为 success。 |
 | receipt write failure | fail-open message、claimed/reconcile | 静默吞错或 claimed→acknowledged。 |
 | transition failure | `transition_failed`、same ID可重入 | 再发原生 spawn 或消费 retry。 |
-| Prepared sync failure | transition 不回滚，exact maintenance retry | 读/修历史 PreparedContract。 |
+| Prepared settlement failure | transition 不回滚，exact maintenance retry；failed 走 exact delete，其他结果走 mark-observed | 读/修历史 PreparedContract，或在旧 failed 凭证仍占位时创建 retry。 |
 | index publish failure | known tool可唯一 Prepared fallback；unknown catch-all inert | 拒绝已 claim call或扩大 catch-all 搜索。 |
-| duplicate same ID | applied 后 inert；未完成仅重入本地CAS/sync | 第二 receipt、第二绑定、第二 native call。 |
+| duplicate same ID | applied 后 inert；未完成仅重入本地 CAS/settlement | 第二 receipt、第二绑定、第二 native call。 |
 
-views/diagnostics/Hook UI 只显示 origin、时间、ID-match bool、name classification、response shape、processing/identity/transition/sync enum 与 bounded reason；不显示 message、raw response、tool input、contract、child final、summary 或 transcript。
+views/diagnostics/Hook UI 只显示 origin、时间、generation、ID-match bool、name classification、response shape、processing/identity/transition/settlement enum 与 bounded reason；不显示 message、raw response、tool input、contract、child final、summary 或 transcript。
 
 ## 替代方案和取舍
 
@@ -163,20 +165,20 @@ views/diagnostics/Hook UI 只显示 origin、时间、ID-match bool、name class
 | 为 spawn 单独无关 event log | 分叉 P11 的重入/隐私/诊断规则；不推荐。 |
 | **推荐：扩展 P11 index + discriminated receipt** | 统一安全入场、failure attribution，且无关 catch-all 仍 inert；采用。 |
 
-用户需决定：是否接受推荐的 state-v9/index-v2 与每 attempt 一个持久化 receipt。若不接受持久化 receipt，只能得到瞬时 Hook UI，无法跨 compact/restart 诊断最新 V2，不能安全重跑 P10。catch-all 已是 `.*`；P12 只让私有 index exact hit 的 spawn 进入处理，不增加无关 state I/O。
+用户需决定：是否接受推荐的 state-v9/index-v2 与每 attempt 一个可由严格新 generation 替换的 current 持久化 receipt。若不接受持久化 receipt，只能得到瞬时 Hook UI，无法跨 compact/restart 诊断最新 V2，不能安全重跑 P10。catch-all 已是 `.*`；P12 只让私有 index exact hit 的 unknown-name spawn 进入处理，不增加无关 state I/O；recognized spawn 的 exact Prepared fallback 仍受双存储重验约束。
 
 ## 文件级清单
 
 | 文件 | 修改 |
 | --- | --- |
-| `scripts/governance_dispatch.py` | spawn index publication；receipt-first spawn transition、identity binding、Prepared sync/reconcile。 |
+| `scripts/governance_dispatch.py` | spawn index publication；receipt-first spawn transition、identity binding、Prepared settlement/reconcile。 |
 | `scripts/governance_post_index.py` | index-v2 discriminant、spawn builder、strict validation、TTL/capacity/exact remove。 |
 | `scripts/governance_lifecycle.py` | shared lookup/rebuild/maintenance，保持 lifecycle 语义。 |
 | `scripts/governance_hook.py` | spawn recognized/catch-all admission 与 bounded reason；miss 不建 store。 |
 | `scripts/governance_platform.py` | pure `spawn_response_shape()`；仅按真实 receipt 精确扩 adapter。 |
 | `scripts/governance_execution.py` | 如需，纯 spawn claim/receipt predicate；绝不让 list 绑定 identity。 |
 | state/store/semantics/schema | state-v9、discriminated receipt、claim timestamp、machine enum/validator。 |
-| sessions/views/diagnostics | rebuild、exact sync retry、隐私受限 projection。 |
+| sessions/views/diagnostics | rebuild、exact settlement retry、隐私受限 projection。 |
 | Skill/platform docs | 仅实现后更新边界/状态，不能声称平台通过。 |
 | dispatch/hook/adapter/state/view/diagnostic/session tests | 覆盖下列矩阵。 |
 
@@ -195,7 +197,10 @@ prepare dispatch
           success + no path: acknowledged + unconfirmed/reconcile
           failed: rejected + existing retry rule
           unknown: indeterminate + reconcile
-       -> receipt=transition_applied -> PreparedContract post sync -> index remove
+       -> receipt=transition_applied
+       -> success/unknown: PreparedContract mark-observed
+          failed: PreparedContract exact delete
+       -> settlement applied -> index remove
   -> exact list admissible only after target bound
 ```
 
@@ -209,7 +214,8 @@ prepare dispatch
 | hook | raw/namespaced spawn、unknown name + hit、unknown miss、missing ID | hit 才建 store；miss/missing完全 inert；无原名泄漏。 |
 | binding | same ID、different ID、Prepared mismatch、task/attempt/ref mismatch | only exact owner写 receipt；其余不转移。 |
 | adapter | canonical path、success无path、explicit error、empty/non-object/JSON failure/nested content | 只接受明确顶层；unknown不绑定。 |
-| reentry | receipt/transition/sync fault + duplicate/SessionStart | 一个receipt、无第二 native call、正确reconcile。 |
+| reentry | receipt/transition/settlement fault + duplicate/SessionStart | 一个current receipt、无第二 native call、正确reconcile。 |
+| same-attempt retry | generation 0/1/2、旧 applied receipt、旧 failed Prepared 删除失败/成功 | 未完成旧 receipt 不覆盖；settlement 完成后仅 exact 新 generation 可替换；旧凭证占位时不创建 retry。 |
 | identity/list | bound 后 running/completed/error/absent；unbound后相同list；多open/index冲突 | 前者仅写正确attempt；后者拒绝不回填。 |
 | retry | failed、unknown、success无identity | 仅明确failed进入既有retry。 |
 | privacy/schema | 非法字段、泄漏、state-v8/旧Prepared | 新格式严格；旧数据不读不迁移；view无正文。 |
@@ -218,21 +224,21 @@ prepare dispatch
 ## 实施顺序
 
 1. 新实施对话完整阅读 `AGENTS.md`、本索引、P10/P11/P12、真实报告、当前安装 Skill、Hook、state/schema/dispatch/lifecycle/router/tests，确认 HEAD/工作树。
-2. 先写 failing tests：spawn unknown-name Post invisibility、same-ID receipt/target binding、ID mismatch/inert、receipt/transition/sync fault、unbound-list refusal。
+2. 先写 failing tests：spawn unknown-name Post invisibility、same-ID receipt/target binding、ID mismatch/inert、receipt/transition/settlement fault、同-attempt generation replacement、unbound-list refusal。
 3. 实现 state-v9/schema/validator、index-v2；不读 state-v8/旧 PreparedContract；先跑 format/privacy/index tests。
-4. 实现 `claim_spawn()` publication/rebuild、exact catch-all admission、receipt-first/reentrant transition和Prepared sync。
+4. 实现 `claim_spawn()` publication/rebuild、exact catch-all admission、receipt-first/reentrant transition 和 Prepared settlement。
 5. 保持 P11 lifecycle 回归；只有真实 receipt 出现新 shape时才最小扩 adapter。
 6. 更新 views/diagnostics/Skill/docs，跑完整本地门禁并提交。此时仍不得安装或称真实平台通过。
 7. 用户明确重新授权后，按 P10-A 受支持 installer 更新测试版、复核新 digest/version，再建全新 P10-B 从 V1 重跑。
 
 ## 验收标准和下一次 P10-B 门槛
 
-P12 本地完成要求：spawn Pre claim 有严格可重建 index；无关 catch-all 完全 inert；same-ID Post receipt 先于 transition 持久化且可重入但不重派；只有 accepted canonical path 绑定 target；ID/Prepared/adapter/receipt/transition/sync 失败各有不同固定码；unbound spawn 不可由 list 补 identity；新格式、隐私和全量门禁通过；开发仓库完成提交且无外部写入。
+P12 本地完成要求：spawn Pre claim 有严格可重建 index；无关 catch-all 完全 inert；same-ID/same-generation Post receipt 先于 transition 持久化且可重入但不重派；同-attempt retry 只能在旧 settlement 完成后以更高 exact generation 替换 current receipt；只有 accepted canonical path 绑定 target；ID/Prepared/adapter/receipt/transition/settlement 失败各有不同固定码；unbound spawn 不可由 list 补 identity；新格式、隐私和全量门禁通过；开发仓库完成提交且无外部写入。
 
 下一次 P10-B 必须在以上门禁、用户重新授权安装、installer digest/version 检查和**新的独立任务**完成后开始。V2 从 V1 重跑并记录：
 
 1. Pre claim 的 task/attempt/ref 和 tool-use ID 是否可比（不记录正文）；
-2. spawn receipt 的 origin、ID-match、name classification、response shape、processing/identity/transition/sync enum；
+2. spawn receipt 的 origin、generation、ID-match、name classification、response shape、processing/identity/transition/settlement enum；
 3. `dispatch.state=acknowledged`、`post_observed=true`，且只有 receipt 表示 target bound 时 `target_bound=true`；
 4. 使用该 dispatch target 的 exact list adapter/route 成功并写 `observation_record.source=list_agents`；
 5. terminal/final 只作自己的独立事实，绝不作为第2–4项证据。
@@ -241,6 +247,6 @@ V3–V7 只在 V2 完整通过后执行。若 V2 再失败，停止于 V2，保�
 
 ## 需要用户决定的问题
 
-1. 是否批准推荐的 `state-v9`/index-v2 current-only 升级及每 attempt 一个持久化 receipt？推荐批准。
+1. 是否批准推荐的 `state-v9`/index-v2 current-only 升级及每 attempt 一个可由严格新 retry generation 替换的 current 持久化 receipt？推荐批准。
 2. 若真实 receipt 显示新的无业务正文顶层 spawn envelope，是否只支持该精确 shape（推荐），还是放宽成功 parser？推荐只支持精确 shape。
-3. PreparedContract post-sync 失败时，是否允许 SessionStart 对**同一 current exact record**作一次无业务数据同步重试（推荐），还是只报告 degraded 并等待用户动作？两者都不得重派或读取历史 PreparedContract。
+3. PreparedContract settlement 失败时，是否允许 SessionStart 对**同一 current exact record**作一次无业务数据重试（推荐；success/unknown 重试 mark-observed，failed 重试 exact delete），还是只报告 degraded 并等待用户动作？两者都不得重派或读取历史 PreparedContract。
