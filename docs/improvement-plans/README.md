@@ -30,9 +30,10 @@
 | P9 | [仓库内综合验收与文档/Schema/Skill 一致性](P9-local-integrated-acceptance.md) | 验证 | P1–P8 |
 | P10 | [经授权安装和新对话真实平台验证](P10-authorized-install-and-real-validation.md) | 真实验证 | P9 |
 | P11 | [followup PostToolUse 与 exact-list 的 current-only 绑定](P11-followup-posttool-and-exact-list-binding.md) | 正确性、可观测性、真实验证修复 | P10-B V4 failure；须先完成P11本地门禁后才可重跑P10 |
-| P12 | [governed spawn PostToolUse 与 canonical identity 绑定](P12-governed-spawn-posttool-and-identity-binding.md) | 正确性、可观测性、真实验证修复 | P11 已安装后的 P10-B V2 failure；须先完成 P12 本地门禁后才可重跑 P10 |
+| P12-A | [governed spawn PostToolUse 最小诊断门槛](P12A-minimal-spawn-post-diagnostics.md) | 有界诊断、停止门槛 | P11 已安装后的 P10-B V2 failure；不改 canonical 状态机 |
+| P12-B | [governed spawn PostToolUse 与 canonical identity 条件修复](P12-governed-spawn-posttool-and-identity-binding.md) | 条件正确性修复 | 仅在 P12-A 真实证据满足激活门槛后实施，并按证据缩减范围 |
 
-P1–P8 必须顺序执行。即使某个后续方案看起来可以独立修改，也不能在前置模块尚未落地时复制临时实现。P11 是P10-B真实V4 failure后的独立修复方案；P12 是 P11 已安装后在 V2 暴露的 spawn 前置缺口修复方案。两者都不替代 P10 的重新授权安装和全新真实复验；P12 完成并通过新的 V2 门槛前，不得继续验证 P11 的 V4。
+P1–P8 必须顺序执行。即使某个后续方案看起来可以独立修改，也不能在前置模块尚未落地时复制临时实现。P11 是 P10-B 真实 V4 failure 后的独立修复方案。P12-A 只诊断 P11 已安装后在 V2 暴露的 spawn 前置缺口；P12-B 不是默认下一步，只有 P12-A 的真实证据满足激活门槛时才实施。它们都不替代 P10 的重新授权安装和全新真实复验；P12-A 作出继续/停止决定前，不得继续验证 P11 的 V4。
 
 ## 新对话交接模板
 

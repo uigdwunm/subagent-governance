@@ -1,14 +1,26 @@
-# P12：governed spawn PostToolUse 与 canonical identity 绑定
+# P12-B：governed spawn PostToolUse 与 canonical identity 条件修复
 
-状态：待实施；P10-B 最新 V2 的前置正确性修复方案。<br>
+状态：条件方案；当前不得实施。只有 P12-A 真实验证满足激活门槛后，才可缩减并转为待实施。<br>
 前置：P11 已在本地实施并安装，但新独立真实任务 `01a0339e-f49b-7990-a5db-d70ca7dee6d9` 的 V2 failed。<br>
 执行配置：独立新对话，`gpt-5.6-terra`，`high`。
+
+## 激活门槛
+
+本方案不再作为 P10-B V2 failure 后的直接实施项。必须先完成 [P12-A 最小诊断门槛](P12A-minimal-spawn-post-diagnostics.md)，并取得以下任一真实证据：
+
+- same-ID Post probe receipt 稳定出现，current PreparedContract 与 StateStore exact recheck matched；
+- receipt 证明 tool name 未识别，但 exact marker 可以安全关联 owner；
+- receipt 明确定位到插件 router、adapter 或写入阶段的可复现失败。
+
+若 P12-A 的独立真实任务均没有 receipt、真实 Post 使用不同/缺失 ID，或结果仍不足以建立 same-ID authority，本方案保持冻结。不得以更多 catch-all、list 推断、时间匹配、task name 猜测或 SessionStart 自动恢复绕过门槛。
+
+P12-A 通过后也不能原样照搬本方案：实施任务必须以实际 probe shape 和失败阶段删除无证据支持的分支，只保留解决已证实问题所需的最小子集。
 
 ## 问题定义
 
 最新 P10-B 的 V2 通过了 governed spawn 的 PreToolUse 双门禁和 claim，却没有完成原生 PostToolUse/canonical identity 闭环。attempt 1 仍是 `dispatch.state=claimed`、`post_observed=false`、`target_bound=false`、`dispatch_target=null`、`observation_record.source=null`。完整 canonical target 的 exact `list_agents` 原生返回唯一 completed Agent，仍没有写成 canonical observation。
 
-这不是 child 存在或业务完成的问题。P12 让一次已 claim 的 **governed spawn** 获得与 P11 lifecycle claim 同等严格、可复盘、隐私受限的 Post 关联，并只在同一 Post 的严格 adapter 明确提供 canonical target 时绑定 identity。它不从 list、terminal notification、child final、summary 或 transcript 补回缺失的 spawn Post。
+这不是 child 存在或业务完成的问题。若 P12-A 证明 same-ID Post 是可用 authority，P12-B 才让一次已 claim 的 **governed spawn** 获得与 P11 lifecycle claim 同等严格、可复盘、隐私受限的 Post 关联，并只在同一 Post 的严格 adapter 明确提供 canonical target 时绑定 identity。它不从 list、terminal notification、child final、summary 或 transcript 补回缺失的 spawn Post。
 
 这是 current-only 方案：不得读取、迁移、修复、删除或重写旧 state namespace、旧 PreparedContract、旧 task name 或旧 session。新增持久化字段必须使用新的 current format/namespace，旧 current format 也直接拒绝。
 
@@ -51,7 +63,7 @@
 
 按 task name、时间邻近、唯一 claimed spawn、child terminal、raw list completed 或父路径猜 owner 都不安全：同 session 可以有并发 claim，调用者可以查询任意 target，外部 target 不因“像本 task”成为 canonical identity。不得放宽 `path_prefix`、接受全量 list、扫描 response、或让 list 自行写 `dispatch_target`。
 
-唯一不放宽门槛的前向修复是：在 spawn Post 用 exact claimed `tool_use_id` 重验 owner 后，只使用 adapter 接受的 native canonical path 写 `dispatch_target` 和 `agents[target]`。随后 exact list 才有 provenance 可路由。对已有 failed attempt 不存在安全回填入口，必须保持 `reconcile`。当前没有依据证明 canonical path 可从 Pre 阶段机械计算，P12 不预绑定。
+唯一不放宽门槛的前向修复是：在 spawn Post 用 exact claimed `tool_use_id` 重验 owner 后，只使用 adapter 接受的 native canonical path 写 `dispatch_target` 和 `agents[target]`。随后 exact list 才有 provenance 可路由。对已有 failed attempt 不存在安全回填入口，必须保持 `reconcile`。当前没有依据证明 canonical path 可从 Pre 阶段机械计算，P12-B 不预绑定。
 
 ## 范围与非范围
 
@@ -165,7 +177,7 @@ views/diagnostics/Hook UI 只显示 origin、时间、generation、ID-match bool
 | 为 spawn 单独无关 event log | 分叉 P11 的重入/隐私/诊断规则；不推荐。 |
 | **推荐：扩展 P11 index + discriminated receipt** | 统一安全入场、failure attribution，且无关 catch-all 仍 inert；采用。 |
 
-用户需决定：是否接受推荐的 state-v9/index-v2 与每 attempt 一个可由严格新 generation 替换的 current 持久化 receipt。若不接受持久化 receipt，只能得到瞬时 Hook UI，无法跨 compact/restart 诊断最新 V2，不能安全重跑 P10。catch-all 已是 `.*`；P12 只让私有 index exact hit 的 unknown-name spawn 进入处理，不增加无关 state I/O；recognized spawn 的 exact Prepared fallback 仍受双存储重验约束。
+只有 P12-A 激活本方案后，用户才需决定是否接受推荐的 state-v9/index-v2 与每 attempt 一个可由严格新 generation 替换的 current 持久化 receipt。激活前不做该取舍，也不以“需要跨 compact/restart 诊断”为由提前扩大 canonical state。catch-all 已是 `.*`；若实施，P12-B 只让私有 index exact hit 的 unknown-name spawn 进入处理，不增加无关 state I/O；recognized spawn 的 exact Prepared fallback 仍受双存储重验约束。
 
 ## 文件级清单
 
@@ -182,7 +194,7 @@ views/diagnostics/Hook UI 只显示 origin、时间、generation、ID-match bool
 | Skill/platform docs | 仅实现后更新边界/状态，不能声称平台通过。 |
 | dispatch/hook/adapter/state/view/diagnostic/session tests | 覆盖下列矩阵。 |
 
-`hooks/hooks.json` 已有 `PostToolUse.matcher=".*"`，P12 不需新增 matcher。若 runtime matcher 语义异常，只记录为平台验证分支，不放宽 identity。
+`hooks/hooks.json` 已有 `PostToolUse.matcher=".*"`，P12-B 不需新增 matcher。若 runtime matcher 语义异常，只记录为平台验证分支，不放宽 identity。
 
 ## 状态迁移
 
@@ -223,7 +235,7 @@ prepare dispatch
 
 ## 实施顺序
 
-1. 新实施对话完整阅读 `AGENTS.md`、本索引、P10/P11/P12、真实报告、当前安装 Skill、Hook、state/schema/dispatch/lifecycle/router/tests，确认 HEAD/工作树。
+1. 新实施对话先读取 P12-A 的本地与真实验证报告，确认激活门槛已满足；否则停止，不修改代码。随后完整阅读 `AGENTS.md`、本索引、P10/P11/P12-A/P12-B、真实报告、当前安装 Skill、Hook、state/schema/dispatch/lifecycle/router/tests，确认 HEAD/工作树。
 2. 先写 failing tests：spawn unknown-name Post invisibility、same-ID receipt/target binding、ID mismatch/inert、receipt/transition/settlement fault、同-attempt generation replacement、unbound-list refusal。
 3. 实现 state-v9/schema/validator、index-v2；不读 state-v8/旧 PreparedContract；先跑 format/privacy/index tests。
 4. 实现 `claim_spawn()` publication/rebuild、exact catch-all admission、receipt-first/reentrant transition 和 Prepared settlement。
@@ -233,7 +245,7 @@ prepare dispatch
 
 ## 验收标准和下一次 P10-B 门槛
 
-P12 本地完成要求：spawn Pre claim 有严格可重建 index；无关 catch-all 完全 inert；same-ID/same-generation Post receipt 先于 transition 持久化且可重入但不重派；同-attempt retry 只能在旧 settlement 完成后以更高 exact generation 替换 current receipt；只有 accepted canonical path 绑定 target；ID/Prepared/adapter/receipt/transition/settlement 失败各有不同固定码；unbound spawn 不可由 list 补 identity；新格式、隐私和全量门禁通过；开发仓库完成提交且无外部写入。
+P12-B 本地完成要求：spawn Pre claim 有严格可重建 index；无关 catch-all 完全 inert；same-ID/same-generation Post receipt 先于 transition 持久化且可重入但不重派；同-attempt retry 只能在旧 settlement 完成后以更高 exact generation 替换 current receipt；只有 accepted canonical path 绑定 target；ID/Prepared/adapter/receipt/transition/settlement 失败各有不同固定码；unbound spawn 不可由 list 补 identity；新格式、隐私和全量门禁通过；开发仓库完成提交且无外部写入。
 
 下一次 P10-B 必须在以上门禁、用户重新授权安装、installer digest/version 检查和**新的独立任务**完成后开始。V2 从 V1 重跑并记录：
 
@@ -245,7 +257,7 @@ P12 本地完成要求：spawn Pre claim 有严格可重建 index；无关 catch
 
 V3–V7 只在 V2 完整通过后执行。若 V2 再失败，停止于 V2，保留最小 enum/时间证据并回开发仓库；不热修 cache 或继续后续场景。
 
-## 需要用户决定的问题
+## 激活后才需要用户决定的问题
 
 1. 是否批准推荐的 `state-v9`/index-v2 current-only 升级及每 attempt 一个可由严格新 retry generation 替换的 current 持久化 receipt？推荐批准。
 2. 若真实 receipt 显示新的无业务正文顶层 spawn envelope，是否只支持该精确 shape（推荐），还是放宽成功 parser？推荐只支持精确 shape。
