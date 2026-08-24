@@ -108,15 +108,16 @@ class ClaimedPostIndex:
             return None
         return _valid_record(value, session_id=session_id, tool_use_id=tool_use_id, now=current)
 
-    def record_claim(self, value: dict[str, Any]) -> None:
+    def record_claim(self, value: dict[str, Any], *, now: int | None = None) -> None:
         """Atomically publish a bounded exact claim after canonical claim CAS."""
         session_id, tool_use_id = value.get("session_id"), value.get("tool_use_id")
         claimed_at = value.get("claimed_at") if isinstance(value, dict) else None
-        valid = _valid_record(value, session_id=session_id, tool_use_id=tool_use_id, now=claimed_at) if isinstance(session_id, str) and isinstance(tool_use_id, str) and isinstance(claimed_at, int) else None
+        current = int(time.time()) if now is None else now
+        valid = _valid_record(value, session_id=session_id, tool_use_id=tool_use_id, now=current) if isinstance(session_id, str) and isinstance(tool_use_id, str) and isinstance(claimed_at, int) else None
         if valid is None:
             raise ValueError("claimed PostToolUse index record invalid")
         prepare_private_directory(self.root)
-        self.cleanup_expired(now=claimed_at)
+        self.cleanup_expired(now=current)
         destination = self.root / _filename(session_id, tool_use_id)
         if not destination.exists() and sum(1 for path in self.root.glob("*.json") if path.is_file()) >= MAX_INDEX_RECORDS:
             raise PrivateStorageError("PostToolUse claimed-ID index 达到有界容量")

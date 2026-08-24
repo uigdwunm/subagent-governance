@@ -101,11 +101,12 @@ class P7ViewsGroupsSessionsDiagnosticsTests(unittest.TestCase):
             record["post_receipt"] = {
                 "session_id": self.session_id, "task_id": task_id, "attempt": 1,
                 "task_ref": "0123456789ab", "target": "/root/p7",
-                "expected_tool_use_id": "secret-expected", "received_tool_use_id": "secret-received",
+                "expected_tool_use_id": "secret-tool", "received_tool_use_id": "secret-tool",
                 "id_match": True, "tool_family": "followup", "tool_name_classification": "recognized",
                 "operation_type": "business_resume", "response_shape": "empty",
                 "processing_result": "success", "target_observation": None,
-                "transition_state": "transition_applied", "recorded_at": 120,
+                "transition_state": "transition_applied", "previous_parent_action": None,
+                "recorded_at": 120,
             }
         self.store.update(self.session_id, add_receipt)
         state = self.store.read(self.session_id)
@@ -116,8 +117,7 @@ class P7ViewsGroupsSessionsDiagnosticsTests(unittest.TestCase):
         document, exit_code = diagnostics.build_diagnostic_document(self.session_id, self.root)
         self.assertEqual(exit_code, 0)
         rendered = json.dumps(document, ensure_ascii=False)
-        self.assertNotIn("secret-expected", rendered)
-        self.assertNotIn("secret-received", rendered)
+        self.assertNotIn("secret-tool", rendered)
         self.assertNotIn("response body", rendered)
 
     def test_diagnostics_modules_are_read_only_and_runtime_is_only_adapter(self):

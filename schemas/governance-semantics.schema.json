@@ -590,7 +590,7 @@
         "session_id", "task_id", "attempt", "task_ref", "target",
         "expected_tool_use_id", "received_tool_use_id", "id_match",
         "tool_family", "tool_name_classification", "operation_type", "response_shape",
-        "processing_result", "target_observation", "transition_state", "recorded_at"
+        "processing_result", "target_observation", "transition_state", "previous_parent_action", "recorded_at"
       ],
       "properties": {
         "session_id": {"type": "string", "minLength": 1, "maxLength": 4000},
@@ -608,6 +608,7 @@
         "processing_result": {"$ref": "#/$defs/call_observation"},
         "target_observation": {"type": ["string", "null"], "enum": [null, "previously_running", "not_found", "stopped", "completed", "interrupted", "cancelled", "canceled"]},
         "transition_state": {"type": "string", "enum": ["receipt_recorded", "transition_failed", "transition_applied"]},
+        "previous_parent_action": {"anyOf": [{"$ref": "#/$defs/parent_action"}, {"type": "null"}]},
         "recorded_at": {"$ref": "#/$defs/timestamp"}
       },
       "additionalProperties": false
@@ -850,7 +851,7 @@
     },
     "decision_post_receipt": {
       "type": "object",
-      "required": ["recorded_at", "id_match", "tool_family", "tool_name_classification", "operation_type", "response_shape", "processing_result", "target_observation", "transition_state"],
+      "required": ["recorded_at", "id_match", "tool_family", "tool_name_classification", "operation_type", "response_shape", "processing_result", "target_observation", "transition_state", "previous_parent_action"],
       "properties": {
         "recorded_at": {"$ref": "#/$defs/timestamp"},
         "id_match": {"type": "boolean"},
@@ -861,6 +862,7 @@
         "processing_result": {"$ref": "#/$defs/call_observation"},
         "target_observation": {"type": ["string", "null"], "enum": [null, "previously_running", "not_found", "stopped", "completed", "interrupted", "cancelled", "canceled"]},
         "transition_state": {"type": "string", "enum": ["receipt_recorded", "transition_failed", "transition_applied"]}
+        ,"previous_parent_action": {"anyOf": [{"$ref": "#/$defs/parent_action"}, {"type": "null"}]}
       },
       "additionalProperties": false
     },

@@ -145,6 +145,7 @@ def _candidate(state: dict[str, Any], task_id: str, attempt: int, record: dict[s
             "processing_result": receipt.get("processing_result"),
             "target_observation": receipt.get("target_observation"),
             "transition_state": receipt.get("transition_state"),
+            "previous_parent_action": receipt.get("previous_parent_action"),
         } if receipt is not None else None),
         "action_required": attempt_action_required(state, task_id, attempt, record),
         "timestamps": {key: value for key, value in (("activity_at", activity_at(record)), ("platform_checked_at", observation_checked_at(record)), ("attempt_closed_at", execution_closed_at(record))) if isinstance(value, int) and not isinstance(value, bool)},

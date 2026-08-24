@@ -188,11 +188,12 @@ class V8StrictStateContractTests(unittest.TestCase):
         state["tasks"]["v8-state-task"]["executions"]["1"]["post_receipt"] = {
             "session_id": "v8-state", "task_id": "v8-state-task", "attempt": 1,
             "task_ref": "0123456789ab", "target": "/root/v8-state",
-            "expected_tool_use_id": "expected", "received_tool_use_id": "received",
+            "expected_tool_use_id": "expected", "received_tool_use_id": "expected",
             "id_match": True, "tool_family": "followup", "tool_name_classification": "unrecognized",
             "operation_type": "business_resume", "response_shape": "empty",
             "processing_result": "success", "target_observation": None,
-            "transition_state": "transition_applied", "recorded_at": 101,
+            "transition_state": "transition_applied", "previous_parent_action": None,
+            "recorded_at": 101,
         }
         self.assertEqual(self.schema_errors(state), [])
         self.assertEqual(state_domain.validate_current_state_format(state), [])
@@ -204,6 +205,14 @@ class V8StrictStateContractTests(unittest.TestCase):
                 invalid = copy.deepcopy(state)
                 invalid["tasks"]["v8-state-task"]["executions"]["1"]["post_receipt"][field] = value
                 self.assert_rejected_by_both(invalid)
+        unequal = copy.deepcopy(state)
+        unequal["tasks"]["v8-state-task"]["executions"]["1"]["post_receipt"]["received_tool_use_id"] = "different"
+        # Draft-07 cannot compare sibling field values.  The closed schema
+        # still accepts bounded strings; runtime must reject the mismatch.
+        self.assertEqual(self.schema_errors(unequal), [])
+        self.assertTrue(state_domain.validate_current_state_format(unequal))
+        with self.assertRaises(errors.StateValidationError):
+            state_domain.require_current_state_format(unequal)
         old = copy.deepcopy(state)
         for old_version in (6, 7):
             invalid = copy.deepcopy(state)
@@ -230,7 +239,8 @@ class V8StrictStateContractTests(unittest.TestCase):
             "id_match": True, "tool_family": "followup", "tool_name_classification": "recognized",
             "operation_type": "business_resume", "response_shape": "empty",
             "processing_result": "success", "target_observation": None,
-            "transition_state": "receipt_recorded", "recorded_at": 102,
+            "transition_state": "receipt_recorded", "previous_parent_action": "wait",
+            "recorded_at": 102,
         }
         self.assertEqual(self.schema_errors(state), [])
         self.assertEqual(state_domain.validate_current_state_format(state), [])
@@ -242,6 +252,30 @@ class V8StrictStateContractTests(unittest.TestCase):
         self.assertTrue(state_domain.validate_current_state_format(invalid))
         with self.assertRaises(errors.StateValidationError):
             state_domain.require_current_state_format(invalid)
+
+    def test_completed_receipt_can_coexist_with_new_claimed_pending(self):
+        state = self.canonical_state()
+        record = state["tasks"]["v8-state-task"]["executions"]["1"]
+        record["dispatch_record"]["dispatch_target"] = "/root/v8-state"
+        record["post_receipt"] = {
+            "session_id": "v8-state", "task_id": "v8-state-task", "attempt": 1,
+            "task_ref": "0123456789ab", "target": "/root/v8-state",
+            "expected_tool_use_id": "completed", "received_tool_use_id": "completed",
+            "id_match": True, "tool_family": "communication", "tool_name_classification": "recognized",
+            "operation_type": "normal_message", "response_shape": "top_level_object",
+            "processing_result": "success", "target_observation": None,
+            "transition_state": "transition_applied", "previous_parent_action": None,
+            "recorded_at": 101,
+        }
+        record["pending_action"] = {
+            **lifecycle._pending_action_record(
+                target="/root/v8-state", attempt=1, task_ref="abcdefabcdef",
+                operation_type="normal_message", created_at=102,
+            ),
+            "phase": "claimed", "tool_use_id": "next", "claimed_at": 103,
+        }
+        self.assertEqual(self.schema_errors(state), [])
+        self.assertEqual(state_domain.validate_current_state_format(state), [])
 
     def test_task_and_prepared_contracts_are_closed_and_share_semantics(self):
         contract = self.contract().to_record()

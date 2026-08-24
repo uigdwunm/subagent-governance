@@ -1578,7 +1578,8 @@ def _claim_pending_action(
             raise StateConflictError("canonical claimed pending 在索引发布前消失")
         indexed_task_id, indexed_attempt, _indexed_record, indexed_pending = claimed
         ClaimedPostIndex(index_root_for_store(store)).record_claim(
-            claim_index_record(session_id, indexed_task_id, indexed_attempt, indexed_pending)
+            claim_index_record(session_id, indexed_task_id, indexed_attempt, indexed_pending),
+            now=current_time,
         )
     except Exception:
         # The canonical claim is already durable.  Do not deny a native call
@@ -1827,6 +1828,7 @@ def _receipt_from_claim(
     response_shape: str,
     observed_at: int,
     tool_name_classification: str,
+    previous_parent_action: str | None,
 ) -> dict[str, Any]:
     operation_type = str(pending["operation_type"])
     family = "interrupt" if operation_type == "interrupt" else "communication" if operation_type == "normal_message" else "followup"
@@ -1846,6 +1848,7 @@ def _receipt_from_claim(
         "processing_result": observation["call_observation"],
         "target_observation": observation.get("target_observation"),
         "transition_state": "receipt_recorded",
+        "previous_parent_action": previous_parent_action,
         "recorded_at": observed_at,
     }
 
@@ -1863,7 +1866,9 @@ def claimed_post_index_lookup(
     )
 
 
-def rebuild_claimed_post_index(session_id: str, store: StateStore) -> int:
+def rebuild_claimed_post_index(
+    session_id: str, store: StateStore, *, now: int | None = None,
+) -> int:
     """Republish exact, unexpired claimed IDs after a recoverable index loss.
 
     Canonical state remains the authority.  This creates no StateStore and is
@@ -1873,6 +1878,7 @@ def rebuild_claimed_post_index(session_id: str, store: StateStore) -> int:
     """
     state = store.read(session_id)
     index = ClaimedPostIndex(index_root_for_store(store))
+    current_time = _now() if now is None else now
     published = 0
     for task_id, attempt, record in _iter_task_attempts(state):
         pending = record.get("pending_action") if isinstance(record, dict) else None
@@ -1882,7 +1888,15 @@ def rebuild_claimed_post_index(session_id: str, store: StateStore) -> int:
             and isinstance(pending.get("tool_use_id"), str)
         ):
             continue
-        index.record_claim(claim_index_record(session_id, task_id, attempt, pending))
+        try:
+            index.record_claim(
+                claim_index_record(session_id, task_id, attempt, pending),
+                now=current_time,
+            )
+        except ValueError:
+            # An expired canonical claim remains canonical state for the
+            # existing reconcile path, but never regains catch-all admission.
+            continue
         published += 1
     return published
 
@@ -2013,9 +2027,14 @@ def observe_lifecycle_post_tool(
             record = _task_record_for_attempt(current, task_id, attempt)
             assert isinstance(record, dict)
             current_pending = copy.deepcopy(record["pending_action"])
+            closure = record.get("closure_record")
+            previous_parent_action = (
+                closure.get("parent_action") if isinstance(closure, dict) else None
+            )
             record["post_receipt"] = _receipt_from_claim(
                 session_id, task_id, attempt, current_pending, tool_use_id,
                 observation, response_shape, observed_at, tool_name_classification,
+                previous_parent_action,
             )
             record["updated_at"] = observed_at
 
@@ -2041,6 +2060,10 @@ def observe_lifecycle_post_tool(
         assert isinstance(record, dict)
         current_pending = copy.deepcopy(record["pending_action"])
         current_receipt = record["post_receipt"]
+        _apply_canonical_execution_update(
+            record, "closure_parent_action",
+            current_receipt["previous_parent_action"],
+        )
         _apply_action_observation(record, current_pending, _receipt_observation(current_receipt), observed_at)
         record["post_receipt"]["transition_state"] = "transition_applied"
 

@@ -14,6 +14,7 @@ from scripts import governance_lifecycle as lifecycle_domain
 from scripts import governance_errors as errors
 from scripts import governance_semantics as semantics
 from scripts import governance_platform as platform
+from scripts import governance_views as views
 from tests.support import load_governance
 
 governance = load_governance("communication")
@@ -236,6 +237,47 @@ class CommunicationLifecycleTests(unittest.TestCase):
         self.assertNotIn("pending_action", record)
         self.assertEqual(record["post_receipt"]["operation_type"], "normal_message")
         self.assertEqual(record["post_receipt"]["tool_family"], "communication")
+
+    def test_normal_message_transition_failure_duplicate_restores_previous_parent_action(self):
+        task_id, target = self.add_managed()
+        self.store.update(
+            self.session_id,
+            lambda state: state["tasks"][task_id]["executions"]["1"]["closure_record"].update(parent_action=None),
+        )
+        self.store.update(
+            self.session_id,
+            lambda state: (
+                execution_domain.apply_canonical_execution_update(
+                    state["tasks"][task_id]["executions"]["1"],
+                    "observed_platform_state", "unknown",
+                ),
+                execution_domain.apply_canonical_execution_update(
+                    state["tasks"][task_id]["executions"]["1"],
+                    "observation_source", "list_agents",
+                ),
+                execution_domain.apply_canonical_execution_update(
+                    state["tasks"][task_id]["executions"]["1"],
+                    "observation_observed_at", 109,
+                ),
+            ),
+        )
+        prepared = governance.prepare_communication(
+            self.communication("normal_message", target), self.session_id,
+            state_store=self.store, now=110,
+        )
+        governance.handle(
+            {"session_id": self.session_id, "hook_event_name": "PreToolUse", "tool_name": "send_message", "tool_use_id": "restore-normal", "tool_input": prepared["native_args"], "now": 111}, self.store,
+        )
+        post = {"session_id": self.session_id, "hook_event_name": "PostToolUse", "tool_name": "send_message", "tool_use_id": "restore-normal", "tool_response": {"success": True}, "now": 112}
+        with mock.patch.object(lifecycle_domain, "_apply_action_observation", side_effect=RuntimeError("transition failure")):
+            failed = governance.handle(post, self.store)
+        self.assertIn("post_receipt_transition_failed", failed["systemMessage"])
+        self.assertEqual(self.execution(task_id)["closure_record"]["parent_action"], "reconcile")
+        self.assertIsNone(governance.handle({**post, "now": 113}, self.store))
+        recovered = self.execution(task_id)
+        self.assertEqual(recovered["closure_record"]["parent_action"], None)
+        state = self.store.read(self.session_id)
+        self.assertEqual(views.action_required_records(state), [])
 
     def test_prepared_pending_expiry_derives_from_created_at(self):
         task_id, target = self.add_managed()
@@ -471,6 +513,7 @@ class CommunicationLifecycleTests(unittest.TestCase):
                 "operation_type": "business_resume", "response_shape": "empty",
                 "processing_result": "success", "target_observation": None,
                 "transition_state": "transition_applied",
+                "previous_parent_action": None,
                 "recorded_at": 162,
             },
         )
@@ -542,6 +585,54 @@ class CommunicationLifecycleTests(unittest.TestCase):
         recovered = self.execution(task_id, 2)
         self.assertEqual(recovered["post_receipt"]["transition_state"], "transition_applied")
         self.assertNotIn("pending_action", recovered)
+        self.assertEqual(recovered["closure_record"]["parent_action"], "wait")
+
+    def test_platform_recovery_and_interrupt_retries_do_not_keep_temp_reconcile(self):
+        for operation_type, tool_name, response in (
+            ("platform_recovery", "followup_task", {"success": True}),
+            ("interrupt", "interrupt_agent", {"status": "failed"}),
+        ):
+            with self.subTest(operation_type=operation_type):
+                task_id, target = self.add_managed(
+                    f"retry-{operation_type}", f"/root/retry-{operation_type}"
+                )
+                self.store.update(
+                    self.session_id,
+                    lambda state: state["tasks"][task_id]["executions"]["1"]["closure_record"].update(parent_action=None),
+                )
+                self.store.update(
+                    self.session_id,
+                    lambda state: execution_domain.apply_canonical_execution_update(
+                        state["tasks"][task_id]["executions"]["1"],
+                        "observed_execution_status", "not_started",
+                    ),
+                )
+                task_ref = self.execution(task_id)["task_ref"]
+                self.store.update(
+                    self.session_id,
+                    lambda state: state["tasks"][task_id]["executions"]["1"].update(
+                        pending_action={
+                            **lifecycle_domain._pending_action_record(
+                                target=target, attempt=1, task_ref=task_ref,
+                                operation_type=operation_type, created_at=110,
+                            ),
+                            "phase": "claimed", "tool_use_id": f"retry-{operation_type}", "claimed_at": 111,
+                        }
+                    ),
+                )
+                post = {
+                    "session_id": self.session_id, "hook_event_name": "PostToolUse",
+                    "tool_name": tool_name, "tool_use_id": f"retry-{operation_type}",
+                    "tool_response": response, "now": 112,
+                }
+                with mock.patch.object(lifecycle_domain, "_apply_action_observation", side_effect=RuntimeError("transition failure")):
+                    failed = governance.handle(post, self.store)
+                self.assertIn("post_receipt_transition_failed", failed["systemMessage"])
+                self.assertEqual(self.execution(task_id)["closure_record"]["parent_action"], "reconcile")
+                self.assertIsNone(governance.handle({**post, "now": 113}, self.store))
+                recovered = self.execution(task_id)
+                self.assertNotEqual(recovered["closure_record"]["parent_action"], "reconcile")
+                self.assertNotIn("pending_action", recovered)
 
     def test_completed_post_duplicate_is_inert_after_transition(self):
         task_id, target = self.add_managed()

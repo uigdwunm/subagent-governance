@@ -173,7 +173,7 @@ def _validate_post_receipt(issues: list[StateFormatIssue], value: Any, path: str
         "session_id", "task_id", "attempt", "task_ref", "target",
         "expected_tool_use_id", "received_tool_use_id", "id_match",
         "tool_family", "tool_name_classification", "operation_type", "response_shape",
-        "processing_result", "target_observation", "transition_state", "recorded_at",
+        "processing_result", "target_observation", "transition_state", "previous_parent_action", "recorded_at",
     }
     receipt = _fields(issues, value, path, required)
     if receipt is None:
@@ -191,6 +191,8 @@ def _validate_post_receipt(issues: list[StateFormatIssue], value: Any, path: str
             issues.append(StateFormatIssue(f"{path}.{field}", "无效"))
     if receipt.get("id_match") is not True:
         issues.append(StateFormatIssue(f"{path}.id_match", "必须为 true"))
+    if receipt.get("expected_tool_use_id") != receipt.get("received_tool_use_id"):
+        issues.append(StateFormatIssue(f"{path}.received_tool_use_id", "必须与 expected_tool_use_id 精确相等"))
     if receipt.get("tool_family") not in {"followup", "communication", "interrupt"}:
         issues.append(StateFormatIssue(f"{path}.tool_family", "无效"))
     if receipt.get("tool_name_classification") not in {"recognized", "unrecognized"}:
@@ -205,6 +207,8 @@ def _validate_post_receipt(issues: list[StateFormatIssue], value: Any, path: str
         issues.append(StateFormatIssue(f"{path}.target_observation", "无效"))
     if receipt.get("transition_state") not in {"receipt_recorded", "transition_failed", "transition_applied"}:
         issues.append(StateFormatIssue(f"{path}.transition_state", "无效"))
+    if receipt.get("previous_parent_action") is not None and receipt.get("previous_parent_action") not in PARENT_ACTIONS:
+        issues.append(StateFormatIssue(f"{path}.previous_parent_action", "无效"))
     if not _timestamp(receipt.get("recorded_at")):
         issues.append(StateFormatIssue(f"{path}.recorded_at", "无效"))
 
