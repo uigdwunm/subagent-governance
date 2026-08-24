@@ -11,12 +11,12 @@
 - `ruff` 与 `coverage` 不在验收环境 PATH，未安装、未运行，未记为通过。精确 archive preflight 的通过只证明提交 archive gate；没有安装、发布或真实平台验证，故不作 release-ready 结论。
 - 这仍是本地验证。当时真实 native spawn/wait/notification、Hook trust、事件顺序、桌面 UI、restart/compact 恢复及真实 business-resume 都是 `not_checked`；P10 后续状态见下节。
 
-### P10-B 最终真实平台验证（2026-08-24）
+### P10-B 全新真实平台复验（2026-08-24）
 
-- 安装后新建的独立 `gpt-5.6-terra` / `high` 任务从干净的 `68981ce218e832e45f0352fe7cda0f983deb18dd` 开始。目标完整版本为 `0.4.0-rc.13+codex.20260824090918`；安装检查确认 stable/cache digest 相同（`89b025c1b5ea93a0ed17ff79d81be3a0bbdb95d1730e1e1d1f719255513fbd16`）、路径隔离和 single-current-cache，且 `codex plugin list` 显示 installed/enabled。
-- V1 已取得真实 fail-open evidence：unmanaged native spawn 获 PreToolUse allow/no-state 输出，创建 exact native target 并收到原生终态标记。
-- 后续独立审计纠正了 V2/V5 的原始判断：spawn PostToolUse 已记录 acknowledged/target/post-observed，interrupt PostToolUse 也已记录 success/previously-running；实际 `list_agents` 输入均为 `{}`，而非带完整 target 的 `path_prefix`，所以 adapter 正确拒绝建立 canonical observation。V2/V5 应记为 `not_checked`（操作步骤无效），不是已证实的平台事件投递失败。
-- 依 P10，V6/V7 未继续；V3/V4 的最小探索性信号不作为通过证据。没有把安装文件、Skill 可见性或本地测试冒充 Hook trust、registration、事件投递、wait/notification、business-resume 或 restart/compact 的通过证据。详见 `docs/validation/current-only-real-platform-validation.md`。
+- 独立 `gpt-5.6-terra` / `high` 任务的 checkout 为 `46b13b7c9999aad51df5c20e6d6f7e0d5dbc1be7`，目标完整版本为 `0.4.0-rc.13+codex.20260824094559`。只读安装检查确认 stable/cache digest 都为 `fc1ee1e029bca90e8cc4fd7a7179fb7f2df73dc0a372e2733899ffa5101255f3`，路径隔离和 single-current-cache 均通过，且 `codex plugin list` 显示 installed/enabled。
+- V1 实际获得 unmanaged native spawn 的 Hook allow/no-state 输出、exact target 和 child final。V2 已真实取得 governed spawn、wait 和正确的 `list_agents({"path_prefix":"<完整 canonical target>"})` 证据；状态确认 dispatch acknowledged、post-observed、target-bound 且 observation source 为 `list_agents`。V3 已真实验证 normal-message、exact terminal notification、重放、sender-mismatch 拒绝和 parent close/tombstone。
+- V4 `followup_task` 的 PreToolUse 已 claim，child 的 attempt-2 final 也真实可见；但其 PostToolUse 未落账（`dispatch.state=claimed`、`post_observed=false`）。之后按完整 canonical target 执行的 exact list 未写入 `observation_record.source=list_agents`，所以 V4 为 `failed`，依 P10 立即停止 V5–V7。此结论不把 terminal notification 反推为 PostToolUse 或 exact-list 通过。
+- Hook trust 与 Codex registration 仍为 `not_checked`；未从安装文件、Skill 可见性或 plugin list 推断。restart/compact、interrupt/controlled reconciliation、Stop/SessionStart/SessionEnd 亦未真实执行。详见 `docs/validation/current-only-real-platform-validation.md`。
 
 ## 已由本地测试覆盖
 
@@ -42,12 +42,10 @@
 
 ## 尚待真实插件验证
 
-- 新对话中真实 spawn、wait 和 native child notification 的可见性。
-- 父线程取得 exact sender target 的稳定性。
-- Hook trust、事件顺序和桌面 UI 展示。
-- restart/compact 后 mailbox 与 retained target 的恢复表现。
-- business resume 在真实 follow-up 工具响应中的状态转换。
+- V4 follow-up 的 PostToolUse 事件投递与 attempt-2 exact-list canonical binding（当前为真实 failure，须先开发修复和本地门禁）。
+- V5 interrupt/controlled reconciliation、V6 Stop/SessionStart/SessionEnd 及 V7 restart/compact 后的 mailbox/retained-target 恢复。
+- Hook trust、Codex registration 与桌面 UI 的独立实际状态。
 
-在增加 exact-list 操作护栏和诊断可见性后，必须由另一个新 P10-B 任务重新执行全部真实场景；本次操作无效的任务不得在热修改安装环境后继续充当验收。
+V4 failure 后必须在开发仓库新任务复现和修复，重新完成相应本地门禁、重新获得安装授权并创建另一个全新 P10-B 任务；不得在当前验证环境热修后继续验收。
 
 真实测试必须遵循项目 `AGENTS.md`：先完成开发仓库验收，取得安装授权并更新用于测试的本地插件，然后新建独立任务。未完成上述步骤时只能报告本地可验证边界。
