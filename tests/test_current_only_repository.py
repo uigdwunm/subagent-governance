@@ -3,25 +3,38 @@ import unittest
 from tests.support import ROOT
 
 
+CURRENT_DOCUMENTS = {
+    "docs/architecture.md",
+    "docs/context-completeness-contract.md",
+    "docs/interruption-reconciliation.md",
+    "docs/platform-validation.md",
+    "docs/release-process.md",
+    "docs/validation/current-only-local-acceptance.md",
+}
+
+
+def _shipped_documents():
+    return {
+        str(path.relative_to(ROOT))
+        for path in (ROOT / "docs").rglob("*")
+        if path.is_file()
+        and not path.name.startswith("private-platform-evidence-")
+        and "improvement-plans" not in path.parts
+    }
+
+
 class CurrentOnlyRepositoryTests(unittest.TestCase):
     def test_only_current_documents_are_shipped(self):
-        documents = {
-            str(path.relative_to(ROOT))
-            for path in (ROOT / "docs").rglob("*")
-            if path.is_file()
-            and not path.name.startswith("private-platform-evidence-")
-            and "improvement-plans" not in path.parts
-        }
-        self.assertEqual(
-            documents,
-            {
-                "docs/architecture.md",
-                "docs/context-completeness-contract.md",
-                "docs/interruption-reconciliation.md",
-                "docs/platform-validation.md",
-                "docs/release-process.md",
-            },
-        )
+        self.assertEqual(_shipped_documents(), CURRENT_DOCUMENTS)
+
+    def test_unknown_validation_document_is_not_shipped(self):
+        unknown_document = ROOT / "docs/validation/unexpected-validation.md"
+        try:
+            unknown_document.write_text("fixture\n", encoding="utf-8")
+            with self.assertRaises(AssertionError):
+                self.assertEqual(_shipped_documents(), CURRENT_DOCUMENTS)
+        finally:
+            unknown_document.unlink(missing_ok=True)
 
     def test_runtime_has_no_state_conversion_path(self):
         source = "\n".join(
