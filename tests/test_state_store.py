@@ -10,6 +10,9 @@ from types import SimpleNamespace
 from unittest import mock
 
 from tests.support import load_governance
+from scripts import governance_state_store as state_store
+from scripts import governance_storage as storage
+from scripts import governance_store_support as store_support
 
 governance = load_governance("state_store")
 
@@ -49,10 +52,10 @@ class StateStoreSafetyTests(unittest.TestCase):
 
         with lock_path.open("a+", encoding="utf-8") as lock_file:
             with (
-                mock.patch.object(governance, "_uses_windows_file_lock", return_value=True),
-                mock.patch.object(governance, "msvcrt", windows_api),
+                mock.patch.object(store_support, "uses_windows_file_lock", return_value=True),
+                mock.patch.object(store_support, "msvcrt", windows_api),
             ):
-                with governance._exclusive_file_lock(lock_file):
+                with store_support.exclusive_file_lock(lock_file):
                     self.assertEqual(windows_api.locking.call_count, 1)
 
         self.assertEqual(lock_path.read_bytes(), b"\0")
@@ -194,7 +197,7 @@ class StateStoreSafetyTests(unittest.TestCase):
                 st_size=metadata.st_size,
             )
 
-        with mock.patch.object(governance.os, "fstat", side_effect=mismatched_owner):
+        with mock.patch.object(storage.os, "fstat", side_effect=mismatched_owner):
             with self.assertRaises(governance.StateValidationError):
                 self.store.read("session-1")
 
@@ -275,7 +278,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         state_path, _ = self.store._paths("session-1")
         before = state_path.read_bytes()
 
-        with mock.patch.object(governance, "NEW_TASK_SOFT_LIMIT_BYTES", len(before) + 1):
+        with mock.patch.object(state_store, "NEW_TASK_SOFT_LIMIT_BYTES", len(before) + 1):
             with self.assertRaises(governance.StateCapacityError):
                 self.store.update(
                     "session-1",
@@ -295,7 +298,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         state_path, _ = self.store._paths("session-1")
         before = state_path.read_bytes()
 
-        with mock.patch.object(governance, "MAX_STATE_BYTES", len(before) + 1):
+        with mock.patch.object(state_store, "MAX_STATE_BYTES", len(before) + 1):
             with self.assertRaises(governance.StateCapacityError):
                 self.store.update(
                     "session-1",
@@ -306,7 +309,7 @@ class StateStoreSafetyTests(unittest.TestCase):
 
     def test_oversized_existing_file_is_unavailable_and_unchanged(self):
         state_path, _ = self.store._paths("session-1")
-        original = b"{" + b"x" * governance.MAX_STATE_BYTES + b"}"
+        original = b"{" + b"x" * state_store.MAX_STATE_BYTES + b"}"
         state_path.write_bytes(original)
         state_path.chmod(0o600)
 
@@ -353,7 +356,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         state_path, _ = self.store._paths("session-1")
         before = state_path.read_bytes()
 
-        with mock.patch.object(governance.os, "replace", side_effect=OSError("replace failed")):
+        with mock.patch.object(storage.os, "replace", side_effect=OSError("replace failed")):
             with self.assertRaises(governance.StateWriteError):
                 self.store.update("session-1", lambda state: state["health"].update({"status": "degraded"}))
 
@@ -364,7 +367,7 @@ class StateStoreSafetyTests(unittest.TestCase):
         state_path, _ = self.store._paths("session-1")
         before = state_path.read_bytes()
 
-        with mock.patch.object(governance.os, "fsync", side_effect=OSError("write fsync failed")):
+        with mock.patch.object(storage.os, "fsync", side_effect=OSError("write fsync failed")):
             with self.assertRaises(governance.StateWriteError):
                 self.store.update("session-1", lambda state: state["health"].update({"status": "degraded"}))
 

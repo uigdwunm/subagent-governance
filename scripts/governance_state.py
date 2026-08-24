@@ -49,6 +49,21 @@ def _execution_key(value: Any) -> int | None:
     return int(value) if isinstance(value, str) and re.fullmatch(r"[1-9][0-9]*", value) else None
 
 
+def parse_execution_key(value: Any) -> int | None:
+    """Return a canonical execution attempt number, if the persisted key is valid."""
+    return _execution_key(value)
+
+
+def parse_tombstone_key(value: Any) -> tuple[str, int] | None:
+    """Return the canonical task identity encoded by a tombstone key."""
+    if not isinstance(value, str):
+        return None
+    task_id, separator, attempt_text = value.rpartition(":")
+    if not separator or not task_id.strip() or re.fullmatch(r"[1-9][0-9]*", attempt_text) is None:
+        return None
+    return task_id, int(attempt_text)
+
+
 def _timestamp(value: Any, *, nullable: bool = False) -> bool:
     return (nullable and value is None) or (isinstance(value, int) and not isinstance(value, bool) and value >= 0)
 

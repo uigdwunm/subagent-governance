@@ -143,6 +143,7 @@ GROUP_MEMBER_LIMIT = int(GROUP_SEMANTICS["members_max_items"])
 GROUP_ID_MAX_LENGTH = int(GROUP_SEMANTICS["group_id_max_length"])
 GROUP_OBJECTIVE_MAX_LENGTH = int(GROUP_SEMANTICS["objective_summary_max_length"])
 STATE_FORMAT_VERSION = int(SEMANTIC_RULES["canonical_record"]["state_format_version"])
+STATE_STORAGE_NAMESPACE = f"state-v{STATE_FORMAT_VERSION}"
 REQUIRED_TASK_CONTAINER_FIELDS = frozenset({"managed", "work_item", "executions"})
 REQUIRED_WORK_ITEM_FIELDS = frozenset({"lifecycle", "current_attempt"})
 REQUIRED_EXECUTION_FIELDS = frozenset(

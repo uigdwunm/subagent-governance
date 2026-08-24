@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import copy
-import getpass
 import hashlib
 import json
 import os
@@ -13,22 +12,11 @@ import secrets
 import stat
 import subprocess
 import sys
-import tempfile
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
-
-if os.name == "nt":
-    import msvcrt
-
-    fcntl = None
-else:
-    import fcntl
-
-    msvcrt = None
-
 
 # Shared definitions live in dedicated modules and are exposed by this runtime.
 try:
@@ -248,6 +236,8 @@ except ModuleNotFoundError:
 
 
 require_current_state_format = _require_current_state_format
+# Transitional compatibility alias; validation remains owned by governance_state.
+_state_for_storage = _require_current_state_format
 
 
 def _valid_close_reason(value: Any) -> bool:
@@ -343,10 +333,6 @@ def _observation_checked_at(execution: dict[str, Any]) -> Any:
 
 def _observation_source(execution: dict[str, Any]) -> Any:
     return execution["observation_record"].get("source")
-
-
-def _state_for_storage(value: dict[str, Any]) -> dict[str, Any]:
-    return _require_current_state_format(value)
 
 
 def _observation_is_bound(execution: dict[str, Any]) -> bool:
@@ -1327,77 +1313,40 @@ def _now() -> int:
     return int(time.time())
 
 
-def _current_uid() -> int | None:
-    getuid = getattr(os, "getuid", None)
-    return int(getuid()) if getuid is not None else None
-
-
-def _owned_by_current_user(metadata: os.stat_result) -> bool:
-    uid = _current_uid()
-    return uid is None or getattr(metadata, "st_uid", uid) == uid
-
-
-def _private_permissions_safe(metadata: os.stat_result) -> bool:
-    return os.name == "nt" or stat.S_IMODE(metadata.st_mode) & 0o077 == 0
-
-
-def _restrict_descriptor(descriptor: int, mode: int) -> None:
-    fchmod = getattr(os, "fchmod", None)
-    if fchmod is not None:
-        fchmod(descriptor, mode)
-
-
-def _restrict_path(path: Path, mode: int) -> None:
-    if os.name != "nt":
-        path.chmod(mode)
-
-
-def _sync_directory(path: Path) -> None:
-    if os.name == "nt":
-        return
-    descriptor = os.open(path, os.O_RDONLY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-
-
-def _uses_windows_file_lock() -> bool:
-    return os.name == "nt"
-
-
-@contextmanager
-def _exclusive_file_lock(lock_file):
-    descriptor = lock_file.fileno()
-    if _uses_windows_file_lock():
-        lock_file.seek(0, os.SEEK_END)
-        if lock_file.tell() == 0:
-            lock_file.write("\0")
-            lock_file.flush()
-            os.fsync(descriptor)
-        lock_file.seek(0)
-        assert msvcrt is not None
-        msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
-        try:
-            yield
-        finally:
-            lock_file.seek(0)
-            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
-        return
-    assert fcntl is not None
-    fcntl.flock(descriptor, fcntl.LOCK_EX)
-    try:
-        yield
-    finally:
-        fcntl.flock(descriptor, fcntl.LOCK_UN)
-
-
-def _user_storage_key() -> str:
-    uid = _current_uid()
-    if uid is not None:
-        return str(uid)
-    username = os.environ.get("USERNAME") or getpass.getuser() or "user"
-    return hashlib.sha256(username.encode("utf-8")).hexdigest()[:12]
+try:
+    from scripts.governance_state_store import StateStore, UnavailableStateStore
+    from scripts.governance_store_support import (
+        data_root_path as _resolve_data_root_path,
+        exclusive_file_lock as _exclusive_file_lock,
+        installed_plugin_data_root as _installed_plugin_data_root_for_module,
+        owned_by_current_user as _owned_by_current_user,
+        prepare_private_directory as _prepare_private_directory,
+        private_permissions_safe as _private_permissions_safe,
+        restrict_descriptor as _restrict_descriptor,
+        safe_filename as _safe_name,
+        sync_directory as _sync_directory,
+    )
+    from scripts.governance_state import (
+        parse_execution_key as _parse_execution_key,
+        parse_tombstone_key as _parse_tombstone_key,
+    )
+except ModuleNotFoundError:
+    from governance_state_store import StateStore, UnavailableStateStore
+    from governance_store_support import (
+        data_root_path as _resolve_data_root_path,
+        exclusive_file_lock as _exclusive_file_lock,
+        installed_plugin_data_root as _installed_plugin_data_root_for_module,
+        owned_by_current_user as _owned_by_current_user,
+        prepare_private_directory as _prepare_private_directory,
+        private_permissions_safe as _private_permissions_safe,
+        restrict_descriptor as _restrict_descriptor,
+        safe_filename as _safe_name,
+        sync_directory as _sync_directory,
+    )
+    from governance_state import (
+        parse_execution_key as _parse_execution_key,
+        parse_tombstone_key as _parse_tombstone_key,
+    )
 
 
 def _activity_timestamp(record: dict[str, Any]) -> int:
@@ -1421,424 +1370,22 @@ def _activity_timestamp(record: dict[str, Any]) -> int:
     return max(timestamps, default=0)
 
 
-def _parse_tombstone_key(value: Any) -> tuple[str, int] | None:
-    if not isinstance(value, str):
-        return None
-    task_id, separator, attempt_text = value.rpartition(":")
-    if not separator or not task_id.strip() or re.fullmatch(r"[1-9][0-9]*", attempt_text) is None:
-        return None
-    return task_id, int(attempt_text)
-
-
-def _parse_execution_key(value: Any) -> int | None:
-    if not isinstance(value, str) or re.fullmatch(r"[1-9][0-9]*", value) is None:
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return None
-
-
-def _safe_name(value: str) -> str:
-    raw = value or "unknown"
-    prefix = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw).strip("._-")[:64] or "unknown"
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
-    return f"{prefix}-{digest}"
-
-
-def _prepare_private_directory(root: Path) -> Path:
-    root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    metadata = root.lstat()
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
-        raise RuntimeError(f"治理状态目录必须是普通目录且不能是符号链接：{root}")
-    if not _owned_by_current_user(metadata):
-        raise PermissionError(f"治理状态目录不属于当前用户：{root}")
-    _restrict_path(root, 0o700)
-    return root
-
-
 def _installed_plugin_data_root(script_path: Path | None = None) -> Path | None:
-    resolved = (script_path or Path(__file__)).resolve(strict=False)
-    parts = resolved.parts
-    for index in range(len(parts) - 6):
-        if parts[index : index + 2] != ("plugins", "cache"):
-            continue
-        marketplace = parts[index + 2]
-        plugin_name = parts[index + 3]
-        if (
-            not marketplace
-            or not plugin_name
-            or parts[index + 5] != "scripts"
-            or parts[index + 6] != "subagent_governance.py"
-        ):
-            continue
-        codex_root = Path(*parts[:index])
-        return (
-            codex_root
-            / "plugins"
-            / "data"
-            / f"{plugin_name}-{marketplace}"
-            / "state-v6"
-        )
-    return None
+    """Compatibility facade for the path-only store support resolver."""
+    return _installed_plugin_data_root_for_module(script_path or Path(__file__))
 
 
 def _data_root_path() -> Path:
-    override = os.environ.get("SUBAGENT_GOVERNANCE_DATA")
-    plugin_data = os.environ.get("PLUGIN_DATA")
-    if override:
-        root = Path(override).expanduser()
-    elif plugin_data:
-        root = Path(plugin_data).expanduser() / "state-v6"
-    elif installed_root := _installed_plugin_data_root():
-        root = installed_root
-    else:
-        root = (
-            Path(tempfile.gettempdir())
-            / f"subagent-governance-{_user_storage_key()}"
-            / "state-v6"
-        )
-    return root
+    """Compatibility facade that resolves the runtime module's location."""
+    return _resolve_data_root_path(Path(__file__))
 
 
 def _data_root() -> Path:
     return _prepare_private_directory(_data_root_path())
 
 
-class StateStore:
-    def __init__(self, root: Path | None = None):
-        self.root = (
-            _prepare_private_directory(root)
-            if root is not None
-            else _prepare_private_directory(_data_root() / "sessions")
-        )
-        self.last_warning: str | None = None
-
-    @staticmethod
-    def _empty_state(session_id: str) -> dict[str, Any]:
-        return {
-            "state_format_version": STATE_FORMAT_VERSION,
-            "session_id": session_id,
-            "tasks": {},
-            "agents": {},
-            "health": {"status": "ok"},
-            "tombstones": {},
-            "groups": {},
-        }
-
-    def _paths(self, session_id: str) -> tuple[Path, Path]:
-        stem = _safe_name(session_id)
-        return self.root / f"{stem}.json", self.root / f"{stem}.lock"
-
-    @contextmanager
-    def _lock(self, session_id: str):
-        state_path, lock_path = self._paths(session_id)
-        try:
-            with locked_file(
-                lock_path,
-                label="治理",
-                exclusive_lock=_exclusive_file_lock,
-                restrict_descriptor=_restrict_descriptor,
-                owned_by_current_user=_owned_by_current_user,
-            ):
-                yield state_path
-        except PrivateStorageError as exc:
-            raise StateValidationError(str(exc)) from exc
-
-    @staticmethod
-    def _validate_required_fields(
-        value: dict[str, Any],
-        required_fields: tuple[str, ...],
-        path: Path,
-    ) -> None:
-        missing = [field_name for field_name in required_fields if field_name not in value]
-        if missing:
-            raise StateValidationError(
-                f"治理状态缺少当前操作必需字段 {', '.join(missing)}：{path}"
-            )
-        for field_name in required_fields:
-            if field_name in {"tasks", "agents", "health", "tombstones", "groups"} and not isinstance(
-                value.get(field_name), dict
-            ):
-                raise StateValidationError(
-                    f"治理状态字段 {field_name} 必须是对象：{path}"
-                )
-
-    @classmethod
-    def _validate_state(
-        cls,
-        value: Any,
-        session_id: str,
-        path: Path,
-        required_fields: tuple[str, ...],
-    ) -> dict[str, Any]:
-        if not isinstance(value, dict):
-            raise StateValidationError(f"治理状态文件根节点必须是对象：{path}")
-        if "session_id" not in value:
-            raise StateValidationError(f"治理状态缺少当前操作必需字段 session_id：{path}")
-        if value.get("session_id") != session_id:
-            raise StateValidationError(f"治理状态文件与当前 session 不匹配：{path}")
-        cls._validate_required_fields(value, required_fields, path)
-        return value
-
-    def _read_path(
-        self,
-        path: Path,
-        session_id: str,
-        required_fields: tuple[str, ...] = ("tasks", "agents"),
-    ) -> dict[str, Any]:
-        try:
-            raw = read_private_bytes(
-                path,
-                label="治理状态文件",
-                max_bytes=MAX_STATE_BYTES,
-                owned_by_current_user=_owned_by_current_user,
-                private_permissions_safe=_private_permissions_safe,
-            )
-        except FileNotFoundError:
-            state = self._empty_state(session_id)
-            validated = self._validate_state(state, session_id, path, required_fields)
-            return validated
-        except PrivateStorageCapacityError as exc:
-            raise StateCapacityError(str(exc)) from exc
-        except PrivateStorageError as exc:
-            raise StateValidationError(str(exc)) from exc
-        try:
-            value = json.loads(raw.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise StateValidationError(
-                f"治理状态文件不是有效 UTF-8 JSON，原文件已保留供人工恢复：{path}"
-            ) from exc
-        validated = self._validate_state(value, session_id, path, required_fields)
-        return _require_current_state_format(validated)
-
-    @staticmethod
-    def _encoded_state(state: dict[str, Any]) -> bytes:
-        try:
-            content = json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-        except (TypeError, ValueError) as exc:
-            raise StateValidationError("治理状态包含无法序列化的值") from exc
-        return content.encode("utf-8")
-
-    def _write_path(
-        self,
-        path: Path,
-        session_id: str,
-        state: dict[str, Any],
-        *,
-        required_fields: tuple[str, ...],
-        admission: str,
-    ) -> None:
-        self._validate_state(state, session_id, path, required_fields)
-        stored_state = _state_for_storage(state)
-        encoded = self._encoded_state(stored_state)
-        if admission not in {"existing", "new_task"}:
-            raise StateValidationError("StateStore admission 必须是 existing 或 new_task")
-        if admission == "new_task" and len(encoded) > NEW_TASK_SOFT_LIMIT_BYTES:
-            raise StateCapacityError(
-                f"新治理任务预计使状态超过 {NEW_TASK_SOFT_LIMIT_BYTES} 字节软准入线"
-            )
-        if len(encoded) > MAX_STATE_BYTES:
-            raise StateCapacityError(f"治理状态超过 {MAX_STATE_BYTES} 字节上限")
-        try:
-            atomic_write_bytes(
-                path,
-                encoded,
-                label="治理状态",
-                restrict_descriptor=_restrict_descriptor,
-                sync_directory=_sync_directory,
-            )
-        except PrivateStorageWriteError as exc:
-            raise StateWriteError(str(exc)) from exc
-        try:
-            verified = self._read_path(
-                path,
-                session_id,
-                required_fields,
-            )
-        except StateStoreError as exc:
-            raise StateWriteError(f"治理状态写入后回读失败：{path}") from exc
-        if verified != stored_state:
-            raise StateWriteError(f"治理状态写入后回读内容不一致：{path}")
-
-    def compare_and_set(
-        self,
-        session_id: str,
-        predicate: Callable[[dict[str, Any]], bool],
-        callback: Callable[[dict[str, Any]], Any],
-        *,
-        required_fields: tuple[str, ...] = ("tasks", "agents"),
-        admission: str = "existing",
-    ) -> Any:
-        self.last_warning = None
-        with self._lock(session_id) as state_path:
-            state = self._read_path(state_path, session_id, required_fields)
-            if not predicate(state):
-                raise StateConflictError(f"治理状态 compare-and-set 冲突：{session_id}")
-            result = callback(state)
-            self._write_path(
-                state_path,
-                session_id,
-                state,
-                required_fields=required_fields,
-                admission=admission,
-            )
-            return result
-
-    def update(
-        self,
-        session_id: str,
-        callback: Callable[[dict[str, Any]], Any],
-        *,
-        required_fields: tuple[str, ...] = ("tasks", "agents"),
-        admission: str = "existing",
-    ) -> Any:
-        return self.compare_and_set(
-            session_id,
-            lambda _state: True,
-            callback,
-            required_fields=required_fields,
-            admission=admission,
-        )
-
-    def read(
-        self,
-        session_id: str,
-        *,
-        required_fields: tuple[str, ...] = ("tasks", "agents"),
-    ) -> dict[str, Any]:
-        self.last_warning = None
-        with self._lock(session_id) as state_path:
-            return self._read_path(state_path, session_id, required_fields)
-
-    def delete(self, session_id: str) -> None:
-        self.delete_if(session_id, lambda _state: True)
-
-    def delete_if(
-        self,
-        session_id: str,
-        predicate: Callable[[dict[str, Any]], bool],
-        *,
-        required_fields: tuple[str, ...] = ("tasks", "agents"),
-    ) -> bool:
-        self.last_warning = None
-        with self._lock(session_id) as state_path:
-            state = self._read_path(state_path, session_id, required_fields)
-            if not predicate(state):
-                return False
-            try:
-                state_path.unlink()
-            except FileNotFoundError:
-                pass
-            except OSError as exc:
-                raise StateWriteError(f"治理状态删除失败：{state_path}") from exc
-        return True
-
-    def cleanup_expired_tombstones(
-        self,
-        session_id: str,
-        *,
-        now: int | None = None,
-    ) -> list[tuple[str, int]]:
-        current_time = _now() if now is None else now
-        cutoff = current_time - int(RETENTION_SECONDS["tombstone"])
-
-        def cleanup(state: dict[str, Any]) -> list[tuple[str, int]]:
-            tombstones = state["tombstones"]
-            expired: list[tuple[str, str, int]] = []
-            for key, record in tombstones.items():
-                if not isinstance(record, dict):
-                    raise StateValidationError(f"tombstone {key} 必须是对象")
-                missing = [
-                    field_name
-                    for field_name in ("close_reason", "closed_at")
-                    if field_name not in record
-                ]
-                if missing:
-                    raise StateValidationError(
-                        f"tombstone {key} 缺少字段 {', '.join(missing)}"
-                    )
-                close_reason = record.get("close_reason")
-                closed_at = record.get("closed_at")
-                if not isinstance(close_reason, str) or not close_reason.strip():
-                    raise StateValidationError(f"tombstone {key} 的 close_reason 无效")
-                if isinstance(closed_at, bool) or not isinstance(closed_at, int):
-                    raise StateValidationError(f"tombstone {key} 的 closed_at 无效")
-                identity = _parse_tombstone_key(key)
-                if identity is None:
-                    raise StateValidationError(f"tombstone {key} 的身份键无效")
-                task_id, attempt = identity
-                if closed_at <= cutoff:
-                    expired.append((str(key), task_id, attempt))
-            for key, _task_id, _attempt in expired:
-                tombstones.pop(key)
-            return [(task_id, attempt) for _key, task_id, attempt in expired]
-
-        return self.update(
-            session_id,
-            cleanup,
-            required_fields=("tombstones",),
-        )
-
-
-class UnavailableStateStore:
-    """Failing store used to preserve Hook behavior when state setup is unavailable."""
-
-    def __init__(self, error: Exception):
-        self.error = error
-        self.last_warning = f"治理状态不可用，已降级放行：{error}"
-
-    def _raise(self) -> None:
-        raise OSError(str(self.error)) from self.error
-
-    def compare_and_set(
-        self,
-        session_id: str,
-        predicate: Callable[[dict[str, Any]], bool],
-        callback: Callable[[dict[str, Any]], Any],
-        *,
-        required_fields: tuple[str, ...] = ("tasks", "agents"),
-        admission: str = "existing",
-    ) -> Any:
-        self._raise()
-
-    def update(
-        self,
-        session_id: str,
-        callback: Callable[[dict[str, Any]], Any],
-        *,
-        required_fields: tuple[str, ...] = ("tasks", "agents"),
-        admission: str = "existing",
-    ) -> Any:
-        self._raise()
-
-    def read(
-        self,
-        session_id: str,
-        *,
-        required_fields: tuple[str, ...] = ("tasks", "agents"),
-    ) -> dict[str, Any]:
-        self._raise()
-
-    def delete(self, session_id: str) -> None:
-        self._raise()
-
-    def delete_if(
-        self,
-        session_id: str,
-        predicate: Callable[[dict[str, Any]], bool],
-        *,
-        required_fields: tuple[str, ...] = ("tasks", "agents"),
-    ) -> bool:
-        self._raise()
-
-    def cleanup_expired_tombstones(
-        self,
-        session_id: str,
-        *,
-        now: int | None = None,
-    ) -> list[tuple[str, int]]:
-        self._raise()
+def _default_state_store() -> StateStore:
+    return StateStore(_data_root() / "sessions")
 
 
 class PreparedContractStore:
@@ -2406,7 +1953,7 @@ def record_terminal_notification(
     observed_at = _now() if now is None else now
     if isinstance(observed_at, bool) or not isinstance(observed_at, int) or observed_at < 0:
         raise NotificationObservationError("observed_at 必须是非负整数时间戳")
-    store = state_store or StateStore()
+    store = state_store or _default_state_store()
 
     def record_notification(state: dict[str, Any]) -> dict[str, Any]:
         tasks = state.get("tasks")
@@ -2557,7 +2104,7 @@ def apply_parent_disposition(
     now: int | None = None,
 ) -> dict[str, Any]:
     task_id, attempt, action, reason = _validate_parent_disposition(value)
-    store = state_store or StateStore()
+    store = state_store or _default_state_store()
     current_time = _now() if now is None else now
 
     def apply(state: dict[str, Any]) -> dict[str, Any]:
@@ -3120,7 +2667,7 @@ def prepare_dispatch(
 ) -> dict[str, Any]:
     if not isinstance(session_id, str) or not session_id.strip():
         raise DispatchPreparationError("session_id 必须是非空字符串")
-    active_state_store = state_store or StateStore()
+    active_state_store = state_store or _default_state_store()
     active_prepared_store = prepared_store or PreparedContractStore(
         _prepared_root_for_store(active_state_store)
     )
@@ -3264,7 +2811,7 @@ def prepare_spawn_retry(
     prepared_store: PreparedContractStore | None = None,
     now: int | None = None,
 ) -> dict[str, Any]:
-    active_state_store = state_store or StateStore()
+    active_state_store = state_store or _default_state_store()
     active_prepared_store = prepared_store or PreparedContractStore(
         _prepared_root_for_store(active_state_store)
     )
@@ -4261,7 +3808,7 @@ def prepare_communication(
     return _prepare_managed_action(
         value,
         session_id,
-        state_store=state_store or StateStore(),
+        state_store=state_store or _default_state_store(),
         interrupt=False,
         authorized_recovery=authorized_recovery,
         now=_now() if now is None else now,
@@ -4278,7 +3825,7 @@ def prepare_interrupt(
     return _prepare_managed_action(
         value,
         session_id,
-        state_store=state_store or StateStore(),
+        state_store=state_store or _default_state_store(),
         interrupt=True,
         authorized_recovery=False,
         now=_now() if now is None else now,
@@ -4488,7 +4035,7 @@ def reconcile_interrupted_attempt(
         )
     except NotificationObservationError as exc:
         raise ReconciliationError(str(exc)) from exc
-    store = state_store or StateStore()
+    store = state_store or _default_state_store()
     observed_at = _now() if now is None else now
 
     def apply(state: dict[str, Any]) -> dict[str, Any]:
@@ -5778,7 +5325,7 @@ def upsert_group(
     state_store: StateStore | None = None,
 ) -> dict[str, Any]:
     normalized = _validate_group_value(value)
-    store = state_store or StateStore()
+    store = state_store or _default_state_store()
 
     def upsert(state: dict[str, Any]) -> dict[str, Any]:
         tasks = state.get("tasks")
@@ -6236,7 +5783,7 @@ def read_group(
 ) -> dict[str, Any]:
     if not isinstance(group_id, str) or not group_id.strip():
         raise GroupValidationError("group_id 必须是非空字符串")
-    store = state_store or StateStore()
+    store = state_store or _default_state_store()
     state = store.read(session_id)
     groups = state.get("groups")
     if not isinstance(groups, dict) or not isinstance(groups.get(group_id), dict):
@@ -6588,7 +6135,7 @@ def handle(payload: dict[str, Any], store: StateStore | None = None) -> dict[str
         active_store = store
     else:
         try:
-            active_store = StateStore()
+            active_store = _default_state_store()
         except (OSError, RuntimeError) as exc:
             active_store = UnavailableStateStore(exc)
     event = str(payload.get("hook_event_name") or "")
