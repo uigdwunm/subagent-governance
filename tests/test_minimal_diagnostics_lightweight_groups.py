@@ -1,22 +1,14 @@
-import importlib.util
-import json
 import os
 import stat
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from tests.support import load_governance
 
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "subagent_governance.py"
-SPEC = importlib.util.spec_from_file_location("subagent_governance_diagnostics_v5", SCRIPT)
-governance = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-sys.modules[SPEC.name] = governance
-SPEC.loader.exec_module(governance)
+governance = load_governance("diagnostics")
 
 
 class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
@@ -76,7 +68,6 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
                 dispatch_state="acknowledged",
                 dispatch_target=target,
                 tool_use_id=f"tool-{index}",
-                claimed_at=105 + index,
             )
             state["tasks"][task_id] = container
             state["agents"][target] = {"task_id": task_id, "attempt": 1}
@@ -150,12 +141,6 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
         persisted = self.store.read(self.session_id)["groups"]["group-v5"]
         self.assertNotIn("created_at", persisted)
         self.assertNotIn("updated_at", persisted)
-        legacy_state = self.store.read(self.session_id)
-        legacy_state["groups"]["group-v5"]["created_at"] = 150
-        legacy_state["groups"]["group-v5"]["updated_at"] = 175
-        migrated = governance._migrate_state_to_current(legacy_state)
-        self.assertNotIn("created_at", migrated["groups"]["group-v5"])
-        self.assertNotIn("updated_at", migrated["groups"]["group-v5"])
         self.assertNotIn("created_at", governance.SEMANTIC_RULES["group"]["fields"])
         self.assertNotIn("updated_at", governance.SEMANTIC_RULES["group"]["fields"])
         self.notify("required-a", now=200)
@@ -199,7 +184,7 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
             )["summary_ready"]
         )
 
-    def test_diagnose_reads_state_without_creating_results_directory(self):
+    def test_diagnose_reads_state_without_writing_storage(self):
         self.state_with_tasks("diagnose-task")
         document, exit_code = governance._build_diagnostic_document(
             self.session_id,
@@ -208,7 +193,10 @@ class MinimalDiagnosticsLightweightGroupsTests(unittest.TestCase):
         self.assertEqual(exit_code, 0, document)
         self.assertEqual(document["sessions"][0]["counts"]["work_items"], 1)
         self.assertNotIn("updated_at", document["sessions"][0])
-        self.assertFalse((self.root / "results").exists())
+        self.assertEqual(
+            sorted(path.name for path in self.root.iterdir()),
+            ["sessions"],
+        )
 
     def test_diagnose_missing_session_is_bounded_and_read_only(self):
         document, exit_code = governance._build_diagnostic_document(

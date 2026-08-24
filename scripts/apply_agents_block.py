@@ -12,7 +12,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-
 START_MARKER = "<!-- subagent-governance:start -->"
 END_MARKER = "<!-- subagent-governance:end -->"
 

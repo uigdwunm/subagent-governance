@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlparse
 
-
 PLUGIN_NAME = "subagent-governance"
 MANIFEST_PATH = Path(".codex-plugin/plugin.json")
 MARKETPLACE_PATH = Path(".agents/plugins/marketplace.json")
@@ -29,7 +28,6 @@ REQUIRED_PUBLIC_FILES = (
     Path("LICENSE"),
     Path("README.md"),
     Path("README.en.md"),
-    Path("CHANGELOG.md"),
     Path("CONTRIBUTING.md"),
     Path("SECURITY.md"),
     Path("hooks/hooks.json"),
@@ -305,7 +303,7 @@ def validate_public_files(root: Path, mode: str) -> None:
         raise PreflightFailure(
             "missing public release files: " + ", ".join(sorted(missing))
         )
-    raw_reports = sorted((root / "docs").glob("real-platform-test-*.md"))
+    raw_reports = sorted((root / "docs").glob("private-platform-evidence-*.md"))
     if mode == "archive" and raw_reports:
         relative = [str(path.relative_to(root)) for path in raw_reports]
         raise PreflightFailure(
@@ -320,7 +318,7 @@ def iter_text_files(root: Path) -> Iterable[Path]:
             continue
         if path.suffix.lower() not in TEXT_SUFFIXES:
             continue
-        if path.name.startswith("real-platform-test-") and path.suffix == ".md":
+        if path.name.startswith("private-platform-evidence-") and path.suffix == ".md":
             continue
         yield path
 

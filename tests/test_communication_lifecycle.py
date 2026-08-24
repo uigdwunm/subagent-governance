@@ -1,21 +1,14 @@
 #!/usr/bin/env python3
 
 import copy
-import importlib.util
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+from tests.support import load_governance
 
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "subagent_governance.py"
-SPEC = importlib.util.spec_from_file_location("subagent_governance_communication_v5", SCRIPT)
-governance = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-sys.modules[SPEC.name] = governance
-SPEC.loader.exec_module(governance)
+governance = load_governance("communication")
 
 
 class CommunicationLifecycleTests(unittest.TestCase):
@@ -83,7 +76,6 @@ class CommunicationLifecycleTests(unittest.TestCase):
             dispatch_state="acknowledged",
             dispatch_target=target,
             tool_use_id="spawn-tool",
-            claimed_at=101,
         )
         governance._apply_canonical_execution_update(execution, "observed_execution_status", "running")
         governance._apply_canonical_execution_update(execution, "closure_parent_action", "wait")
@@ -319,15 +311,6 @@ class CommunicationLifecycleTests(unittest.TestCase):
         self.assertEqual(pending["phase"], "claimed")
         self.assertEqual(pending["tool_use_id"], "racing-tool")
 
-    def test_result_correction_is_rejected_at_input_boundary(self):
-        _task_id, target = self.add_managed()
-        with self.assertRaises(governance.CommunicationPreparationError):
-            governance.prepare_communication(
-                self.communication("result_correction", target),
-                self.session_id,
-                state_store=self.store,
-            )
-
     def test_business_resume_requires_terminal_notification(self):
         task_id, target = self.add_managed()
         value = self.communication(
@@ -455,6 +438,41 @@ class CommunicationLifecycleTests(unittest.TestCase):
         )
         task = self.store.read(self.session_id)["tasks"][task_id]
         self.assertEqual(task["work_item"]["current_attempt"], 1)
+
+    def test_business_resume_rejects_working_tree_directory_before_pending_action(self):
+        task_id, target = self.add_managed()
+        self.notify(task_id, target)
+        workspace = Path(self.temporary.name) / "resume-directory-workspace"
+        (workspace / "docs").mkdir(parents=True)
+        (workspace / "docs" / "context.md").write_text(
+            "prepared\n",
+            encoding="utf-8",
+        )
+        contract = self.contract("继续执行")
+        contract["context_manifest"] = {
+            "mode": "declared",
+            "workspace_root": str(workspace),
+            "baseline": {"kind": "working_tree", "revision": None},
+            "required_paths": [{"path": "docs", "type": "directory"}],
+        }
+
+        with self.assertRaisesRegex(
+            governance.CommunicationPreparationError,
+            "working_tree.*directory.*逐文件.*git_commit",
+        ):
+            governance.prepare_communication(
+                self.communication(
+                    "business_resume",
+                    target,
+                    task_contract=contract,
+                ),
+                self.session_id,
+                state_store=self.store,
+                now=160,
+            )
+
+        task = self.store.read(self.session_id)["tasks"][task_id]
+        self.assertNotIn("pending_action", task["executions"]["1"])
 
     def test_business_resume_claim_persist_then_raise_is_confirmed(self):
         task_id, target = self.add_managed()

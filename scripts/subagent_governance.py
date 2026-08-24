@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import copy
 import getpass
 import hashlib
@@ -21,7 +20,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-
 if os.name == "nt":
     import msvcrt
 
@@ -32,31 +30,175 @@ else:
     msvcrt = None
 
 
-# The facade keeps the historical module-level names stable for hooks and
-# tests while the low-coupling definitions live in dedicated modules.
+# Shared definitions live in dedicated modules and are exposed by this runtime.
 try:
-    from scripts.governance_semantics import *
     from scripts.governance_semantics import (
         _DECISION_ACTION_ORDER,
-        _load_machine_semantics,
-        _semantic_enum,
-        _semantic_values,
+        AUTO_RESOLUTION,
+        CALL_OBSERVATIONS,
+        CONTEXT_STRATEGIES,
+        CONTEXT_TURNS,
+        DIAGNOSTIC_ATTEMPT_LIMIT,
+        DIAGNOSTIC_GROUP_LIMIT,
+        DIAGNOSTIC_ISSUE_LIMIT,
+        DIAGNOSTIC_OUTPUT_BYTES,
+        DIAGNOSTIC_SESSION_LIMIT,
+        EXECUTION_STATUSES,
+        GROUP_ID_MAX_LENGTH,
+        GROUP_MEMBER_LIMIT,
+        GROUP_OBJECTIVE_MAX_LENGTH,
+        IDENTITY_STATUSES,
+        LIFECYCLE_OPERATION_TYPES,
+        LIST_AGENTS_ACTIVE_STATUSES,
+        LIST_AGENTS_ADVISORY_STATUSES,
+        LIST_AGENTS_BOOLEAN_ERROR_FLAGS,
+        LIST_AGENTS_ERROR_STATUSES,
+        LIST_AGENTS_EXPLICIT_ERROR_FIELD,
+        LIST_AGENTS_TERMINAL_STATUSES,
+        LIST_AGENTS_WRAPPER_ERROR_STATUSES,
+        LIST_AGENTS_WRAPPER_STATUS_FIELDS,
+        MAX_CONTRACT_TEXT,
+        MAX_PREPARED_BYTES,
+        MAX_STATE_BYTES,
+        MODE_MINIMUMS,
+        NEW_TASK_SOFT_LIMIT_BYTES,
+        OBSERVATION_SOURCES,
+        OPERATION_NATIVE_TOOLS,
+        OPERATION_TYPES,
+        PARENT_ACTIONS,
+        PARENT_DISPOSITION_REASON_MAX_LENGTH,
+        PARENT_DISPOSITIONS,
+        PLATFORM_OBSERVATIONS,
+        REASONING_EFFORTS,
+        REQUESTED_MODES,
+        RESOLUTION_REASONS,
+        RESOLVED_MODES,
+        RETENTION_SECONDS,
+        RETRY_LIMITS,
+        RISKS,
+        SEMANTIC_DEFINITIONS,
+        SEMANTIC_RULES,
+        SESSION_SUMMARY_CONTEXT_LIMIT,
+        SESSION_SUMMARY_FIELD_LIMIT,
+        SESSION_SUMMARY_RECORD_LIMIT,
+        STATE_FORMAT_VERSION,
+        STOP_READ_ATTEMPTS,
+        STOP_READ_RETRY_DELAY_SECONDS,
+        TASK_CONTRACT_OPTIONAL_FIELDS,
+        TASK_NAME_MAX_LENGTH,
+        TASK_NAME_RE,
+        TASK_REF_LENGTHS,
     )
 except ModuleNotFoundError:
-    from governance_semantics import *
     from governance_semantics import (
         _DECISION_ACTION_ORDER,
-        _load_machine_semantics,
-        _semantic_enum,
-        _semantic_values,
+        AUTO_RESOLUTION,
+        CALL_OBSERVATIONS,
+        CONTEXT_STRATEGIES,
+        CONTEXT_TURNS,
+        DIAGNOSTIC_ATTEMPT_LIMIT,
+        DIAGNOSTIC_GROUP_LIMIT,
+        DIAGNOSTIC_ISSUE_LIMIT,
+        DIAGNOSTIC_OUTPUT_BYTES,
+        DIAGNOSTIC_SESSION_LIMIT,
+        EXECUTION_STATUSES,
+        GROUP_ID_MAX_LENGTH,
+        GROUP_MEMBER_LIMIT,
+        GROUP_OBJECTIVE_MAX_LENGTH,
+        IDENTITY_STATUSES,
+        LIFECYCLE_OPERATION_TYPES,
+        LIST_AGENTS_ACTIVE_STATUSES,
+        LIST_AGENTS_ADVISORY_STATUSES,
+        LIST_AGENTS_BOOLEAN_ERROR_FLAGS,
+        LIST_AGENTS_ERROR_STATUSES,
+        LIST_AGENTS_EXPLICIT_ERROR_FIELD,
+        LIST_AGENTS_TERMINAL_STATUSES,
+        LIST_AGENTS_WRAPPER_ERROR_STATUSES,
+        LIST_AGENTS_WRAPPER_STATUS_FIELDS,
+        MAX_CONTRACT_TEXT,
+        MAX_PREPARED_BYTES,
+        MAX_STATE_BYTES,
+        MODE_MINIMUMS,
+        NEW_TASK_SOFT_LIMIT_BYTES,
+        OBSERVATION_SOURCES,
+        OPERATION_NATIVE_TOOLS,
+        OPERATION_TYPES,
+        PARENT_ACTIONS,
+        PARENT_DISPOSITION_REASON_MAX_LENGTH,
+        PARENT_DISPOSITIONS,
+        PLATFORM_OBSERVATIONS,
+        REASONING_EFFORTS,
+        REQUESTED_MODES,
+        RESOLUTION_REASONS,
+        RESOLVED_MODES,
+        RETENTION_SECONDS,
+        RETRY_LIMITS,
+        RISKS,
+        SEMANTIC_DEFINITIONS,
+        SEMANTIC_RULES,
+        SESSION_SUMMARY_CONTEXT_LIMIT,
+        SESSION_SUMMARY_FIELD_LIMIT,
+        SESSION_SUMMARY_RECORD_LIMIT,
+        STATE_FORMAT_VERSION,
+        STOP_READ_ATTEMPTS,
+        STOP_READ_RETRY_DELAY_SECONDS,
+        TASK_CONTRACT_OPTIONAL_FIELDS,
+        TASK_NAME_MAX_LENGTH,
+        TASK_NAME_RE,
+        TASK_REF_LENGTHS,
     )
 
 try:
-    from scripts.governance_errors import *
-    from scripts.governance_errors import _state_store_exception_category
+    from scripts.governance_errors import (
+        CommunicationPreparationError,
+        ContextVerificationError,
+        DiagnosticReadError,
+        DispatchPreparationError,
+        GroupNotFoundError,
+        GroupValidationError,
+        NotificationObservationError,
+        ParentDispositionConflict,
+        ParentDispositionError,
+        PreparedContractConflictError,
+        PreparedContractError,
+        PreparedContractValidationError,
+        PreparedContractWriteError,
+        ReconciliationError,
+        StateCapacityError,
+        StateConflictError,
+        StateStoreError,
+        StateValidationError,
+        StateWriteError,
+        _state_store_exception_category,
+    )
 except ModuleNotFoundError:
-    from governance_errors import *
-    from governance_errors import _state_store_exception_category
+    from governance_errors import (
+        CommunicationPreparationError,
+        ContextVerificationError,
+        DiagnosticReadError,
+        DispatchPreparationError,
+        GroupNotFoundError,
+        GroupValidationError,
+        NotificationObservationError,
+        ParentDispositionConflict,
+        ParentDispositionError,
+        PreparedContractConflictError,
+        PreparedContractError,
+        PreparedContractValidationError,
+        PreparedContractWriteError,
+        ReconciliationError,
+        StateCapacityError,
+        StateConflictError,
+        StateStoreError,
+        StateValidationError,
+        StateWriteError,
+        _state_store_exception_category,
+    )
+
+try:
+    from scripts.governance_contracts import TaskContract, TaskFeatures
+except ModuleNotFoundError:
+    from governance_contracts import TaskContract, TaskFeatures
 
 try:
     from scripts.governance_storage import (
@@ -77,190 +219,26 @@ except ModuleNotFoundError:
         read_private_bytes,
     )
 
-
-@dataclass(frozen=True)
-class TaskFeatures:
-    risk: str
-    read_only: bool
-    writes_files: bool
-    destructive: bool
-    production: bool
-    concurrent_write: bool
-
-    def to_record(self) -> dict[str, Any]:
-        return {
-            "risk": self.risk,
-            "read_only": self.read_only,
-            "writes_files": self.writes_files,
-            "destructive": self.destructive,
-            "production": self.production,
-            "concurrent_write": self.concurrent_write,
-        }
-
-
-@dataclass(frozen=True)
-class TaskContract:
-    semantic_name: str
-    requested_mode: str
-    resolved_mode: str
-    resolution_reason: str
-    task_features: dict[str, Any] | None
-    objective: str
-    background: str
-    work_scope: list[str]
-    forbidden_scope: list[str]
-    completion_conditions: list[str]
-    evidence_requirements: list[str]
-    relevant_files: list[str]
-    context_manifest: dict[str, Any]
-    current_state: str | None
-    model: str | None
-    reasoning_effort: str | None
-    context_strategy: str
-    context_turns: int | None
-    context_reason: str | None
-
-    def to_record(self) -> dict[str, Any]:
-        return {
-            "semantic_name": self.semantic_name,
-            "requested_mode": self.requested_mode,
-            "resolved_mode": self.resolved_mode,
-            "resolution_reason": self.resolution_reason,
-            "task_features": self.task_features,
-            "objective": self.objective,
-            "background": self.background,
-            "work_scope": list(self.work_scope),
-            "forbidden_scope": list(self.forbidden_scope),
-            "completion_conditions": list(self.completion_conditions),
-            "evidence_requirements": list(self.evidence_requirements),
-            "relevant_files": list(self.relevant_files),
-            "context_manifest": copy.deepcopy(self.context_manifest),
-            "current_state": self.current_state,
-            "model": self.model,
-            "reasoning_effort": self.reasoning_effort,
-            "context_strategy": self.context_strategy,
-            "context_turns": self.context_turns,
-            "context_reason": self.context_reason,
-        }
-
-
-def _initial_plane_records() -> dict[str, dict[str, Any]]:
-    return {
-        "dispatch_record": {
-            "dispatch_state": "prepared",
-            "tool_use_id": None,
-            "dispatch_target": None,
-        },
-        "observation_record": {
-            "source": None,
-            "observed_state": "not_observed",
-            "observed_at": None,
-            "terminal_status": None,
-        },
-        "closure_record": {
-            "reason": None,
-            "closed_at": None,
-            "parent_action": None,
-        },
-    }
-
-
-def _legacy_dispatch_state(execution: dict[str, Any]) -> str:
-    observation = execution.get("spawn_observation")
-    if observation == "success":
-        return "acknowledged"
-    if observation == "failed":
-        return "rejected"
-    if observation == "unknown":
-        return "indeterminate"
-    if execution.get("spawn_tool_use_id") is not None:
-        return "claimed"
-    return "prepared"
-
-
-def _legacy_observation_record(
-    execution: dict[str, Any],
-    dispatch: dict[str, Any],
-) -> dict[str, Any]:
-    observed_at = execution.get("platform_checked_at")
-    if (
-        isinstance(observed_at, bool)
-        or not isinstance(observed_at, int)
-        or observed_at < 0
-    ):
-        observed_at = None
-    source = execution.get("platform_observation_source")
-    summary = execution.get("platform_observation_summary")
-    dispatch_target = dispatch.get("dispatch_target")
-    legacy_target = execution.get("platform_observation_target")
-    exact_target = bool(
-        isinstance(dispatch_target, str)
-        and dispatch_target
-        and legacy_target == dispatch_target
+try:
+    from scripts.governance_state import (
+        initial_plane_records as _initial_plane_records,
     )
-    terminal_status = None
-    observed_state = "not_observed"
-    normalized_source = None
-    if (
-        source == "list_agents"
-        and exact_target
-        and summary in {"completed", "stopped", "interrupted"}
-    ):
-        observed_state = "terminal"
-        terminal_status = str(summary)
-        normalized_source = "list_agents"
-    elif execution.get("platform_observation") == "error" and exact_target:
-        observed_state = "error"
-        normalized_source = "list_agents" if source == "list_agents" else "session"
-    elif execution.get("platform_observation") == "unknown" and exact_target:
-        observed_state = "unknown"
-        normalized_source = "list_agents" if source == "list_agents" else "session"
-    if observed_state == "not_observed":
-        observed_at = None
-    return {
-        "source": normalized_source,
-        "observed_state": observed_state,
-        "observed_at": observed_at,
-        "terminal_status": terminal_status,
-    }
-
-
-def _legacy_closure_record(
-    execution: dict[str, Any],
-    task_id: str,
-    attempt: int,
-) -> dict[str, Any]:
-    legacy_disposition = execution.get("parent_disposition_record")
-    disposition = (
-        legacy_disposition
-        if isinstance(legacy_disposition, dict)
-        and legacy_disposition.get("task_id") == task_id
-        and legacy_disposition.get("attempt") == attempt
-        else None
+    from scripts.governance_state import (
+        require_current_state_format as _require_current_state_format,
     )
-    reason = execution.get("attempt_close_reason")
-    if reason is None and isinstance(disposition, dict):
-        reason = disposition.get("reason")
-    closure = {
-        "reason": reason if isinstance(reason, str) and reason.strip() else None,
-        "closed_at": (
-            execution.get("attempt_closed_at")
-            if isinstance(execution.get("attempt_closed_at"), int)
-            and not isinstance(execution.get("attempt_closed_at"), bool)
-            else None
-        ),
-        "parent_action": _migrated_parent_action(execution.get("parent_action")),
-    }
-    _normalize_migrated_closure_facts(
-        closure, claimed_closed=execution.get("attempt_closed") is True
+    from scripts.governance_state import (
+        validate_current_execution_planes as _validate_current_execution_planes,
     )
-    return closure
-
-
-def _migrated_parent_action(value: Any) -> str | None:
-    if value in {"accept_result", "correct_result"}:
-        return "decide_disposition"
-    return str(value) if value in PARENT_ACTIONS else None
+except ModuleNotFoundError:
+    from governance_state import (
+        initial_plane_records as _initial_plane_records,
+    )
+    from governance_state import (
+        require_current_state_format as _require_current_state_format,
+    )
+    from governance_state import (
+        validate_current_execution_planes as _validate_current_execution_planes,
+    )
 
 
 def _valid_close_reason(value: Any) -> bool:
@@ -279,500 +257,6 @@ def _closure_has_complete_facts(closure: dict[str, Any]) -> bool:
     return _valid_close_reason(closure.get("reason")) and _valid_closed_at(
         closure.get("closed_at")
     )
-
-
-def _normalize_migrated_closure_facts(
-    closure: dict[str, Any], *, claimed_closed: bool
-) -> None:
-    reason = closure.get("reason")
-    closed_at = closure.get("closed_at")
-    if _closure_has_complete_facts(closure):
-        return
-    if claimed_closed or reason is not None or closed_at is not None:
-        closure["reason"] = None
-        closure["closed_at"] = None
-        closure["parent_action"] = "reconcile"
-
-
-def _legacy_contract_text(
-    value: Any, fallback: str, *, maximum: int
-) -> str:
-    if isinstance(value, str) and value.strip() and len(value) <= maximum:
-        return value
-    return fallback
-
-
-def _migrate_contract_summary(
-    execution: dict[str, Any], objective_summary: Any = None, *, task_id: str
-) -> dict[str, Any]:
-    raw = execution.get("contract_summary")
-    summary = copy.deepcopy(raw) if isinstance(raw, dict) else {}
-    fallback_objective = _legacy_contract_text(
-        objective_summary,
-        f"Legacy managed task {task_id}",
-        maximum=int(SEMANTIC_DEFINITIONS["short_text"]["maxLength"]),
-    )
-    objective = _legacy_contract_text(
-        summary.get("objective"),
-        fallback_objective,
-        maximum=int(SEMANTIC_DEFINITIONS["short_text"]["maxLength"]),
-    )
-    model = summary.get("model")
-    model = (
-        model
-        if model is None
-        or (
-            isinstance(model, str)
-            and model.strip()
-            and len(model) <= int(SEMANTIC_DEFINITIONS["model"]["maxLength"])
-        )
-        else None
-    )
-    return {
-        "objective": objective,
-        "model": model,
-    }
-
-
-def _migrate_legacy_execution_record(
-    execution: dict[str, Any], *, task_id: str, attempt: int, objective_summary: Any = None
-) -> dict[str, Any]:
-    migrated = copy.deepcopy(execution)
-    task_ref = migrated.get("task_ref")
-    if not isinstance(task_ref, str) or not task_ref:
-        raise StateValidationError("旧 managed execution 缺少可迁移的 task_ref")
-    dispatch = {
-        "dispatch_state": _legacy_dispatch_state(migrated),
-        "tool_use_id": (
-            migrated.get("spawn_tool_use_id")
-            if isinstance(migrated.get("spawn_tool_use_id"), str)
-            else None
-        ),
-        "dispatch_target": (
-            migrated.get("spawn_observed_canonical_path")
-            if isinstance(migrated.get("spawn_observed_canonical_path"), str)
-            and migrated.get("spawn_observed_canonical_path")
-            else None
-        ),
-    }
-    observation = _legacy_observation_record(migrated, dispatch)
-    closure = _legacy_closure_record(migrated, task_id, attempt)
-    contract_summary = _migrate_contract_summary(
-        migrated, objective_summary, task_id=task_id
-    )
-    migrated["contract_summary"] = contract_summary
-    migrated.pop("task_id", None)
-    migrated.pop("attempt", None)
-    migrated.pop("deliverable_contract", None)
-    for field_name in LEGACY_EXECUTION_PROJECTION_FIELDS:
-        migrated.pop(field_name, None)
-    migrated.update(
-        dispatch_record=dispatch,
-        observation_record=observation,
-        closure_record=closure,
-    )
-    return migrated
-
-
-def _validate_current_execution_planes(execution: dict[str, Any]) -> None:
-    expected = {
-        "dispatch_record": REQUIRED_DISPATCH_RECORD_FIELDS,
-        "observation_record": REQUIRED_OBSERVATION_RECORD_FIELDS,
-        "closure_record": REQUIRED_CLOSURE_RECORD_FIELDS,
-    }
-    for field_name, required in expected.items():
-        record = execution.get(field_name)
-        if not isinstance(record, dict):
-            raise StateValidationError(f"managed execution 缺少 canonical plane {field_name}")
-        missing = required - set(record)
-        if missing:
-            raise StateValidationError(
-                f"canonical plane {field_name} 缺少字段 {', '.join(sorted(missing))}"
-            )
-        unknown = set(record) - required
-        if unknown:
-            raise StateValidationError(
-                f"canonical plane {field_name} 包含未知字段 {', '.join(sorted(unknown))}"
-            )
-
-    task_ref = execution.get("task_ref")
-    if not isinstance(task_ref, str) or not task_ref:
-        raise StateValidationError("managed execution 的 task_ref 无效")
-
-    dispatch = execution["dispatch_record"]
-    observation = execution["observation_record"]
-    closure = execution["closure_record"]
-
-    enum_fields = (
-        (dispatch, "dispatch_state", DISPATCH_STATES),
-        (observation, "observed_state", OBSERVED_STATES),
-    )
-    for record, field_name, allowed in enum_fields:
-        if record.get(field_name) not in allowed:
-            raise StateValidationError(f"canonical plane 字段 {field_name} 使用未知枚举值")
-    nullable_enums = (
-        (observation, "source", OBSERVATION_SOURCES),
-        (closure, "parent_action", PARENT_ACTIONS),
-    )
-    for record, field_name, allowed in nullable_enums:
-        value = record.get(field_name)
-        if value is not None and value not in allowed:
-            raise StateValidationError(f"canonical plane 字段 {field_name} 使用未知枚举值")
-
-    timestamp_fields = (
-        (observation, "observed_at"),
-        (closure, "closed_at"),
-    )
-    for record, field_name in timestamp_fields:
-        value = record.get(field_name)
-        if value is not None and (
-            isinstance(value, bool) or not isinstance(value, int) or value < 0
-        ):
-            raise StateValidationError(f"canonical plane 时间字段 {field_name} 无效")
-    terminal_status = observation.get("terminal_status")
-    if terminal_status is not None and terminal_status not in {
-        "completed", "stopped", "interrupted"
-    }:
-        raise StateValidationError("observation_record.terminal_status 无效")
-    if observation.get("observed_state") == "terminal" and terminal_status is None:
-        raise StateValidationError("terminal observation 缺少 terminal_status")
-    reason = closure.get("reason")
-    closed_at = closure.get("closed_at")
-    if reason is not None and not _valid_close_reason(reason):
-        raise StateValidationError("closure_record.reason 无效")
-    if (reason is None) != (closed_at is None):
-        raise StateValidationError("closure_record 的 reason 与 closed_at 必须同时存在或同时为空")
-
-
-def _promote_v4_parent_result_to_notification(execution: dict[str, Any]) -> None:
-    result = execution.get("result_record")
-    dispatch = execution.get("dispatch_record")
-    observation = execution.get("observation_record")
-    closure = execution.get("closure_record")
-    if not all(isinstance(item, dict) for item in (result, dispatch, observation, closure)):
-        return
-    sender = result.get("sender_target")
-    observed_at = result.get("submitted_at")
-    if not (
-        result.get("submission_provenance") == "parent_recorded_native_sender"
-        and result.get("result_state") in {"valid", "conflict"}
-        and isinstance(sender, str)
-        and sender == dispatch.get("dispatch_target")
-        and isinstance(observed_at, int)
-        and not isinstance(observed_at, bool)
-        and observed_at >= 0
-    ):
-        return
-    observation.update(
-        source="terminal_notification",
-        observed_state="terminal",
-        observed_at=observed_at,
-        terminal_status="completed",
-    )
-    if not _execution_is_closed(execution):
-        closure["parent_action"] = "decide_disposition"
-
-
-def _retire_v4_result_state(execution: dict[str, Any]) -> None:
-    _promote_v4_parent_result_to_notification(execution)
-    execution.pop("result_record", None)
-    execution.pop("correction_count", None)
-    execution.pop("result_protocol_error", None)
-    execution.pop("result_storage_error", None)
-    for field_name in (
-        "business_result",
-        "business_decision_resolved",
-        "acceptance_status",
-        "result_protocol_status",
-        "result_storage_status",
-        "result_reference",
-        "result_sha256",
-        "result_stored_at",
-        "result_conflict",
-        "result_conflict_observed_at",
-        "result_conflict_sender_target",
-        "result_conflict_sha256",
-    ):
-        execution.pop(field_name, None)
-    pending = execution.get("pending_action")
-    if isinstance(pending, dict) and pending.get("operation_type") == "result_correction":
-        if pending.get("phase") == "claimed":
-            execution["closure_record"]["parent_action"] = "reconcile"
-        execution.pop("pending_action", None)
-    lifecycle = execution.get("last_lifecycle_operation")
-    if isinstance(lifecycle, dict) and lifecycle.get("operation_type") == "result_correction":
-        execution.pop("last_lifecycle_operation", None)
-        execution["closure_record"]["parent_action"] = "reconcile"
-    closure = execution.get("closure_record")
-    if isinstance(closure, dict):
-        disposition = closure.get("parent_disposition")
-        if disposition in {"accept", "reject"} and not _execution_is_closed(execution):
-            closure["parent_action"] = "decide_disposition"
-        closure.pop("parent_disposition", None)
-        closure.pop("disposition_recorded_at", None)
-        closure["parent_action"] = _migrated_parent_action(closure.get("parent_action"))
-    for field_name in LEGACY_EXECUTION_PROJECTION_FIELDS:
-        execution.pop(field_name, None)
-
-
-def _migrate_execution_records(
-    executions: dict[str, Any],
-    *,
-    version: Any,
-    task_id: str,
-    objective_summary: Any,
-) -> None:
-    for attempt_key, execution in list(executions.items()):
-        if not isinstance(execution, dict):
-            continue
-        attempt = _parse_execution_key(attempt_key)
-        if attempt is None:
-            raise StateValidationError(
-                f"managed task {task_id} 包含非法 execution 键 {attempt_key}"
-            )
-        execution.pop("managed", None)
-        execution.pop("task_id", None)
-        execution.pop("attempt", None)
-        execution.pop("spawn_task_name", None)
-        execution.pop("origin_attempt", None)
-        execution.pop("origin_task_name", None)
-        execution.pop("dispatch_kind", None)
-        execution.pop("transition", None)
-        execution.pop("growth_authorization", None)
-        execution.pop("deliverable_contract", None)
-        execution.pop("semantic_name", None)
-        execution.pop("requested_mode", None)
-        execution.pop("resolution_reason", None)
-        execution.pop("created_at", None)
-        execution.pop("activity_at", None)
-        execution.pop("recovery_status", None)
-        execution.pop("terminal_reconciliation_reason", None)
-        execution.pop("terminal_reconciled_at", None)
-        execution.pop("reconciliation_reason", None)
-        execution.pop("reconciled_thread_id", None)
-        execution.pop("reconciled_thread_status", None)
-        execution.pop("spawn_close_reason", None)
-        pending = execution.get("pending_action")
-        if isinstance(pending, dict):
-            pending.pop("task_id", None)
-            pending.pop("reason", None)
-            pending.pop("transition", None)
-            pending.pop("expires_at", None)
-            pending.pop("resume_contract_summary", None)
-            pending.pop("resume_contract_digest", None)
-            pending.pop("resume_task_ref", None)
-            pending.pop("growth_authorization", None)
-            pending.pop("deliverable_contract", None)
-            pending.pop("deliverable_contract_digest", None)
-            pending.pop("start_observed_at", None)
-            pending.pop("disposition", None)
-            if not (
-                pending.get("operation_type") == "platform_recovery"
-                and execution.get("recovery_count") == 1
-                and pending.get("authorized_recovery") is True
-            ):
-                pending.pop("authorized_recovery", None)
-        lifecycle = execution.get("last_lifecycle_operation")
-        if isinstance(lifecycle, dict):
-            lifecycle.pop("target", None)
-            lifecycle.pop("claimed_at", None)
-            lifecycle.pop("completed_at", None)
-            lifecycle.pop("reason", None)
-            lifecycle.pop("native_status", None)
-        has_canonical_planes = all(
-            field_name in execution
-            for field_name in (
-                "dispatch_record", "observation_record", "closure_record"
-            )
-        )
-        if has_canonical_planes:
-            execution["contract_summary"] = _migrate_contract_summary(
-                execution, objective_summary, task_id=task_id
-            )
-            dispatch_record = execution.get("dispatch_record")
-            if isinstance(dispatch_record, dict):
-                dispatch_record.pop("task_id", None)
-                dispatch_record.pop("attempt", None)
-                dispatch_record.pop("task_ref", None)
-                dispatch_record.pop("claimed_at", None)
-                dispatch_record.pop("response_observed_at", None)
-                dispatch_record.pop("response_digest", None)
-            observation_record = execution.get("observation_record")
-            retired_observation_source = False
-            if isinstance(observation_record, dict):
-                retired_observation_source = (
-                    observation_record.get("source") in RETIRED_OBSERVATION_SOURCES
-                )
-                legacy_subject_present = "subject" in observation_record
-                legacy_subject = observation_record.pop("subject", None)
-                legacy_binding_basis = observation_record.pop(
-                    "binding_basis", None
-                )
-                dispatch_target = (
-                    dispatch_record.get("dispatch_target")
-                    if isinstance(dispatch_record, dict)
-                    else None
-                )
-                legacy_binding_untrusted = bool(
-                    (
-                        legacy_subject_present
-                        and legacy_subject != dispatch_target
-                    )
-                    or (
-                        legacy_binding_basis is not None
-                        and legacy_binding_basis != "exact_dispatch_target"
-                    )
-                )
-                if retired_observation_source or (
-                    legacy_binding_untrusted
-                    and observation_record.get("observed_state")
-                    != "not_observed"
-                ):
-                    observation_record.update(
-                        source=None,
-                        observed_state="not_observed",
-                        observed_at=None,
-                        terminal_status=None,
-                    )
-                observation_record.pop("bound_task_id", None)
-                observation_record.pop("bound_attempt", None)
-                observation_record.pop("runtime_alias", None)
-                observation_record.pop("fresh_until", None)
-                observation_record.pop("observation_id", None)
-                observation_record.pop("subject_kind", None)
-            closure_record = execution.get("closure_record")
-            if isinstance(closure_record, dict):
-                closure_record.pop("task_id", None)
-                closure_record.pop("attempt", None)
-                claimed_closed = closure_record.pop("closure_state", None) == "closed"
-                _normalize_migrated_closure_facts(
-                    closure_record, claimed_closed=claimed_closed
-                )
-                if retired_observation_source and not _execution_is_closed(execution):
-                    closure_record["parent_action"] = "reconcile"
-            _retire_v4_result_state(execution)
-            _validate_current_execution_planes(execution)
-            continue
-        if version not in {None, 1}:
-            raise StateValidationError(
-                f"治理状态 format {version} 的 managed execution 缺少 canonical planes"
-            )
-        executions[attempt_key] = _migrate_legacy_execution_record(
-            execution,
-            task_id=task_id,
-            attempt=attempt,
-            objective_summary=objective_summary,
-        )
-
-
-def _migrate_managed_tasks(migrated: dict[str, Any], version: Any) -> None:
-    tasks = migrated.get("tasks")
-    if isinstance(tasks, dict):
-        for task_key, task in tasks.items():
-            if not isinstance(task, dict) or task.get("managed") is not True:
-                continue
-            task_id_errors = _validate_text(
-                task_key,
-                "task_id",
-                maximum=int(SEMANTIC_DEFINITIONS["task_id"]["maxLength"]),
-            )
-            if task_id_errors:
-                raise StateValidationError("managed task 的 tasks 键不是合法 task_id")
-            task_id = str(task_key)
-            task.pop("task_id", None)
-            task.pop("result_credentials", None)
-            work_item = task.get("work_item")
-            objective_summary = (
-                work_item.get("objective_summary")
-                if isinstance(work_item, dict)
-                else None
-            )
-            if isinstance(work_item, dict):
-                work_item.pop("objective_summary", None)
-                work_item.pop("created_at", None)
-                work_item.pop("updated_at", None)
-                work_item.pop("attempt_count", None)
-                work_item.pop("action_required", None)
-                work_item.pop("last_growth_authorization", None)
-                work_item.pop("repeated_business_attempts", None)
-                work_item.pop("last_parent_disposition", None)
-                work_item.pop("last_disposition", None)
-            executions = task.get("executions")
-            if not isinstance(executions, dict):
-                continue
-            _migrate_execution_records(
-                executions,
-                version=version,
-                task_id=task_id,
-                objective_summary=objective_summary,
-            )
-
-
-def _migrate_groups(migrated: dict[str, Any]) -> None:
-    groups = migrated.get("groups")
-    if isinstance(groups, dict):
-        for group in groups.values():
-            if isinstance(group, dict):
-                group.pop("created_at", None)
-                group.pop("updated_at", None)
-
-
-def _migrate_tombstones(migrated: dict[str, Any]) -> None:
-    tasks = migrated.get("tasks")
-    tombstones = migrated.get("tombstones")
-    if isinstance(tombstones, dict):
-        for tombstone_key, tombstone in list(tombstones.items()):
-            if not isinstance(tombstone, dict):
-                continue
-            identity = _parse_tombstone_key(tombstone_key)
-            task = (
-                tasks.get(identity[0])
-                if identity is not None and isinstance(tasks, dict)
-                else None
-            )
-            work_item = task.get("work_item") if isinstance(task, dict) else None
-            execution = (
-                _canonical_execution_for_attempt(task, identity[1])
-                if isinstance(task, dict) and identity is not None
-                else None
-            )
-            if (
-                tombstone.get("close_reason") == "spawn_retry_exhausted"
-                and isinstance(work_item, dict)
-                and work_item.get("lifecycle") == "open"
-                and isinstance(execution, dict)
-                and not _execution_is_closed(execution)
-                and _spawn_observation(execution) == "failed"
-                and execution.get("spawn_retry_count") == RETRY_LIMITS["spawn"]
-                and _parent_action(execution) == "decide_disposition"
-            ):
-                tombstones.pop(tombstone_key, None)
-                continue
-            dispatch_target = tombstone.get("dispatch_target")
-            if not isinstance(dispatch_target, str) or not dispatch_target.strip():
-                legacy_target = tombstone.get("canonical_task_path")
-                if isinstance(legacy_target, str) and legacy_target.strip():
-                    tombstone["dispatch_target"] = legacy_target
-                else:
-                    tombstone.pop("dispatch_target", None)
-            tombstone.pop("agent_id", None)
-            tombstone.pop("canonical_task_path", None)
-            tombstone.pop("last_execution_status", None)
-            tombstone.pop("task_id", None)
-            tombstone.pop("attempt", None)
-
-
-def _migrate_state_to_current(value: dict[str, Any]) -> dict[str, Any]:
-    migrated = copy.deepcopy(value)
-    version = migrated.get("state_format_version")
-    if isinstance(version, bool) or version not in {None, 1, 2, 3, 4, STATE_FORMAT_VERSION}:
-        raise StateValidationError(f"治理状态使用未知格式版本 {version}")
-    migrated.pop("updated_at", None)
-    _migrate_managed_tasks(migrated, version)
-    _migrate_groups(migrated)
-    _migrate_tombstones(migrated)
-    migrated["state_format_version"] = STATE_FORMAT_VERSION
-    return migrated
 
 
 def _spawn_observation(execution: dict[str, Any]) -> str | None:
@@ -853,7 +337,7 @@ def _observation_source(execution: dict[str, Any]) -> Any:
 
 
 def _state_for_storage(value: dict[str, Any]) -> dict[str, Any]:
-    return _migrate_state_to_current(value)
+    return _require_current_state_format(value)
 
 
 def _observation_is_bound(execution: dict[str, Any]) -> bool:
@@ -1111,6 +595,7 @@ def _validate_context_manifest(value: Any) -> list[str]:
         errors.append("字段 context_manifest.workspace_root 必须是绝对路径")
 
     baseline = value.get("baseline")
+    baseline_kind = baseline.get("kind") if isinstance(baseline, dict) else None
     if not isinstance(baseline, dict):
         errors.append("字段 context_manifest.baseline 必须是对象")
     else:
@@ -1125,7 +610,7 @@ def _validate_context_manifest(value: Any) -> list[str]:
             errors.append(
                 "context_manifest.baseline 缺少字段 " + "、".join(missing)
             )
-        kind = baseline.get("kind")
+        kind = baseline_kind
         revision = baseline.get("revision")
         if kind == "working_tree":
             if revision is not None:
@@ -1135,8 +620,6 @@ def _validate_context_manifest(value: Any) -> list[str]:
                 r"(?:[a-f0-9]{40}|[a-f0-9]{64})", revision
             ) is None:
                 errors.append("baseline.kind=git_commit 时 revision 必须是完整 commit OID")
-        elif len(path_value) > 1000:
-            errors.append(f"字段 {field_name}.path 长度不能超过 1000")
         else:
             errors.append("字段 context_manifest.baseline.kind 必须是 working_tree 或 git_commit")
 
@@ -1163,6 +646,8 @@ def _validate_context_manifest(value: Any) -> list[str]:
         path_value = item.get("path")
         if not isinstance(path_value, str) or not path_value.strip():
             errors.append(f"字段 {field_name}.path 必须是非空字符串")
+        elif len(path_value) > 1000:
+            errors.append(f"字段 {field_name}.path 长度不能超过 1000")
         else:
             path = path_value.strip()
             parts = path.split("/")
@@ -1180,8 +665,14 @@ def _validate_context_manifest(value: Any) -> list[str]:
                 errors.append(f"字段 {field_name}.path 不能重复：{path}")
             else:
                 seen.add(path)
-        if item.get("type") not in {"file", "directory"}:
+        path_type = item.get("type")
+        if path_type not in {"file", "directory"}:
             errors.append(f"字段 {field_name}.type 必须是 file 或 directory")
+        elif baseline_kind == "working_tree" and path_type == "directory":
+            errors.append(
+                f"working_tree 不支持字段 {field_name}.type=directory；"
+                "请逐文件声明，或改用 git_commit baseline"
+            )
     return errors
 
 
@@ -1232,20 +723,12 @@ def _validate_context_verification_record(
                 errors.append(
                     f"context verification required_paths[{index}] Git object ID 无效"
                 )
-        elif declared.get("type") == "file":
+        elif baseline_kind == "working_tree":
             if set(verified) != {"path", "type", "sha256"} or not isinstance(
                 verified.get("sha256"), str
             ) or re.fullmatch(r"[a-f0-9]{64}", verified["sha256"]) is None:
                 errors.append(
                     f"context verification required_paths[{index}] SHA-256 无效"
-                )
-        else:
-            mtime_ns = verified.get("mtime_ns")
-            if set(verified) != {"path", "type", "mtime_ns"} or isinstance(
-                mtime_ns, bool
-            ) or not isinstance(mtime_ns, int) or mtime_ns < 0:
-                errors.append(
-                    f"context verification required_paths[{index}] directory fingerprint 无效"
                 )
     return errors
 
@@ -1365,19 +848,13 @@ def verify_context_manifest(value: Any) -> dict[str, Any]:
                 ) from exc
             if not candidate.exists():
                 raise ContextVerificationError(f"必需上下文不存在：{path_value}")
-            if expected_type == "file" and not candidate.is_file():
+            if not candidate.is_file():
                 raise ContextVerificationError(f"必需上下文不是文件：{path_value}")
-            if expected_type == "directory" and not candidate.is_dir():
-                raise ContextVerificationError(f"必需上下文不是目录：{path_value}")
             verified: dict[str, Any] = {
                 "path": path_value,
                 "type": expected_type,
             }
-            if expected_type == "file":
-                verified["sha256"] = _sha256_file(candidate)
-            else:
-                metadata = candidate.stat()
-                verified["mtime_ns"] = metadata.st_mtime_ns
+            verified["sha256"] = _sha256_file(candidate)
             verified_paths.append(verified)
         verified_baseline = {"kind": "working_tree", "revision": None}
 
@@ -2113,8 +1590,7 @@ class StateStore:
                 f"治理状态文件不是有效 UTF-8 JSON，原文件已保留供人工恢复：{path}"
             ) from exc
         validated = self._validate_state(value, session_id, path, required_fields)
-        migrated = _migrate_state_to_current(validated)
-        return migrated
+        return _require_current_state_format(validated)
 
     @staticmethod
     def _encoded_state(state: dict[str, Any]) -> bytes:
@@ -2766,9 +2242,9 @@ def _managed_target_admission(
         )
     if retained:
         return ManagedTargetAdmission(
-            "historical",
+            "closed",
             None,
-            "target 仅匹配已可靠关闭的 historical provenance",
+            "target 仅匹配已可靠关闭的 provenance",
         )
     return ManagedTargetAdmission(
         "unmanaged",
@@ -2834,7 +2310,7 @@ def _canonical_execution_for_attempt(
 def _ensure_canonical_task_record(
     state: dict[str, Any], task_id: str
 ) -> dict[str, Any]:
-    """Return a writable canonical task without migrating historical records."""
+    """Return a writable task that already matches the current state model."""
     tasks = state.get("tasks")
     if not isinstance(tasks, dict):
         raise StateValidationError("治理状态缺少 tasks 对象")
@@ -2845,26 +2321,7 @@ def _ensure_canonical_task_record(
     executions = task.get("executions")
     if not isinstance(work_item, dict) or not isinstance(executions, dict):
         raise StateConflictError("managed task 缺少 canonical work_item/executions")
-    _canonicalize_record_names(task)
     return task
-
-
-def _canonicalize_record_names(task: dict[str, Any]) -> None:
-    """Collapse pre-F6 names while a canonical task is already being written."""
-    work_item = task.get("work_item")
-    executions = task.get("executions")
-    if not isinstance(work_item, dict) or not isinstance(executions, dict):
-        return
-    work_item.pop("created_at", None)
-    work_item.pop("attempt_count", None)
-    work_item.pop("last_disposition", None)
-    work_item.pop("last_parent_disposition", None)
-    for execution in executions.values():
-        if not isinstance(execution, dict):
-            continue
-        pending = execution.get("pending_action")
-        if isinstance(pending, dict):
-            pending.pop("disposition", None)
 
 
 def record_terminal_notification(
@@ -2927,7 +2384,7 @@ def record_terminal_notification(
             raise NotificationObservationError("sender_target 与 dispatch target 不匹配")
         if _execution_is_closed(execution):
             return {
-                "status": "historical_ignored",
+                "status": "closed_ignored",
                 "task_id": task_id,
                 "attempt": attempt,
                 "terminal_status": terminal_status,
@@ -4463,7 +3920,7 @@ def _resolve_managed_action_attempt(
         elif recovery_count == 1 and parent_action == "ask_user":
             raise CommunicationPreparationError("最后一次平台恢复需要用户明确授权")
         else:
-            raise CommunicationPreparationError("当前 Agent/attempt 的平台恢复次数已经耗尽或状态不兼容")
+            raise CommunicationPreparationError("当前 Agent/attempt 的平台恢复次数已经耗尽或状态不匹配")
     elif operation_type == "business_resume":
         if (
             record.get("observation_record", {}).get("observed_state") == "active"
@@ -4668,9 +4125,9 @@ def _prepare_managed_action(
         raise CommunicationPreparationError(
             f"目标 {target} 的 managed lifecycle identity 需要对账：{admission.reason}"
         )
-    if admission.disposition == "historical":
+    if admission.disposition == "closed":
         raise CommunicationPreparationError(
-            f"目标 {target} 仅匹配已可靠关闭的 historical provenance；"
+            f"目标 {target} 仅匹配已可靠关闭的 provenance；"
             "不能复活 active index 或按 unmanaged 放行"
         )
     if admission.disposition != "managed" or admission.candidate is None:
@@ -4881,7 +4338,7 @@ def _interrupt_not_found_confirms_inactive(
     )
 
 
-def _legacy_call_observation(value: Any) -> dict[str, str | None]:
+def _unknown_call_observation(value: Any) -> dict[str, str | None]:
     observation = value if isinstance(value, str) else "unknown"
     if observation not in CALL_OBSERVATIONS:
         observation = "unknown"
@@ -5095,7 +4552,7 @@ def reconcile_pending_actions(
                 _apply_action_observation(
                     record,
                     copy.deepcopy(pending),
-                    _legacy_call_observation("unknown"),
+                    _unknown_call_observation("unknown"),
                     current_time,
                 )
                 counts["reconciled"] += 1
@@ -5153,7 +4610,7 @@ def _handle_spawn(payload: dict[str, Any], store: StateStore) -> dict[str, Any]:
     if not task_name.startswith("sg_"):
         return _allow_updated(
             copy.deepcopy(tool_input),
-            "Subagent Governance：无治理前缀，本次原生 spawn 按 unmanaged 兼容放行；不创建治理状态。",
+            "Subagent Governance：无治理前缀，本次原生 spawn 按 unmanaged 放行；不创建治理状态。",
         )
     parsed = parse_task_name(task_name)
     if parsed is None:
@@ -5465,16 +4922,16 @@ def _claim_pending_action(
             return _deny(
                 f"managed target identity 需要人工对账，不能按 unmanaged 放行：{admission.reason}。"
             )
-        if admission.disposition == "historical":
+        if admission.disposition == "closed":
             return _deny(
-                "target 仅匹配已可靠关闭的 historical provenance；"
+                "target 仅匹配已可靠关闭的 provenance；"
                 "不能复活 active index 或按 unmanaged 放行。"
             )
         if admission.disposition != "managed":
             return _allow_updated(
                 copy.deepcopy(tool_input),
                 "Subagent Governance：目标没有 canonical provenance，"
-                "本次原生操作按 unmanaged 兼容放行。",
+                "本次原生操作按 unmanaged 放行。",
             )
         if interrupt:
             return _deny("managed interrupt 缺少由生成器创建的明确 pending_action。")
@@ -7242,7 +6699,7 @@ def _read_session_file_read_only(
             context={"path": str(path), "session_id": stored_session},
         )
     try:
-        return _migrate_state_to_current(value)
+        return _require_current_state_format(value)
     except StateValidationError as exc:
         raise DiagnosticReadError(
             "session_format_unknown",
@@ -7354,7 +6811,7 @@ def _diagnostic_skipped_attempt_issues(
                         if "managed" not in task
                         else "current_required_field_invalid"
                     ),
-                    "task 记录不是当前 managed attempt 结构；旧记录不会进入执行状态机",
+                    "task 记录不是当前 managed attempt 结构；该记录不会进入执行状态机",
                     session_id=session_id,
                     task_id=task_id,
                     field="managed",
@@ -7370,7 +6827,7 @@ def _diagnostic_skipped_attempt_issues(
                             if field_name not in task
                             else "current_required_field_invalid"
                         ),
-                        f"managed task 缺少 canonical {field_name} 对象；历史记录不会迁移或进入执行状态机",
+                        f"managed task 缺少 canonical {field_name} 对象；该记录不会进入执行状态机",
                         session_id=session_id,
                         task_id=task_id,
                         field=field_name,
@@ -7930,321 +7387,12 @@ def _diagnose(session_id: str | None, data_root: Path | None = None) -> int:
     return exit_code
 
 
-class _NonExitingArgumentParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
-        raise ValueError(message)
-
-
-def _emit_diagnostic_cli_error(message: str, arguments: list[str]) -> None:
-    root = _data_root_path()
-    document = _diagnostic_base_document(_diagnostic_absolute_path(root), None)
-    if "--session" in arguments:
-        document["scope"] = "single_session"
-    document["scan"]["complete"] = False
-    document["issues"] = [
-        _diagnostic_issue(
-            "scan_incomplete",
-            f"诊断 CLI 参数错误：{message}",
-            fact="cli_argument_error",
-        )
-    ]
-    sys.stdout.buffer.write(_diagnostic_output_bytes(document))
-
-
-def _run_preparation_cli(args: argparse.Namespace) -> int:
-    if not args.session:
-        print("dispatch preparation requires --session", file=sys.stderr)
-        return 2
-    try:
-        raw_contract = json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
-        base = _prepare_private_directory(args.data_root.expanduser()) if args.data_root else _data_root()
-        state_store = StateStore(base / "sessions")
-        prepared_store = PreparedContractStore(base / "prepared")
-        if args.prepare_dispatch:
-            result = prepare_dispatch(
-                raw_contract,
-                args.session,
-                state_store=state_store,
-                prepared_store=prepared_store,
-            )
-        elif args.prepare_spawn_retry is not None:
-            result = prepare_spawn_retry(
-                raw_contract,
-                args.session,
-                args.prepare_spawn_retry,
-                authorized=args.authorize_final_retry,
-                state_store=state_store,
-                prepared_store=prepared_store,
-            )
-        elif args.prepare_communication:
-            result = prepare_communication(
-                raw_contract,
-                args.session,
-                authorized_recovery=args.authorize_recovery,
-                state_store=state_store,
-            )
-        else:
-            result = prepare_interrupt(
-                raw_contract,
-                args.session,
-                state_store=state_store,
-            )
-    except Exception as exc:
-        print(f"operation preparation failed: {exc}", file=sys.stderr)
-        return 1
-    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
-
-
-def _run_context_verification_cli() -> int:
-    try:
-        raw_input = sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1)
-        if len(raw_input.encode("utf-8")) > MAX_HOOK_INPUT_BYTES:
-            raise ValueError(
-                f"context manifest input exceeds {MAX_HOOK_INPUT_BYTES} bytes"
-            )
-        raw_manifest = json.loads(raw_input)
-        result = verify_context_manifest(raw_manifest)
-    except Exception as exc:
-        print(f"context verification failed: {exc}", file=sys.stderr)
-        return 1
-    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
-
-
-def _run_reconciliation_cli(args: argparse.Namespace) -> int:
-    if not args.session:
-        print("interrupted attempt reconciliation requires --session", file=sys.stderr)
-        return 2
-    try:
-        raw_observation = json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
-        base = _prepare_private_directory(args.data_root.expanduser()) if args.data_root else _data_root()
-        result = reconcile_interrupted_attempt(
-            raw_observation,
-            args.session,
-            state_store=StateStore(base / "sessions"),
-        )
-    except Exception as exc:
-        print(f"interrupted attempt reconciliation failed: {exc}", file=sys.stderr)
-        return 1
-    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
-
-
-def _run_lifecycle_cli(args: argparse.Namespace) -> int:
-    if not args.session:
-        print("lifecycle operations require --session", file=sys.stderr)
-        return 2
-    try:
-        base = _prepare_private_directory(args.data_root.expanduser()) if args.data_root else _data_root()
-        state_store = StateStore(base / "sessions")
-        if args.record_terminal_notification:
-            raw_notification = json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
-            result = record_terminal_notification(
-                raw_notification,
-                args.session,
-                state_store=state_store,
-            )
-        else:
-            raw_disposition = json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
-            result = apply_parent_disposition(
-                raw_disposition,
-                args.session,
-                state_store=state_store,
-            )
-    except Exception as exc:
-        print(f"lifecycle operation failed: {exc}", file=sys.stderr)
-        return 1
-    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
-
-
-def _run_group_cli(args: argparse.Namespace) -> int:
-    if not args.session:
-        print("group operations require --session", file=sys.stderr)
-        return 2
-    if args.read_group and not args.group_id:
-        print("--read-group requires --group-id", file=sys.stderr)
-        return 2
-    try:
-        base = (
-            _prepare_private_directory(args.data_root.expanduser())
-            if args.data_root
-            else _data_root()
-        )
-        state_store = StateStore(base / "sessions")
-        if args.upsert_group:
-            raw_group = json.loads(sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1))
-            result = upsert_group(
-                raw_group,
-                args.session,
-                state_store=state_store,
-            )
-        else:
-            result = read_group(
-                args.session,
-                args.group_id,
-                state_store=state_store,
-            )
-    except Exception as exc:
-        print(f"group operation failed: {exc}", file=sys.stderr)
-        return 1
-    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-    return 0
-
-
-def _run_hook_cli() -> int:
-    try:
-        raw_input = sys.stdin.read(MAX_HOOK_INPUT_BYTES + 1)
-        if len(raw_input.encode("utf-8")) > MAX_HOOK_INPUT_BYTES:
-            raise ValueError(f"hook input exceeds {MAX_HOOK_INPUT_BYTES} bytes")
-        payload = json.loads(raw_input)
-        if not isinstance(payload, dict):
-            raise ValueError("hook input must be a JSON object")
-        result = handle(payload)
-    except Exception as exc:
-        event = locals().get("payload", {}).get("hook_event_name") if isinstance(locals().get("payload"), dict) else None
-        if event == "PreToolUse":
-            result = _deny(f"Subagent Governance 解析失败：{exc}")
-        else:
-            result = {"continue": True, "systemMessage": f"Subagent Governance 运行失败，已降级放行：{exc}"}
-    if result is not None:
-        print(json.dumps(result, ensure_ascii=False))
-    return 0
-
-
 def main() -> int:
-    parser = _NonExitingArgumentParser(add_help=False)
-    parser.add_argument("--diagnose", action="store_true")
-    parser.add_argument("--prepare-dispatch", action="store_true")
-    parser.add_argument("--verify-context-manifest", action="store_true")
-    parser.add_argument("--prepare-spawn-retry")
-    parser.add_argument("--authorize-final-retry", action="store_true")
-    parser.add_argument("--prepare-communication", action="store_true")
-    parser.add_argument("--prepare-interrupt", action="store_true")
-    parser.add_argument("--reconcile-interrupted-attempt", action="store_true")
-    parser.add_argument("--authorize-recovery", action="store_true")
-    parser.add_argument("--record-terminal-notification", action="store_true")
-    parser.add_argument("--parent-disposition", action="store_true")
-    parser.add_argument("--upsert-group", action="store_true")
-    parser.add_argument("--read-group", action="store_true")
-    parser.add_argument("--group-id")
-    parser.add_argument("--session")
-    parser.add_argument("--data-root", type=Path)
-    raw_arguments = sys.argv[1:]
-    diagnostic_requested = "--diagnose" in raw_arguments
     try:
-        args, unknown = parser.parse_known_args()
-    except ValueError as exc:
-        if diagnostic_requested:
-            _emit_diagnostic_cli_error(str(exc), raw_arguments)
-        print(str(exc), file=sys.stderr)
-        return 2
-    if unknown:
-        if args.diagnose:
-            _emit_diagnostic_cli_error(f"unsupported arguments: {unknown}", raw_arguments)
-        print(f"unsupported arguments: {unknown}", file=sys.stderr)
-        return 2
-    operation_modes = {
-        "prepare_dispatch": args.prepare_dispatch,
-        "verify_context_manifest": args.verify_context_manifest,
-        "prepare_spawn_retry": args.prepare_spawn_retry is not None,
-        "prepare_communication": args.prepare_communication,
-        "prepare_interrupt": args.prepare_interrupt,
-        "reconcile_interrupted_attempt": args.reconcile_interrupted_attempt,
-        "record_terminal_notification": args.record_terminal_notification,
-        "parent_disposition": args.parent_disposition,
-        "upsert_group": args.upsert_group,
-        "read_group": args.read_group,
-    }
-    preparation_mode = any(
-        (
-            args.prepare_dispatch,
-            args.prepare_spawn_retry is not None,
-            args.prepare_communication,
-            args.prepare_interrupt,
-        )
-    )
-    lifecycle_mode = any(
-        operation_modes[name]
-        for name in (
-            "record_terminal_notification", "parent_disposition",
-        )
-    )
-    group_mode = args.upsert_group or args.read_group
-    reconciliation_mode = args.reconcile_interrupted_attempt
-    if sum(bool(value) for value in operation_modes.values()) > 1:
-        if args.diagnose:
-            _emit_diagnostic_cli_error("operation modes cannot be combined", raw_arguments)
-        print("operation modes cannot be combined", file=sys.stderr)
-        return 2
-    if args.diagnose and any(operation_modes.values()):
-        _emit_diagnostic_cli_error(
-            "--diagnose cannot be combined with another operation mode",
-            raw_arguments,
-        )
-        print("--diagnose cannot be combined with another operation mode", file=sys.stderr)
-        return 2
-    diagnostic_selector_conflicts = [
-        name
-        for name, selected in (
-            ("--group-id", args.group_id is not None),
-            ("--authorize-final-retry", args.authorize_final_retry),
-            ("--authorize-recovery", args.authorize_recovery),
-        )
-        if selected
-    ]
-    if args.diagnose and diagnostic_selector_conflicts:
-        conflict_text = ", ".join(diagnostic_selector_conflicts)
-        message = f"{conflict_text} cannot be combined with --diagnose"
-        _emit_diagnostic_cli_error(message, raw_arguments)
-        print(message, file=sys.stderr)
-        return 2
-    invalid_authorization_combinations = []
-    if args.authorize_final_retry and args.prepare_spawn_retry is None:
-        invalid_authorization_combinations.append(
-            "--authorize-final-retry requires --prepare-spawn-retry"
-        )
-    if args.authorize_recovery and not args.prepare_communication:
-        invalid_authorization_combinations.append(
-            "--authorize-recovery requires --prepare-communication"
-        )
-    if args.group_id is not None and not args.read_group:
-        invalid_authorization_combinations.append(
-            "--group-id is only valid with --read-group"
-        )
-    if invalid_authorization_combinations:
-        message = "; ".join(invalid_authorization_combinations)
-        if args.diagnose:
-            _emit_diagnostic_cli_error(message, raw_arguments)
-        print(message, file=sys.stderr)
-        return 2
-    if args.verify_context_manifest and (
-        args.session is not None or args.data_root is not None
-    ):
-        print(
-            "--verify-context-manifest does not accept --session or --data-root",
-            file=sys.stderr,
-        )
-        return 2
-    if not args.diagnose and not any(operation_modes.values()) and (
-        args.session is not None or args.data_root is not None or args.group_id is not None
-    ):
-        print("--session and --data-root require --diagnose or an explicit operation mode", file=sys.stderr)
-        return 2
-    if args.diagnose:
-        return _diagnose(args.session, args.data_root)
-    if args.verify_context_manifest:
-        return _run_context_verification_cli()
-    if preparation_mode:
-        return _run_preparation_cli(args)
-    if reconciliation_mode:
-        return _run_reconciliation_cli(args)
-    if lifecycle_mode:
-        return _run_lifecycle_cli(args)
-    if group_mode:
-        return _run_group_cli(args)
-    return _run_hook_cli()
+        from scripts.governance_cli import main as cli_main
+    except ModuleNotFoundError:
+        from governance_cli import main as cli_main
+    return cli_main(sys.modules[__name__])
 
 
 if __name__ == "__main__":

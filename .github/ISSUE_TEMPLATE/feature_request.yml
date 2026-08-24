@@ -22,7 +22,7 @@ body:
     id: codex_integration
     attributes:
       label: Codex integration impact
-      description: Which native Codex tools, Skills, Hooks, lifecycle events, or compatibility boundaries are affected?
+      description: Which native Codex tools, Skills, Hooks, lifecycle events, or integration boundaries are affected?
     validations:
       required: true
   - type: textarea

@@ -5,7 +5,6 @@ import re
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -148,7 +147,6 @@ class PluginStructureTests(unittest.TestCase):
         self.assertTrue((ROOT / "LICENSE").is_file())
         for public_document in (
             "README.en.md",
-            "CHANGELOG.md",
             "CONTRIBUTING.md",
             "SECURITY.md",
             "scripts/release_preflight.py",

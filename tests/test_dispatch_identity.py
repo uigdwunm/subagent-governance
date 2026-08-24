@@ -1,23 +1,17 @@
 #!/usr/bin/env python3
 
-import importlib.util
 import copy
+import json
 import stat
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from tests.support import load_governance
 
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts/subagent_governance.py"
-SPEC = importlib.util.spec_from_file_location("subagent_governance_dispatch", SCRIPT)
-governance = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-sys.modules[SPEC.name] = governance
-SPEC.loader.exec_module(governance)
+governance = load_governance("dispatch")
 
 
 class DispatchIdentityTests(unittest.TestCase):
@@ -48,7 +42,7 @@ class DispatchIdentityTests(unittest.TestCase):
                 "concurrent_write": False,
             },
             "objective": "实现支付状态检查并验证结果",
-            "background": "WP-01 和 WP-02 已完成。",
+            "background": "派发前置条件已满足。",
             "work_scope": ["修改当前开发仓库内的派发路径"],
             "forbidden_scope": [],
             "completion_conditions": ["确定性派发和身份绑定测试通过"],
@@ -111,19 +105,14 @@ class DispatchIdentityTests(unittest.TestCase):
             r"^sg_standard_payment_review_t_[a-f0-9]{12}$",
         )
 
-    def test_dispatch_persists_task_contract_digest_without_deliverable_projection(self):
+    def test_dispatch_persists_current_task_contract_digest(self):
         prepared = self.prepare()
         state = self.store.read("session-1")
         execution = state["tasks"][prepared["task_id"]]["executions"]["1"]
-        self.assertNotIn("deliverable_contract", execution)
-        for retired in ("semantic_name", "requested_mode", "resolution_reason"):
-            self.assertNotIn(retired, execution)
         self.assertEqual(
             set(execution["contract_summary"]),
             {"objective", "model"},
         )
-        self.assertNotIn("completion_conditions", execution["contract_summary"])
-        self.assertNotIn("deliverable_contract", prepared)
         self.assertEqual(execution["contract_digest"], prepared["contract_digest"])
         self.assertEqual(
             prepared["contract_digest"],
@@ -134,7 +123,6 @@ class DispatchIdentityTests(unittest.TestCase):
         )
         self.assertNotEqual(prepared["contract_digest"], governance.contract_digest(changed))
         stored = self.prepared_store().read("session-1", prepared["task_ref"])
-        self.assertNotIn("deliverable_contract", stored)
         self.assertEqual(stored["contract_digest"], prepared["contract_digest"])
 
     def test_spawn_retry_rejects_changed_contract_by_complete_digest(self):
@@ -162,6 +150,92 @@ class DispatchIdentityTests(unittest.TestCase):
                 state_store=self.store,
                 prepared_store=self.prepared_store(),
             )
+
+    def test_spawn_retry_rejects_working_tree_directory_before_replacement(self):
+        prepared = self.prepare()
+        governance.handle(self.pre_payload(prepared), self.store)
+        governance.handle(
+            {
+                "session_id": "session-1",
+                "hook_event_name": "PostToolUse",
+                "tool_name": "spawn_agent",
+                "tool_use_id": "spawn-call-1",
+                "tool_response": {"isError": True},
+            },
+            self.store,
+        )
+        workspace = self.root / "retry-workspace"
+        (workspace / "docs").mkdir(parents=True)
+        invalid_contract = self.contract(
+            context_manifest={
+                "mode": "declared",
+                "workspace_root": str(workspace),
+                "baseline": {"kind": "working_tree", "revision": None},
+                "required_paths": [{"path": "docs", "type": "directory"}],
+            }
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "working_tree.*directory.*逐文件.*git_commit",
+        ):
+            governance.prepare_spawn_retry(
+                invalid_contract,
+                "session-1",
+                prepared["task_id"],
+                state_store=self.store,
+                prepared_store=self.prepared_store(),
+            )
+
+        execution = self.current_execution(
+            self.store.read("session-1"),
+            prepared["task_id"],
+        )
+        self.assertEqual(execution["spawn_retry_count"], 0)
+        self.assertEqual(governance._spawn_observation(execution), "failed")
+
+    def test_pre_tool_use_denies_legacy_working_tree_directory_contract(self):
+        prepared = self.prepare()
+        prepared_store = self.prepared_store()
+        record = prepared_store.read("session-1", prepared["task_ref"])
+        workspace = self.root / "legacy-workspace"
+        (workspace / "docs").mkdir(parents=True)
+        record["contract"]["context_manifest"] = {
+            "mode": "declared",
+            "workspace_root": str(workspace),
+            "baseline": {"kind": "working_tree", "revision": None},
+            "required_paths": [{"path": "docs", "type": "directory"}],
+        }
+        record["context_verification"] = {
+            "mode": "declared",
+            "workspace_root": str(workspace),
+            "baseline": {"kind": "working_tree", "revision": None},
+            "required_paths": [
+                {"path": "docs", "type": "directory", "mtime_ns": 1}
+            ],
+        }
+        record_path, _lock_path = prepared_store._paths(
+            "session-1",
+            prepared["task_ref"],
+        )
+        record_path.write_text(
+            json.dumps(record, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        denied = governance.handle(self.pre_payload(prepared), self.store)
+
+        output = denied["hookSpecificOutput"]
+        self.assertEqual(output["permissionDecision"], "deny")
+        self.assertRegex(
+            output["permissionDecisionReason"],
+            "PreparedContract.*working_tree.*directory",
+        )
+        execution = self.current_execution(
+            self.store.read("session-1"),
+            prepared["task_id"],
+        )
+        self.assertIsNone(governance._dispatch_tool_use_id(execution))
 
     def test_initial_spawn_claim_uses_only_derived_action_required(self):
         prepared = self.prepare()
@@ -248,25 +322,6 @@ class DispatchIdentityTests(unittest.TestCase):
                 self.contract(), "session-1", initial["task_id"],
                 state_store=self.store, prepared_store=self.prepared_store(), now=1_200,
             )
-
-    def test_retired_select_attempt_disposition_is_rejected_without_state_change(self):
-        initial = self.prepare()
-        before = copy.deepcopy(self.store.read("session-1"))
-
-        with self.assertRaisesRegex(governance.ParentDispositionError, "close_task"):
-            governance.apply_parent_disposition(
-                {
-                    "task_id": initial["task_id"],
-                    "attempt": initial["attempt"],
-                    "action": "select_attempt",
-                    "reason": "已退役的 duplicate 处置",
-                },
-                "session-1",
-                state_store=self.store,
-                now=1_250,
-            )
-
-        self.assertEqual(self.store.read("session-1"), before)
 
     def test_initial_claim_persist_then_raise_restores_unclaimed_contract(self):
         initial = self.prepare()
@@ -834,7 +889,7 @@ class DispatchIdentityTests(unittest.TestCase):
             nonlocal compare_calls
             compare_calls += 1
             if compare_calls == 1:
-                result = original_compare_and_set(*args, **kwargs)
+                original_compare_and_set(*args, **kwargs)
                 raise governance.StateWriteError("simulated initial write readback error")
             if compare_calls == 2:
                 raise governance.StateWriteError("simulated task cleanup write failure")
@@ -1801,14 +1856,14 @@ class DispatchIdentityTests(unittest.TestCase):
         self.assertEqual(result["hookSpecificOutput"]["updatedInput"], payload["tool_input"])
         self.assertEqual(self.store.read("session-1")["tasks"], {})
 
-    def test_old_governed_name_is_rejected_instead_of_reading_business_body(self):
+    def test_malformed_governed_name_is_rejected_without_reading_business_body(self):
         payload = {
             "session_id": "session-1",
             "hook_event_name": "PreToolUse",
             "tool_name": "spawn_agent",
-            "tool_use_id": "legacy-call",
+            "tool_use_id": "malformed-call",
             "tool_input": {
-                "task_name": "sg_standard_legacy_task",
+                "task_name": "sg_standard_malformed_task",
                 "message": "【目标】正文不再是治理契约来源",
                 "fork_turns": "none",
             },

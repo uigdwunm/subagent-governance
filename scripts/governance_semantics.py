@@ -11,7 +11,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-
 SEMANTICS_PATH = (
     Path(__file__).resolve().parents[1]
     / "schemas/governance-semantics.schema.json"
@@ -58,7 +57,6 @@ CONTEXT_STRATEGIES = _semantic_enum("context_strategy")
 OPERATION_TYPES = _semantic_enum("operation_type")
 DISPATCH_STATES = _semantic_enum("dispatch_state")
 OBSERVATION_SOURCES = _semantic_enum("observation_source")
-RETIRED_OBSERVATION_SOURCES = frozenset({"post_tool", "wait"})
 OBSERVED_STATES = _semantic_enum("observed_state")
 EXECUTION_STATUSES = _semantic_enum("execution_status")
 IDENTITY_STATUSES = _semantic_enum("identity_status")
@@ -170,36 +168,6 @@ REQUIRED_OBSERVATION_RECORD_FIELDS = frozenset(
 )
 REQUIRED_CLOSURE_RECORD_FIELDS = frozenset(
     {"reason", "closed_at", "parent_action"}
-)
-LEGACY_EXECUTION_PROJECTION_FIELDS = frozenset(
-    {
-        "execution_status",
-        "spawn_observation",
-        "identity_status",
-        "platform_observation",
-        "parent_action",
-        "parent_disposition_record",
-        "spawn_tool_use_id",
-        "spawn_claimed_at",
-        "spawn_post_observed_at",
-        "spawn_observed_agent_id",
-        "spawn_observed_canonical_path",
-        "spawn_result_credential_id",
-        "agent_id",
-        "canonical_task_path",
-        "platform_checked_at",
-        "platform_observation_source",
-        "platform_observation_summary",
-        "platform_observation_target",
-        "start_observed_at",
-        "attempt_closed",
-        "attempt_close_reason",
-        "attempt_closed_at",
-        "parent_disposition",
-        "parent_disposition_reason",
-        "parent_disposition_at",
-        "spawn_not_created",
-    }
 )
 REQUIRED_PENDING_ACTION_FIELDS = frozenset(
     {

@@ -32,11 +32,11 @@ flowchart LR
 
 插件不规定结构化业务结果格式，不创建独立结果文件，不维护 acceptance、SHA 或结果补交流程。父 Agent 直接阅读子 Agent 的原生最终回复，插件只保证通知关联和状态维护正确。
 
-任务契约不会扫描或评分自然语言。模型必须逐项提供契约字段；可以用 `[]` 或 `null` 明确表示无内容。必需文件不使用自然语言猜测，而由 `context_manifest` 声明为 `none` 或 `declared`。declared 模式只读取明确列出的路径，并机械验证工作区、Git commit、文件类型和内容摘要。
+任务契约不会扫描或评分自然语言。模型必须逐项提供契约字段；可以用 `[]` 或 `null` 明确表示无内容。必需文件不使用自然语言猜测，而由 `context_manifest` 声明为 `none` 或 `declared`。declared 模式只读取明确列出的路径，并机械验证工作区、Git commit、文件类型和内容摘要；`working_tree` 只接受逐文件声明，目录依赖使用 `git_commit` tree object ID。
 
 对于不经过原生 `spawn_agent` 的独立任务交接，可以在派发前将 manifest 通过标准输入交给 `python3 scripts/subagent_governance.py --verify-context-manifest`。该命令只返回验证事实，不创建治理状态，也不能硬拦截 `create_thread`。
 
-当前 v5 StateStore 的读取、更新和 CAS callback 都只暴露 `dispatch_record`、`observation_record`、`closure_record`。v1-v4 旧 execution 字段仅用于一次性迁移输入：读取时在内存中转换，下一次成功写入时落为 v5，不会再生成兼容投影或维护第二份状态。
+StateStore 只接受当前 `state_format_version=5`，每个 execution 只包含 `dispatch_record`、`observation_record` 和 `closure_record`。缺少版本、版本不匹配或结构不符合当前模型时直接拒绝，且不修改原文件。
 
 如果 initial PreparedContract 已缺失且超过5分钟，同时 canonical state 仍精确证明派发从未被 claim、没有 target、没有平台观察或终态，SessionStart/SessionEnd 会把这条未启动工作项自动关闭并保留7天 tombstone。它不会伪造 completed 或终态通知；claimed、unknown、并发变化和任何可能已创建 Agent 的状态都会保留给 reconcile。
 
@@ -94,7 +94,7 @@ python3 scripts/subagent_governance.py --record-terminal-notification --session 
 }
 ```
 
-插件核对 `sender_target == dispatch_record.dispatch_target` 和精确 `task_id + attempt`。相同通知重放幂等，冲突 terminal status 保留首个事实并进入 reconcile。通知正文不会被扫描或持久化，也不会创建 `results/`。
+插件核对 `sender_target == dispatch_record.dispatch_target` 和精确 `task_id + attempt`。相同通知重放幂等，冲突 terminal status 保留首个事实并进入 reconcile。通知正文不会被扫描或持久化。
 
 父 Agent 完成业务判断后，通过 `--parent-disposition` 选择：
 
@@ -105,8 +105,8 @@ python3 scripts/subagent_governance.py --record-terminal-notification --session 
 - 核心运行时不主动联网，也不包含遥测或远程控制面。
 - Marketplace 安装和升级由 Codex 完成，可能访问插件 Git 仓库。
 - 本地状态只保存任务标识、Agent 映射、有限契约摘要、生命周期、通知观察和 tombstone。
-- v5 不读取、创建或删除旧版本的 `results/` 文件；历史文件由用户确认后自行清理。
-- 卸载不会自动删除插件数据或兼容缓存。
+- 本地只保存当前格式的治理状态；非当前格式不会被读取、转换或写回。
+- 卸载不会自动删除当前插件数据。
 
 ## 重要边界
 
@@ -116,7 +116,7 @@ python3 scripts/subagent_governance.py --record-terminal-notification --session 
 - 插件不注册 `SubagentStart`、`SubagentStop`；这两个原生事件不参与状态维护或通知处理。
 - `list_agents` 只读取顶层 `agents` 并要求 exact canonical target。平台 terminal 只进入 `await_notification`，不替代原生通知。
 - Stop 只显示 advisory 并固定 fail-open，不替父 Agent 判断业务结果。
-- 已打开任务可能固定引用启动时的插件缓存，升级后应新建任务验证。
+- 升级前结束当前任务；安装成功后只保留目标版本缓存，并在新任务中验证。
 
 完整安全边界见 [SECURITY.md](SECURITY.md)。
 
@@ -140,8 +140,8 @@ py -3 <installed-plugin-root>\scripts\apply_agents_block.py --execute
 
 ```bash
 codex plugin marketplace upgrade subagent-governance
-python3 <installed-plugin-root>/scripts/reinstall_preserving_caches.py \
-  --previous-version <current-version>
+python3 <installed-plugin-root>/scripts/reinstall_plugin.py \
+  --target-version <full-manifest-version>
 ```
 
 升级后重新检查 `/hooks` 并新建任务。卸载前如安装过全局入口：
@@ -173,15 +173,20 @@ python3 scripts/subagent_governance.py --read-group --session <session_id> --gro
 ## 开发验证
 
 ```bash
+python3 -m pip install -r requirements-dev.txt
 python3 -m unittest discover -s tests -v
-python3 -m py_compile scripts/subagent_governance.py
+python3 -m compileall -q scripts
+ruff check scripts tests
+coverage run -m unittest discover -s tests -v
+coverage report
 python3 scripts/release_preflight.py --mode development
 python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
 python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/subagent-governance
 ```
 
 - [贡献说明](CONTRIBUTING.md)
-- [版本变化](CHANGELOG.md)
+- [当前架构](docs/architecture.md)
+- [中断对账](docs/interruption-reconciliation.md)
 - [平台验收摘要](docs/platform-validation.md)
 - [发布流程](docs/release-process.md)
 

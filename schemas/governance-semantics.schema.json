@@ -262,6 +262,26 @@
               "items": {"$ref": "#/$defs/context_required_path"}
             }
           },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "baseline": {
+                    "properties": {"kind": {"const": "working_tree"}}
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "required_paths": {
+                    "items": {
+                      "properties": {"type": {"const": "file"}}
+                    }
+                  }
+                }
+              }
+            }
+          ],
           "additionalProperties": false
         }
       ]
@@ -781,7 +801,7 @@
       "unknown_subagent_extensions": "ignore_fail_open",
       "unreliable_parent_stop_state": "advisory_fail_open",
       "active_freshness_authority": "disabled",
-      "positive_parent_stop_gate": "none_through_slice_4",
+      "positive_parent_stop_gate": "none",
       "parent_stop_behavior": "advisory_continue"
     },
     "target_lifecycle_admission": {
@@ -791,8 +811,8 @@
       "unique_open_retained_candidate": "repair_active_index_inside_state_lock_then_managed",
       "multiple_open_retained_candidates": "reconcile_fail_closed",
       "live_index_provenance_conflict": "reconcile_fail_closed",
-      "closed_historical_provenance": "reject_without_reactivation",
-      "no_canonical_provenance": "unmanaged_compatibility",
+      "closed_provenance": "reject_without_reactivation",
+      "no_canonical_provenance": "unmanaged_pass_through",
       "generator_and_pretool_share_classifier": true,
       "governed_operation_without_pending": "deny",
       "pending_owner_must_equal_admission_candidate": true,
@@ -878,8 +898,7 @@
         "includes_all_executions": true,
         "uses_recent_activity_window": false,
         "primary_rule": "unclosed_parent_action_or_authoritative_call_running_identity",
-        "closed_candidates_are_action_required": false,
-        "legacy_persisted_field_is_ignored_and_removed_during_migration": true
+        "closed_candidates_are_action_required": false
       },
       "recent_activity": {
         "includes_all_executions": true,
@@ -930,12 +949,10 @@
       "executions_field": "executions",
       "execution_key": "attempt",
       "root_fields": ["managed", "work_item", "executions"],
-      "legacy_projection_retired": true,
       "execution_plane_fields": [
         "dispatch_record", "observation_record", "closure_record"
       ],
-      "legacy_projection_scope": "v1_v4_migration_input_only",
-      "unknown_version_behavior": "fail_open_without_rewrite"
+      "unknown_version_behavior": "reject_without_rewrite"
     }
   }
 }

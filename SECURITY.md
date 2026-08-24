@@ -52,8 +52,8 @@ These issues can still be important bugs, especially when they create false term
 - Codex may access the configured Git Marketplace during installation or upgrade.
 - Bounded lifecycle and terminal-notification metadata is stored in the current user's local Codex plugin data directory.
 - The plugin does not persist terminal notification bodies or business results. Diagnostic output is intentionally bounded and omits that content.
-- Raw platform acceptance logs may contain host paths and Session identifiers and must not be committed; the repository ignores `docs/real-platform-test-*.md`.
+- Raw platform evidence may contain host paths and Session identifiers and must not be committed; the repository ignores `docs/private-platform-evidence-*.md`.
 
 ## Supported versions
 
-Security fixes are applied to the current development line and the latest published release candidate or stable release when practical. Older release candidates are not guaranteed to receive separate patches.
+Security fixes target the current development line and the current published release. The project does not maintain parallel release lines.

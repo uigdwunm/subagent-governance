@@ -1,20 +1,12 @@
 #!/usr/bin/env python3
 
-import importlib.util
-import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+from tests.support import load_governance
 
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "subagent_governance.py"
-SPEC = importlib.util.spec_from_file_location("subagent_governance_session_v5", SCRIPT)
-governance = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-sys.modules[SPEC.name] = governance
-SPEC.loader.exec_module(governance)
+governance = load_governance("session_closure")
 
 
 class WaitRecoverySessionClosureTests(unittest.TestCase):
@@ -71,7 +63,6 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
             dispatch_state="acknowledged",
             dispatch_target=target,
             tool_use_id=f"spawn-{attempt}",
-            claimed_at=now + 1,
         )
         governance._apply_canonical_execution_update(execution, "observed_execution_status", "running")
         governance._apply_canonical_execution_update(execution, "closure_parent_action", "wait")
@@ -221,20 +212,16 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
         self.assertFalse(path.exists())
         self.assertTrue(lock_path.exists())
 
-    def test_expired_tombstone_is_removed_without_touching_legacy_results(self):
+    def test_expired_tombstone_is_removed(self):
         now = governance._now()
-        legacy_results = self.root / "results"
-        legacy_results.mkdir()
-        legacy_file = legacy_results / "legacy.json"
-        legacy_file.write_text("{}", encoding="utf-8")
         self.store.update(
             self.session_id,
             lambda state: state["tombstones"].update(
                 {
-                    "legacy:1": {
-                        "task_id": "legacy",
+                    "closed-task:1": {
+                        "task_id": "closed-task",
                         "attempt": 1,
-                        "close_reason": "historical",
+                        "close_reason": "parent_closed",
                         "closed_at": now - governance.RETENTION_SECONDS["tombstone"] - 1,
                     }
                 }
@@ -244,8 +231,9 @@ class WaitRecoverySessionClosureTests(unittest.TestCase):
             {"session_id": self.session_id, "hook_event_name": "SessionStart"},
             self.store,
         )
-        self.assertTrue(legacy_file.exists())
-        self.assertNotIn("legacy:1", self.store.read(self.session_id)["tombstones"])
+        self.assertNotIn(
+            "closed-task:1", self.store.read(self.session_id)["tombstones"]
+        )
 
     def test_stop_fails_open_when_store_is_unavailable(self):
         unavailable = governance.UnavailableStateStore(RuntimeError("state unavailable"))

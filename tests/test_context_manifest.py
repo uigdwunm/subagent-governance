@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import importlib.util
 import json
 import subprocess
 import sys
@@ -8,14 +7,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tests.schema_validation import validate_instance
+from tests.support import ROOT, load_governance
 
-ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "subagent_governance.py"
-SPEC = importlib.util.spec_from_file_location("subagent_governance_context", SCRIPT)
-governance = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-sys.modules[SPEC.name] = governance
-SPEC.loader.exec_module(governance)
+governance = load_governance("context")
 
 
 class ContextManifestTests(unittest.TestCase):
@@ -139,6 +135,32 @@ class ContextManifestTests(unittest.TestCase):
             {"none", "declared"},
         )
 
+        declared = {
+            "mode": "declared",
+            "workspace_root": str(self.root),
+            "baseline": {"kind": "working_tree", "revision": None},
+            "required_paths": [{"path": "docs", "type": "directory"}],
+        }
+        self.assertTrue(
+            validate_instance(
+                declared,
+                manifest,
+                root_schema=semantics,
+            )
+        )
+        declared["baseline"] = {
+            "kind": "git_commit",
+            "revision": "a" * 40,
+        }
+        self.assertEqual(
+            validate_instance(
+                declared,
+                manifest,
+                root_schema=semantics,
+            ),
+            [],
+        )
+
     def test_none_manifest_accepts_opaque_business_text_without_semantic_scoring(self):
         result = self.prepare(self.contract())
 
@@ -245,6 +267,56 @@ class ContextManifestTests(unittest.TestCase):
         persisted = self.prepared.read("session-1", prepared["task_ref"])
         self.assertFalse(persisted["consumed"])
 
+    def test_working_tree_directory_is_rejected_before_state_creation(self):
+        repository, _revision = self.init_repository()
+        manifest = {
+            "mode": "declared",
+            "workspace_root": str(repository),
+            "baseline": {"kind": "working_tree", "revision": None},
+            "required_paths": [{"path": "docs", "type": "directory"}],
+        }
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "working_tree.*directory.*逐文件.*git_commit",
+        ):
+            self.prepare(self.contract(context_manifest=manifest))
+
+        state = self.store.read("session-1")
+        self.assertEqual(state["tasks"], {})
+        self.assertEqual(self.prepared.refs("session-1"), set())
+
+    def test_git_commit_directory_uses_tree_object_and_rejects_workspace_drift(self):
+        repository, revision = self.init_repository()
+        manifest = {
+            "mode": "declared",
+            "workspace_root": str(repository),
+            "baseline": {"kind": "git_commit", "revision": revision},
+            "required_paths": [{"path": "docs", "type": "directory"}],
+        }
+
+        prepared = self.prepare(self.contract(context_manifest=manifest))
+        self.assertRegex(
+            prepared["context_verification"]["required_paths"][0]["object_id"],
+            r"^[a-f0-9]{40,64}$",
+        )
+
+        (repository / "docs" / "untracked.md").write_text(
+            "drift\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            governance.DispatchPreparationError,
+            "工作区内容与 Git baseline 不一致",
+        ):
+            governance.prepare_dispatch(
+                self.contract(context_manifest=manifest),
+                "session-2",
+                state_store=self.store,
+                prepared_store=self.prepared,
+                task_id_factory=lambda: "sg-context-directory-drift",
+            )
+
     def test_prepared_contract_rejects_tampered_context_verification(self):
         prepared = self.prepare(self.contract())
         record = self.prepared.read("session-1", prepared["task_ref"])
@@ -273,6 +345,35 @@ class ContextManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "不能包含"):
             governance._contract_from_input(self.contract(context_manifest=manifest))
 
+    def test_manifest_rejects_invalid_baseline_kind_and_long_path(self):
+        base = {
+            "mode": "declared",
+            "workspace_root": str(self.root),
+            "required_paths": [{"path": "task.md", "type": "file"}],
+        }
+        with self.assertRaisesRegex(ValueError, "baseline.kind"):
+            governance._contract_from_input(
+                self.contract(
+                    context_manifest={
+                        **base,
+                        "baseline": {"kind": "invalid", "revision": None},
+                    }
+                )
+            )
+
+        with self.assertRaisesRegex(ValueError, "长度不能超过 1000"):
+            governance._contract_from_input(
+                self.contract(
+                    context_manifest={
+                        **base,
+                        "baseline": {"kind": "working_tree", "revision": None},
+                        "required_paths": [
+                            {"path": "x" * 1001, "type": "file"}
+                        ],
+                    }
+                )
+            )
+
     def test_context_manifest_cli_is_transport_neutral_and_read_only(self):
         result = subprocess.run(
             [sys.executable, str(SCRIPT), "--verify-context-manifest"],
@@ -285,6 +386,30 @@ class ContextManifestTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), {"mode": "none"})
         self.assertEqual(list((self.root / "state" / "sessions").glob("*.json")), [])
+
+    def test_context_manifest_cli_rejects_working_tree_directory(self):
+        workspace = self.root / "cli-workspace"
+        (workspace / "docs").mkdir(parents=True)
+        manifest = {
+            "mode": "declared",
+            "workspace_root": str(workspace),
+            "baseline": {"kind": "working_tree", "revision": None},
+            "required_paths": [{"path": "docs", "type": "directory"}],
+        }
+
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--verify-context-manifest"],
+            input=json.dumps(manifest),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertRegex(
+            result.stderr,
+            "working_tree.*directory.*逐文件.*git_commit",
+        )
 
 
 if __name__ == "__main__":

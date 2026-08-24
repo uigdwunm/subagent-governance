@@ -6,11 +6,11 @@ A Codex-first lifecycle governance plugin for native subagents. It keeps the nat
 
 It does not introduce a second orchestrator, define a business-result JSON format, persist result bodies, or replace the parent agent's judgment.
 
-The contract does not scan or score natural-language content. Every input direction must be present, with `[]` or `null` used explicitly where allowed. Required workspace materials are declared through `context_manifest`; only declared paths, baselines, types, and digests are checked.
+The contract does not scan or score natural-language content. Every input direction must be present, with `[]` or `null` used explicitly where allowed. Required workspace materials are declared through `context_manifest`; only declared paths, baselines, types, and digests are checked. A `working_tree` baseline accepts file declarations only; directory dependencies use Git tree object IDs under a `git_commit` baseline.
 
 For handoffs outside native `spawn_agent`, pipe the manifest to `python3 scripts/subagent_governance.py --verify-context-manifest` before dispatch. This read-only preflight returns verification facts without creating governance state and cannot hard-intercept `create_thread`.
 
-Version 5 StateStore reads, updates, and CAS callbacks expose only `dispatch_record`, `observation_record`, and `closure_record`. Legacy v1-v4 execution fields are accepted only as one-way migration input: reads convert them in memory, and the next successful write persists v5 without recreating a compatibility projection or maintaining a second state model.
+StateStore accepts only the current `state_format_version=5`, with `dispatch_record`, `observation_record`, and `closure_record` as the three execution planes. Missing, mismatched, or structurally invalid state is rejected without rewriting the source file.
 
 When an initial PreparedContract has been missing for more than five minutes and canonical state still proves the dispatch was never claimed, targeted, observed, or started, SessionStart/SessionEnd closes that unstarted work item into a seven-day tombstone. This does not synthesize completion or a terminal notification; claimed, unknown, concurrently changed, or possibly created Agents remain open for reconciliation.
 
@@ -53,7 +53,7 @@ python3 scripts/subagent_governance.py --record-terminal-notification --session 
 }
 ```
 
-The runtime requires an exact dispatch-target and task/attempt match. Identical notifications are idempotent; conflicting terminal statuses preserve the first fact and require reconciliation. Notification bodies are neither scanned nor stored, and no `results/` directory is created.
+The runtime requires an exact dispatch-target and task/attempt match. Identical notifications are idempotent; conflicting terminal statuses preserve the first fact and require reconciliation. Notification bodies are neither scanned nor stored.
 
 The parent reads the native reply and decides whether to continue or close. `--parent-disposition` supports only `close_task`.
 
@@ -61,7 +61,7 @@ The parent reads the native reply and decides whether to continue or close. `--p
 
 - The core runtime does not initiate network access and has no telemetry.
 - Local state contains bounded task metadata, identity mappings, lifecycle facts, notification observations, and tombstones.
-- Version 5 does not read or delete legacy result files. Existing files remain for manual cleanup.
+- Local governance data uses only the current state format. Other formats are not read, transformed, or rewritten.
 - The plugin does not register `SubagentStart` or `SubagentStop`; neither event participates in state maintenance or notification handling.
 - Exact `list_agents` terminal observations wait for the native notification; they do not synthesize completion.
 - Parent Stop remains advisory and fail-open.
@@ -73,19 +73,23 @@ python3 scripts/subagent_governance.py --diagnose --data-root /path/to/governanc
 python3 scripts/subagent_governance.py --diagnose --data-root /path/to/governance-data --session <session_id>
 ```
 
-Diagnostics are read-only: they do not create locks, repair state, scan legacy results, or write back observations.
+Diagnostics are read-only: they do not create locks, repair state, or write back observations.
 
 ## Development
 
 ```bash
+python3 -m pip install -r requirements-dev.txt
 python3 -m unittest discover -s tests -v
-python3 -m py_compile scripts/subagent_governance.py
+python3 -m compileall -q scripts
+ruff check scripts tests
+coverage run -m unittest discover -s tests -v
+coverage report
 python3 scripts/release_preflight.py --mode development
 python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
 python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/subagent-governance
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [CHANGELOG.md](CHANGELOG.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and the [current architecture](docs/architecture.md).
 
 ## License
 

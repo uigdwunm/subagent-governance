@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 
-import importlib.util
 import json
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
+from tests.support import ROOT, load_module
 
-ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/release_preflight.py"
-SPEC = importlib.util.spec_from_file_location("release_preflight", SCRIPT)
-preflight = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-SPEC.loader.exec_module(preflight)
+preflight = load_module("release_preflight_test", SCRIPT)
 
 
 class ReleasePreflightTests(unittest.TestCase):
@@ -32,7 +28,6 @@ class ReleasePreflightTests(unittest.TestCase):
             "LICENSE",
             "README.md",
             "README.en.md",
-            "CHANGELOG.md",
             "CONTRIBUTING.md",
             "SECURITY.md",
         ):
@@ -83,7 +78,7 @@ class ReleasePreflightTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self.copy_public_tree(root)
-            report = root / "docs/real-platform-test-private.md"
+            report = root / "docs/private-platform-evidence-local.md"
             report.write_text("private evidence", encoding="utf-8")
             with self.assertRaisesRegex(
                 preflight.PreflightFailure, "private platform evidence"

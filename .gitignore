@@ -10,4 +10,4 @@ build/
 *.log
 
 # Local platform acceptance evidence may contain host paths and session IDs.
-docs/real-platform-test-*.md
+docs/private-platform-evidence-*.md

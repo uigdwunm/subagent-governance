@@ -1,10 +1,8 @@
 # 平台验证摘要
 
-更新时间：2026-08-18
-
 ## 当前结论
 
-v5 本地实现以原生终态通知和三平面生命周期为边界。当前改动只更新开发仓库，尚未同步稳定源、Marketplace 或运行缓存，也未在新 Codex 对话中完成真实插件测试，因此不能宣称已完成发布级或真实平台验收。
+本地实现以原生终态通知和三平面生命周期为边界。仓库验证不能证明稳定源、Marketplace、运行缓存、Hook trust 或真实平台事件投递。
 
 ## 已由本地测试覆盖
 
@@ -17,8 +15,8 @@ v5 本地实现以原生终态通知和三平面生命周期为边界。当前�
 - 通知重放幂等、sender mismatch 拒绝和 terminal status 冲突 reconcile。
 - `close_task`、duplicate candidate 和 tombstone。
 - Group required member 的 notification/closed 汇总。
-- diagnose 不创建或扫描旧 `results/`。
-- v4 状态向 v5 三平面降维迁移。
+- diagnose 不创建或修改运行状态。
+- StateStore 只接受当前格式，其他版本原样拒绝。
 
 ## 平台能力边界
 
@@ -36,4 +34,4 @@ v5 本地实现以原生终态通知和三平面生命周期为边界。当前�
 - restart/compact 后 mailbox 与 retained target 的恢复表现。
 - business resume 在真实 follow-up 工具响应中的状态转换。
 
-真实测试必须遵循项目 `AGENTS.md`：先完成开发仓库验证，再更新用于测试的本地插件，并在当前项目新建独立对话；默认模型 `gpt-5.6-terra`、推理强度 `high`。未完成上述步骤前，本文件只报告本地可验证边界。
+真实测试必须遵循项目 `AGENTS.md`：先完成开发仓库验证，再取得安装授权并更新用于测试的本地插件，然后新建独立任务。未完成上述步骤时只能报告本地可验证边界。

@@ -21,7 +21,7 @@ List actual results and anything not checked.
 
 ## Compatibility and boundaries
 
-- [ ] Native unmanaged `spawn_agent` compatibility is preserved or the change is documented
+- [ ] Native unmanaged `spawn_agent` pass-through is preserved or the change is documented
 - [ ] macOS, Linux, and Windows impact has been considered
 - [ ] No installed cache, Hook trust, global configuration, Marketplace, or stable release state was modified
 - [ ] Public evidence contains no private prompts, credentials, host-specific paths, or Session identifiers

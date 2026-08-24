@@ -12,7 +12,7 @@ description: 治理 Codex 原生子 Agent 的派发、通信、等待、恢复�
 - 普通任务不需要加载本 Skill，也不要仅因任务可以拆分就主动创建子 Agent。
 - 准备规划、派发、通信、等待、恢复、中断或关闭原生子 Agent 时，先完整读取本 Skill。
 - 子 Agent 相关自然语言说明使用中文；模型名、参数、命令、路径、Agent 标识和状态枚举可保留原文。
-- 不引入第二套编排平台，不扫描 transcript、summary 或历史 final text 推断任务事实。
+- 不引入第二套编排平台，不扫描 transcript、summary 或先前 final text 推断任务事实。
 
 ## 任务契约
 
@@ -42,6 +42,7 @@ description: 治理 Codex 原生子 Agent 的派发、通信、等待、恢复�
 
 - `{"mode":"none"}`：派发方明确声明没有工作区材料依赖。
 - `mode=declared`：必须提供绝对 `workspace_root`、`working_tree|git_commit` baseline 和非空 `required_paths[]`。
+- `working_tree` 只支持逐文件声明并生成 SHA-256；目录声明必须改为逐文件，或使用 `git_commit` baseline 的递归 tree object ID。
 - `git_commit` 必须使用完整 commit OID，当前 HEAD 必须等于该 commit，且声明路径不能有 tracked/untracked 差异；模型只声明路径和基线，Git object ID 由生成器计算。
 - 插件只读取声明路径，不扫描工作区寻找潜在依赖，也不评价自然语言是否充分。
 
@@ -49,7 +50,7 @@ description: 治理 Codex 原生子 Agent 的派发、通信、等待、恢复�
 
 - `light`：边界清楚、只读、短时、低影响。
 - `standard`：普通编码、诊断、研究和 Review。
-- `strict`：安全、迁移、生产、破坏性操作、并发写入或复杂协作任务。
+- `strict`：安全、生产、破坏性操作、并发写入或复杂协作任务。
 - 显式等级不自动升降；`auto` 只按结构化 `task_features` 解析。
 - 任一 strict 信号成立则解析为 strict；`risk=low + read_only=true + writes_files=false` 且无 strict 信号时为 light；其余合法组合为 standard。
 - standard 至少一项证据要求；strict 至少一项禁止范围和一项证据要求。
@@ -109,14 +110,14 @@ initial credential 已缺失且超过5分钟时，只有 canonical state 仍精�
 - business resume success/unknown 不通过 SubagentStart 猜测 running；unknown 后不得向同一 Agent 重发。需要继续业务时必须按 business resume 的新 attempt 流程派发。
 - normal message 在 StateStore unavailable 时可告警 fail-open；受治理的 recovery 和 resume 前置事实不可可靠写入时拒绝。
 
-`agents[target]` 只是 active index。索引缺失时只有唯一精确且未关闭的 retained provenance 才能恢复；多候选、索引冲突或 historical closed target 必须对账，不能按 unmanaged 放行。
+`agents[target]` 只是 active index。索引缺失时只有唯一精确且未关闭的 retained provenance 才能恢复；多候选、索引冲突或 closed target 必须对账，不能按 unmanaged 放行。
 
 ## 等待、巡检和中断
 
 - 派发后保存 Agent ID 和 canonical task path，以 `timeout_ms: 1200000` 调用 `wait_agent`。
 - 正常等待超时后做一次精确目标巡检；平台明确报错时立即巡检。
 - 精确 running 时继续等待，不读取代码、日志或测试猜进度，不发送心跳。
-- `list_agents` adapter 只读取顶层 `agents`，不扫描 `content`、summary、history 或 transcript。
+- `list_agents` adapter 只读取顶层 `agents`，不扫描 `content`、summary、先前消息或 transcript。
 - completed、stopped、interrupted 的 list observation 只证明平台终态，不替代原生终态通知，也不生成业务结果。
 - 已看到平台终态但通知未到时，closure 为 `await_notification`，父动作是 `reconcile`。
 - `interrupt_agent` 只有可靠 inactive 事实才关闭 attempt；unknown 保持 reconcile。
@@ -146,7 +147,7 @@ stdin：
 
 - `sender_target` 必须原样等于该 execution 的 `dispatch_record.dispatch_target`。
 - 相同通知重放幂等；terminal status 冲突保留首个事实并进入 reconcile。
-- 只记录 sender、task、attempt、terminal status 和观察时间，不创建 `results/`，不保存正文、摘要或 SHA。
+- 只记录 sender、task、attempt、terminal status 和观察时间，不保存正文、摘要或 SHA。
 - 父 Agent 直接阅读原生通知并自行判断业务是否满足目标。
 
 父处置通过 `--parent-disposition --session <session_id>` 提交 `{task_id, attempt, action, reason}`，action 只有：
@@ -165,6 +166,8 @@ stdin：
 
 StateStore 还保存有限 identity、恢复计数、pending operation 和 tombstone。它不保存业务结果正文、验收状态、结果文件引用或结果冲突。
 
+StateStore 只接受当前 `state_format_version=5`。缺少版本、版本不匹配或 managed record 不符合当前三平面结构时直接拒绝，不迁移、不修复、不写回。
+
 `parent_action` 只表达生命周期下一步：`wait|reconcile|retry_spawn|recover|decide_disposition|ask_user` 或 JSON `null`。
 
 `action_required` 和 `recent_activity` 是独立只读派生视图。前者覆盖未关闭父动作、running、未决调用和身份未确认；后者只控制最近活动展示。
@@ -175,9 +178,9 @@ StateStore 还保存有限 identity、恢复计数、pending operation 和 tombs
 - SessionStart/SessionEnd 会收口凭证已缺失的过期未启动 initial dispatch；完整凭证仍存在时继续使用现有 exact rollback，任何可能已调用原生 Agent 的状态都不自动关闭。
 - Stop 最多读取 StateStore 三次，当前只给 advisory 且固定 fail-open，不替父 Agent 判断业务结果。
 - SessionEnd 仅在 action-required 为空且没有保留期 tombstone 时删除 Session JSON；稳定 `.lock` 永不删除。
-- tombstone 保留7天。v5 不读取或删除旧 `results/` 文件；历史文件由用户自行清理。
+- tombstone 保留7天。
 - `--diagnose [--session <session_id>] [--data-root <root>]` 使用无锁只读路径，不创建目录、锁或临时文件，不 reconcile、修复或回写状态。
-- 诊断输出 work item、execution candidate、通知状态、group 和有界 issue；不扫描旧结果目录，不转储业务正文。
+- 诊断输出 work item、execution candidate、通知状态、group 和有界 issue；不转储业务正文。
 
 完整边界见 [references/runtime-boundaries.md](references/runtime-boundaries.md)。
 

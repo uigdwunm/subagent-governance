@@ -4,7 +4,7 @@
 
 受治理派发必须显式覆盖任务目标、背景、范围、禁止事项、完成条件、证据、当前状态、任务特征、模型、推理强度、对话继承和材料依赖。插件只检查字段与材料事实，不分析自然语言是否正确、充分或可信。
 
-本改进解决的是“派发方声明的必需材料没有真正到达目标基线”，不宣称自动发现所有潜在依赖。
+该契约保证派发方声明的必需材料属于已验证目标基线，但不宣称自动发现所有潜在依赖。
 
 ## TaskContract 输入规则
 
@@ -48,11 +48,12 @@ TaskContract 的全部输入字段必须出现：
 ## 验证事实
 
 - `git_commit` 要求工作区是声明的 Git 根目录、revision 是完整 commit OID、当前 HEAD 等于该 commit、每个路径存在于该 commit 且 blob/tree 类型匹配，并且声明路径没有 tracked/untracked 差异；生成器计算 object ID。目录下 ignored 内容不作为 commit 事实，精确依赖优先逐文件声明。
-- `working_tree` 要求路径存在且类型匹配；文件生成 SHA-256，目录记录自身 mtime。
+- `working_tree` 只接受逐文件声明，要求文件存在并生成 SHA-256；目录声明会被拒绝，需改为逐文件声明或使用 `git_commit` baseline。
+- `git_commit` 的文件使用 blob object ID，目录使用递归 tree object ID。
 - 初始 spawn 和 spawn retry 在 preparation 与 PreToolUse claim 两处验证并比较同一快照。
 - business resume 在 communication preparation 与 follow-up claim 两处执行相同校验。
 - 确定性缺失、类型错误或快照变化阻止 governed 操作且不消费派发凭证。
-- 验证器只读取 manifest 中声明的路径，不扫描 transcript、summary、历史 final、工作区其他路径或业务正文。
+- 验证器只读取 manifest 中声明的路径，不扫描 transcript、summary、先前 final、工作区其他路径或业务正文。
 
 内部 Hook 异常继续遵守项目既有 fail-open 边界；显式生成器无法验证声明依赖时返回失败，不调用原生工具。
 

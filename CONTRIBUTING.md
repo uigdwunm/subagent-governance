@@ -4,9 +4,9 @@ Thank you for helping improve Subagent Governance. The project is designed prima
 
 ## Before opening a change
 
-- Use an issue for substantial behavior changes so the task boundary and compatibility impact can be discussed first.
+- Use an issue for substantial behavior changes so the task boundary and platform impact can be discussed first.
 - Keep changes focused. Do not mix unrelated refactors, formatting, or cleanup into the same pull request.
-- Preserve unmanaged native `spawn_agent` compatibility unless the change explicitly targets that boundary.
+- Preserve unmanaged native `spawn_agent` pass-through unless the change explicitly targets that boundary.
 - Do not modify a user's installed plugin cache, Hook trust state, global configuration, or personal Marketplace as part of repository development.
 
 ## Development setup
@@ -20,8 +20,12 @@ Requirements:
 Run the local validation suite:
 
 ```bash
+python3 -m pip install -r requirements-dev.txt
 python3 -m unittest discover -s tests -v
-python3 -m py_compile scripts/subagent_governance.py scripts/apply_agents_block.py scripts/check_installation.py scripts/reinstall_preserving_caches.py scripts/release_preflight.py
+python3 -m compileall -q scripts
+ruff check scripts tests
+coverage run -m unittest discover -s tests -v
+coverage report
 python3 scripts/release_preflight.py --mode development
 python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
 python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/subagent-governance
@@ -32,6 +36,7 @@ On Windows, use `py -3` in place of `python3` where appropriate.
 ## Implementation expectations
 
 - Add a minimal reliable regression test before fixing runtime bugs.
+- Keep persisted state and installation layout current-only; reject non-current data without migration or rewrite.
 - Keep protocol, Skill, Hook, Schema, and runtime semantics aligned.
 - Treat unknown platform responses as unknown; do not silently convert them to success or failure.
 - Preserve terminal notification observation and explicit parent lifecycle disposition as separate stages; do not add business-result persistence or acceptance state.
@@ -45,7 +50,7 @@ A pull request should include:
 - the problem and intended behavior;
 - the files and boundaries changed;
 - tests and validators run, with results;
-- compatibility impact for Codex CLI, Codex desktop, macOS, Linux, and Windows where relevant;
+- platform impact for Codex CLI, Codex desktop, macOS, Linux, and Windows where relevant;
 - any real-platform checks that remain unverified.
 
 Runtime code changes should pass the full unit suite, Python compilation, Plugin validator, and Skill validator. Documentation-only changes should at least run the relevant structure tests and validators.

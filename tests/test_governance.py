@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import importlib.util
 import json
 import os
 import subprocess
@@ -10,14 +9,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from scripts import governance_semantics as semantics
+from tests.support import ROOT as PLUGIN_ROOT
+from tests.support import load_governance
 
-PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = PLUGIN_ROOT / "scripts/subagent_governance.py"
-SPEC = importlib.util.spec_from_file_location("subagent_governance", SCRIPT)
-governance = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-sys.modules[SPEC.name] = governance
-SPEC.loader.exec_module(governance)
+governance = load_governance("governance")
 
 
 class GovernanceTests(unittest.TestCase):
@@ -197,7 +194,7 @@ class GovernanceTests(unittest.TestCase):
         self.assertIn("## 终态通知与父处置", skill)
         self.assertIn("不保存通知正文", skill)
         self.assertIn("不替代原生终态通知，也不生成业务结果", skill)
-        self.assertIn("未知格式版本 fail-open 且不重写原文件", boundaries)
+        self.assertIn("版本不匹配或 managed record 不符合当前结构时直接拒绝", boundaries)
         self.assertIn("PostToolUse unknown 不自动重发", boundaries)
 
     def test_long_session_ids_get_distinct_state_paths(self):
@@ -242,7 +239,7 @@ class GovernanceTests(unittest.TestCase):
             result = governance.handle(self.unmanaged_spawn_payload())
         self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
 
-    def test_generator_creates_current_initial_attempt_without_legacy_fields(self):
+    def test_generator_creates_current_initial_attempt(self):
         prepared, _payload = self.prepare_managed(
             semantic_name="payment_state",
             objective="核对支付状态机",
@@ -251,24 +248,12 @@ class GovernanceTests(unittest.TestCase):
         )
         record = self.store.read("session-1")["tasks"][prepared["task_id"]]
         execution = record["executions"][str(record["work_item"]["current_attempt"])]
-        self.assertNotIn("created_at", record["work_item"])
-        self.assertNotIn("attempt_count", record["work_item"])
-        for retired in (
-            "protocol",
-            "status",
-            "retry_count",
-            "platform_status",
-            "platform_error",
-            "result_document",
-            "message_visibility",
-        ):
-            self.assertNotIn(retired, record)
-        self.assertEqual(set(execution), set(governance.REQUIRED_EXECUTION_FIELDS))
+        self.assertEqual(set(record), set(semantics.REQUIRED_TASK_CONTAINER_FIELDS))
+        self.assertEqual(set(execution), set(semantics.REQUIRED_EXECUTION_FIELDS))
         self.assertEqual(execution["dispatch_record"]["dispatch_state"], "prepared")
         self.assertEqual(
             execution["observation_record"]["observed_state"], "not_observed"
         )
-        self.assertNotIn("closure_state", execution["closure_record"])
         self.assertEqual(governance._execution_status(execution), "not_started")
         self.assertEqual(execution["dispatch_record"]["dispatch_state"], "prepared")
         self.assertIsNone(execution["closure_record"]["parent_action"])
@@ -280,8 +265,6 @@ class GovernanceTests(unittest.TestCase):
         contract_fields = set(governance.TaskContract.__dataclass_fields__)
         self.assertEqual(set(schema["properties"]), contract_fields)
         self.assertTrue(set(schema["required"]) <= contract_fields)
-        self.assertNotIn("protocol", schema["properties"])
-        self.assertNotIn("child_agents", schema["properties"])
 
 
 if __name__ == "__main__":

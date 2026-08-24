@@ -5,7 +5,6 @@ import json
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "schemas/codex-hook-events-v1.contract.json"
 FIXTURE_ROOT = ROOT / "tests/fixtures"
@@ -84,20 +83,6 @@ class HookEventContractTests(unittest.TestCase):
                 "missing": set(),
                 "extra": set(),
             })
-
-    def test_deprecated_identity_and_result_routes_are_removed(self):
-        runtime = (ROOT / "scripts/subagent_governance.py").read_text(encoding="utf-8")
-        for symbol in (
-            "_mapped_attempt",
-            "_event_task_name",
-            "SubagentEventRoute",
-            "_read_subagent_event_route",
-            "_route_has_exact_parent_candidate",
-            "_assign_starting_agent",
-            "_record_managed_result_protocol_gap",
-        ):
-            with self.subTest(symbol=symbol):
-                self.assertNotIn(symbol, runtime)
 
 
 if __name__ == "__main__":

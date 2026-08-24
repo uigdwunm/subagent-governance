@@ -3,22 +3,20 @@
 - 插件保留 Codex 原生 `spawn_agent`、`send_message`、`followup_task`、`wait_agent` 和 `interrupt_agent`，不替代平台调度、沙箱或批准机制。
 - 任务正文、证据质量和父 Agent 的业务判断不由 Hook 解析或评分。
 - 当前状态格式为 v5。每个 execution 的 canonical authority 只有 `dispatch_record`、`observation_record` 和 `closure_record`。
-- `StateStore.read()`、`update()` 和 CAS callback 只暴露这三个 canonical plane，不生成 execution 顶层兼容字段；所有当前运行路径也只通过三平面读取和写入状态。
-- v1-v4 旧 execution 字段只作为一次性迁移输入。读取时仅在内存中转换，下一次成功写入时落为 v5；后续不再反向投影旧字段或维护第二份状态。
-- v4 状态在锁内写入时迁移：精确绑定的旧父记录可降维为 terminal notification；业务结果、验收、结果协议、存储引用和 correction 字段全部退休。
-- 未知格式版本 fail-open 且不重写原文件。
+- `StateStore.read()`、`update()` 和 CAS callback 只暴露这三个 canonical plane；所有运行路径也只通过三平面读取和写入状态。
+- 缺少版本、版本不匹配或 managed record 不符合当前结构时直接拒绝，不转换、不修复、不写回。
 
 ## 派发与身份
 
 - PreparedContract 是 governed spawn 的前置凭证；PreToolUse 只按 task ref、StateStore 和可观察原生参数认领，不读取业务正文。
 - initial PreparedContract 已缺失且超过5分钟时，只有单一 initial execution 仍为精确 prepared、无 claim/target/观察/父动作且零 retry，SessionStart/SessionEnd 才自动关闭为 `automatic_close:expired_unclaimed_dispatch` tombstone；这不建立 completed 或 terminal notification。
-- TaskContract 的每个输入方向都必须显式出现；`context_manifest.mode=none` 表示明确无材料依赖，`declared` 只验证声明工作区、基线、路径、类型和摘要等机械事实。
+- TaskContract 的每个输入方向都必须显式出现；`context_manifest.mode=none` 表示明确无材料依赖，`declared` 只验证声明工作区、基线、路径、类型和摘要等机械事实。`working_tree` 只接受逐文件 SHA-256，目录声明必须使用逐文件依赖或 `git_commit` tree object ID。
 - declared context 在 prepare 与 claim 两处验证。确定性缺失或变化拒绝 governed 操作；内部 Hook 异常仍遵守既有 fail-open 边界并保留诊断。
 - `relevant_files[]` 是非权威定位提示，不替代 context manifest；插件不扫描未声明路径或业务正文推断潜在依赖。
 - `--verify-context-manifest` 是无 Session、无状态写入的运输中立预检，可用于独立任务交接；它不拦截 `create_thread`，也不将该任务纳入原生子 Agent生命周期。
 - `agents[target]` 是 active index，canonical execution 中的精确 dispatch target 是 retained provenance。
 - 唯一未关闭 retained candidate 可恢复失效索引；多个 candidate 或索引冲突必须 reconcile。
-- historical closed target 不复活；完全没有 provenance 才按 unmanaged 兼容。
+- closed target 不复活；完全没有 provenance 才按 unmanaged 放行。
 
 ## 通信与恢复
 
@@ -41,7 +39,7 @@
 
 - `--parent-disposition` 只接受 `close_task`。
 - close 不自动中断明确 running 的 attempt，只返回精确 targets。
-- 关闭生成7天 tombstone。v5 不读取、创建或删除旧 `results/` 文件。
+- 关闭生成7天 tombstone。
 - 自动关闭只适用于能够证明原生 Agent 从未创建的过期 initial dispatch；claimed、unknown、target 已绑定、并发变化或其他不确定状态绝不按时间关闭。
 
 ## Session 与诊断
@@ -54,5 +52,5 @@
 ## 平台能力
 
 - 插件不注册 `SubagentStart`、`SubagentStop`；原生事件不参与 managed 状态维护或终态通知处理。
-- transcript、summary、final history、Provider 错误文本和本地 fixture 都不能建立 correctness-critical 事实。
+- transcript、summary、先前 final、Provider 错误文本和本地 fixture 都不能建立 correctness-critical 事实。
 - 真实投递、mailbox 展示、Hook trust 和上下文映射必须通过真实 Codex 测试验证。

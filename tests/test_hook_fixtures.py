@@ -1,20 +1,13 @@
 #!/usr/bin/env python3
 
-import importlib.util
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+from tests.support import ROOT, load_governance
 
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts/subagent_governance.py"
-SPEC = importlib.util.spec_from_file_location("subagent_governance_fixtures", SCRIPT)
-governance = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-sys.modules[SPEC.name] = governance
-SPEC.loader.exec_module(governance)
+governance = load_governance("hook_fixtures")
 
 
 class HookFixtureTests(unittest.TestCase):
@@ -40,7 +33,7 @@ class HookFixtureTests(unittest.TestCase):
                 "concurrent_write": False,
             },
             "objective": "检查 fixture 派发状态",
-            "background": "WP-03 fixture。",
+            "background": "当前 Hook fixture。",
             "work_scope": ["只读检查 fixture"],
             "forbidden_scope": [],
             "completion_conditions": ["给出检查结果"],
@@ -162,7 +155,7 @@ class HookFixtureTests(unittest.TestCase):
             self.assertNotIn("message_visibility", record)
             self.assertEqual(governance._dispatch_tool_use_id(record), "opaque-tool")
 
-    def test_agent_status_fixture_writes_wp04_multidimensional_state(self):
+    def test_agent_status_fixture_writes_current_state(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             store = governance.StateStore(root / "sessions")

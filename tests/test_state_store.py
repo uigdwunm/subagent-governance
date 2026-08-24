@@ -1,24 +1,17 @@
 #!/usr/bin/env python3
 
-import importlib.util
 import json
 import os
 import stat
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from tests.support import load_governance
 
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts/subagent_governance.py"
-SPEC = importlib.util.spec_from_file_location("subagent_governance_state_store", SCRIPT)
-governance = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-sys.modules[SPEC.name] = governance
-SPEC.loader.exec_module(governance)
+governance = load_governance("state_store")
 
 
 class StateStoreSafetyTests(unittest.TestCase):
@@ -73,10 +66,6 @@ class StateStoreSafetyTests(unittest.TestCase):
         self.assertEqual(
             state["state_format_version"], governance.STATE_FORMAT_VERSION
         )
-
-    def test_state_store_has_no_legacy_initial_attempt_projection(self):
-        self.assertFalse(hasattr(governance, "AttemptState"))
-        self.assertFalse(hasattr(self.store, "initial_attempt_state"))
 
     def test_new_governed_record_uses_canonical_work_item_and_executions(self):
         contract = governance.TaskContract(
@@ -433,26 +422,6 @@ class StateStoreSafetyTests(unittest.TestCase):
         self.assertIn("task-recent:2", state["tombstones"])
         self.assertIn("unresolved", state["tasks"])
         self.assertTrue(lock_path.is_file())
-
-    def test_result_cleanup_callback_is_not_part_of_tombstone_api(self):
-        now = governance._now()
-
-        def add_tombstone(state):
-            state["tombstones"]["task-old:1"] = {
-                "close_reason": "explicit close",
-                "closed_at": now - governance.RETENTION_SECONDS["tombstone"] - 1,
-            }
-
-        self.store.update("session-1", add_tombstone)
-
-        with self.assertRaises(TypeError):
-            self.store.cleanup_expired_tombstones(
-                "session-1",
-                now=now,
-                result_cleanup=lambda _task_id, _attempt: None,
-            )
-
-        self.assertIn("task-old:1", self.store.read("session-1")["tombstones"])
 
     def test_invalid_tombstone_is_not_guessed_or_deleted(self):
         now = governance._now()

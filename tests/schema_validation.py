@@ -12,7 +12,6 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-
 _ANNOTATION_KEYWORDS = {
     "$id",
     "$schema",

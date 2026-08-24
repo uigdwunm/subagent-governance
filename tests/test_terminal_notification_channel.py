@@ -1,22 +1,13 @@
 #!/usr/bin/env python3
 
 import copy
-import importlib.util
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+from tests.support import load_governance
 
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts/subagent_governance.py"
-SPEC = importlib.util.spec_from_file_location(
-    "subagent_governance_terminal_notification", SCRIPT
-)
-governance = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-sys.modules[SPEC.name] = governance
-SPEC.loader.exec_module(governance)
+governance = load_governance("terminal_notification")
 
 
 class TerminalNotificationChannelTests(unittest.TestCase):
