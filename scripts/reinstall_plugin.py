@@ -582,14 +582,10 @@ def install(
                 for cache in cache_directories(cache_parent):
                     if cache.name not in keep:
                         remove_cache(cache)
+                        removed_cache_entries.append(cache.name)
                 remaining = cache_directories(cache_parent)
                 if {cache.name for cache in remaining} != keep or len(remaining) != len(keep):
                     raise RuntimeError("安装后缓存收敛未精确保留目标和升级前版本")
-                removed_cache_entries = [
-                    str(entry["name"])
-                    for entry in pre_install_caches
-                    if entry["name"] not in keep
-                ]
             except Exception as exc:
                 returncode = 2
                 failed_stage = "cleanup"

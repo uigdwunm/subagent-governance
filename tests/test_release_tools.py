@@ -637,7 +637,7 @@ class ReleaseToolTests(unittest.TestCase):
             transaction = json.loads((snapshots / "last-transaction.json").read_text())
             self.assertEqual(transaction["state"], "command_exception_rolled_back")
 
-    def test_two_caches_roll_forward_to_previous_and_target_after_confirmation(self):
+    def test_cleanup_reports_preexisting_and_native_unexpected_cache_removals(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             cache_parent = root / "cache"
@@ -647,9 +647,8 @@ class ReleaseToolTests(unittest.TestCase):
             self.cache(cache_parent / "0.4.0-rc.2", "two")
 
             def runner(command, check):
-                shutil.rmtree(cache_parent / "0.4.0-rc.1")
-                shutil.rmtree(cache_parent / "0.4.0-rc.2")
                 shutil.copytree(source, cache_parent / "0.4.0-rc.3", copy_function=shutil.copy2)
+                self.cache(cache_parent / "unexpected-native-cache", "unexpected")
                 return subprocess.CompletedProcess(command, 0)
 
             returncode, report = install_tool.install(
@@ -673,8 +672,11 @@ class ReleaseToolTests(unittest.TestCase):
             )
             self.assertEqual(report["previous_version"], "0.4.0-rc.2")
             self.assertEqual(report["target_version"], "0.4.0-rc.3")
-            self.assertEqual(report["removed_cache_entries"], ["0.4.0-rc.1"])
-            self.assertTrue(report["previous_cache_restored"])
+            self.assertEqual(
+                report["removed_cache_entries"],
+                ["0.4.0-rc.1", "unexpected-native-cache"],
+            )
+            self.assertFalse(report["previous_cache_restored"])
             self.assertEqual(report["retained_previous_version"], "0.4.0-rc.2")
             self.assertEqual(
                 sorted(path.name for path in cache_parent.iterdir()),

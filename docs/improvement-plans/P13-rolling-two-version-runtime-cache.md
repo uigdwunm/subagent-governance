@@ -325,7 +325,7 @@ keep = {target_version} U {previous_version if present}
 python3 -m unittest tests.test_release_tools -v
 python3 -m unittest discover -s tests -v
 python3 -m py_compile scripts/reinstall_plugin.py scripts/check_installation.py scripts/subagent_governance.py
-python3 scripts/release_preflight.py --development-only
+python3 scripts/release_preflight.py --mode development
 python3 <plugin-creator-skill-root>/scripts/validate_plugin.py .
 git diff --check
 ```
@@ -357,4 +357,3 @@ git diff --check
 7. 用户重启 Codex；
 8. 重启后新建独立 `gpt-5.6-terra` / `high` 对话，验证目标 Skill/Hook 和 P12-A 真实场景；
 9. 未完成重启和新对话真实验证前，不宣称完整修复。
-
