@@ -1,6 +1,6 @@
 # P12-A：governed spawn PostToolUse 最小诊断门槛
 
-状态：真实门槛验证完成；三次样本均无关联 receipt，P12-B 保持冻结，下一步为独立 probe cleanup。<br>
+状态：真实门槛验证完成；三次样本均无关联 receipt，P12-B 已停止并保持冻结；临时 runtime probe 已在开发仓库完成本地清理，尚未安装或真实复验。<br>
 执行配置：独立新对话，`gpt-5.6-terra`，`high`。<br>
 原则：只回答“插件能否收到并以 same-ID 安全关联事件、以什么机械形状到达、在哪个关联阶段停止”，不修 identity，不扩大状态机。
 
@@ -175,6 +175,14 @@ P12-A probe 是临时真实验证设施，不是长期第二套事件或诊断�
 - 若结果不一致而需要追加样本，只允许在既定样本上限内延长测试，不得增加 probe 字段、自动恢复或新的持久化平面。超出门槛必须回到用户重新决定。
 
 因此，P12-A 的最终闭环不是“probe 永久可用”，而是“用最小 probe 作出继续/停止决定，并移除临时设施”。
+
+## 停止后的 cleanup 记录
+
+2026-08-24 的独立 cleanup 实施已删除仅为 P12-A 真实门槛存在的 marker/receipt storage、claim 后 marker 发布、recognized/unknown-name sidecar admission、diagnostics/view 投影、固定 probe reason code、顶层 probe shape classifier 和专用 probe 测试。清理边界测试同时确认：历史 `spawn-post-probe-ids-v1` 与 `spawn-post-probes-v1` 目录即使存在，也不会被读取、迁移、清理或重写；它们仅因 current-only 运行时不再引用而自然失效。
+
+保留 P11 的正式 lifecycle `ClaimedPostIndex` / receipt、recognized spawn 的既有 canonical Post transition、unknown catch-all 的 P11 index-first inert 边界、unmanaged fail-open，以及 current-only state 行为。此 cleanup 没有实施 P12-B、matcher-only、identity binding、Schema/state version 或安装器改造。
+
+本地完成不代表已恢复插件环境：必须先由用户重新授权 P10-A 测试安装并等待重启，再在**新的独立任务**中从 V1 开始进行不含 probe 的真实验证。P12-B 继续冻结；不得将本 cleanup 或三次无 receipt 样本改写为平台通过或根因结论。
 
 ## 本地验收标准
 

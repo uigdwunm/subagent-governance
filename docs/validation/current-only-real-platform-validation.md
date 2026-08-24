@@ -66,4 +66,6 @@
 
 因此仍未验证 PostToolUse 是否到达、其真实工具名/ID/envelope、handler 是否进入或失败在哪个阶段；也未验证 P10 的 V3–V7、Hook trust、Codex registration 或桌面 UI。没有读取或保存 child prompt、summary、final、transcript、message、业务正文、tool response 值或完整 envelope。
 
-下一步只能在独立实施任务中清理 P12-A 的临时 runtime probe，并按 P12-A 退出策略恢复不含 probe 的测试安装；该清理需要其自身的本地门禁和用户重新授权的安装流程。不得实施 P12-B、matcher-only 或 storage/handler 定点修复。
+随后已在独立实施任务中完成 P12-A 临时 runtime probe 的开发仓库 cleanup，并通过其本地门禁；三次真实验证证据保持原样，未被改写为成功。cleanup 没有读取、迁移、清理或重写机器上的历史 probe 目录，也没有安装、更新、发布或写入 stable source、runtime cache、Hook trust、Marketplace 或 Registry。
+
+下一步只能在用户重新授权后按 P10-A 安装不含 probe 的测试版、等待重启，并创建新的独立任务从 V1 开始验证。不得直接宣称插件环境已恢复，不得实施 P12-B、matcher-only 或 storage/handler 定点修复；P12-B 继续冻结。

@@ -8,12 +8,28 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from scripts import governance_hook, governance_platform
+from scripts import governance_diagnostics, governance_hook, governance_platform
+from scripts import governance_protocol as protocol
+from scripts.governance_prepared_store import PreparedContractStore
 from scripts.governance_state_store import StateStore
 from tests.support import ROOT
 
 
 class PlatformAdapterTests(unittest.TestCase):
+    @staticmethod
+    def _governed_contract():
+        return {
+            "semantic_name": "probe cleanup", "requested_mode": "standard",
+            "task_features": {"risk": "low", "read_only": True, "writes_files": False,
+                              "destructive": False, "production": False, "concurrent_write": False},
+            "objective": "verify that retired probe sidecars stay inert", "background": "P12-A cleanup",
+            "work_scope": ["tests"], "forbidden_scope": ["runtime probe persistence"],
+            "completion_conditions": ["bounded cleanup"], "evidence_requirements": ["unittest"],
+            "relevant_files": [], "context_manifest": {"mode": "none"}, "current_state": None,
+            "model": None, "reasoning_effort": None, "context_strategy": "isolated",
+            "context_turns": None, "context_reason": None,
+        }
+
     def test_spawn_and_lifecycle_response_matrix(self):
         spawn_cases = [
             ({"isError": True, "canonical_path": "/root/a"}, "failed", None),
@@ -100,6 +116,40 @@ class HookRouterTests(unittest.TestCase):
             result = governance_hook.handle_hook({"hook_event_name": "PreToolUse", "tool_name": "spawn_agent", "tool_input": {"task_name": "plain"}}, store)
             self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
             self.assertEqual(list(root.glob("*.json")), [])
+
+    def test_governed_spawn_leaves_retired_probe_sidecars_unread_and_unmodified(self):
+        """P12-A marker/receipt data is neither maintained nor projected after cleanup."""
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / "state-v8"
+            store = StateStore(state_root / "sessions")
+            prepared_store = PreparedContractStore(state_root / "prepared")
+            legacy_marker = state_root / "spawn-post-probe-ids-v1" / "retired.json"
+            legacy_receipt = state_root / "spawn-post-probes-v1" / "retired.json"
+            for path in (legacy_marker, legacy_receipt):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('{"retired":true}\n', encoding="utf-8")
+            before = {path: path.read_bytes() for path in (legacy_marker, legacy_receipt)}
+            dispatch = protocol.prepare_dispatch(
+                PlatformAdapterTests._governed_contract(), "retired-probe-session", state_store=store,
+                prepared_store=prepared_store, task_id_factory=lambda: "retired-probe-task",
+            )
+            pre = governance_hook.handle_hook({
+                "hook_event_name": "PreToolUse", "session_id": "retired-probe-session",
+                "tool_name": "spawn_agent", "tool_use_id": "retired-probe-id",
+                "tool_input": dispatch["spawn_args"],
+            }, store)
+            self.assertEqual(pre["hookSpecificOutput"]["permissionDecision"], "allow")
+            state_before_post = store.read("retired-probe-session")
+            self.assertIsNone(governance_hook.handle_hook({
+                "hook_event_name": "PostToolUse", "session_id": "retired-probe-session",
+                "tool_name": "future.renamed_spawn", "tool_use_id": "retired-probe-id",
+                "tool_response": {"opaque": True},
+            }, store))
+            document, status = governance_diagnostics.diagnose("retired-probe-session", state_root)
+            self.assertEqual(status, 0)
+            self.assertNotIn("spawn_post_probes", document["sessions"][0])
+            self.assertEqual(store.read("retired-probe-session"), state_before_post)
+            self.assertEqual({path: path.read_bytes() for path in before}, before)
 
     def test_unbound_list_agents_is_visible_but_never_persisted(self):
         store = mock.Mock()

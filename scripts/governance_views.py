@@ -32,22 +32,6 @@ class ViewIssue(ValueError):
     """Stable error used when a stored work item cannot be projected."""
 
 
-def spawn_post_probe_view(receipt: dict[str, Any]) -> dict[str, Any] | None:
-    """Project the P12-A receipt whitelist without exposing a tool response.
-
-    Probe data is not canonical execution state; this helper is intentionally a
-    pure projection for diagnostics rather than a field on any work-item view.
-    """
-    fields = (
-        "task_id", "attempt", "task_ref", "dispatch_operation", "spawn_retry_count",
-        "tool_use_id_match", "tool_name_classification", "admission_source", "claim_check",
-        "response_shape", "handler_stage", "recorded_at", "updated_at",
-    )
-    if not isinstance(receipt, dict) or any(field not in receipt for field in fields):
-        return None
-    return {field: receipt[field] for field in fields}
-
-
 def _now() -> int:
     return int(time.time())
 
