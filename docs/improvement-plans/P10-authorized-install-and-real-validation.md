@@ -86,7 +86,7 @@ P10-A 不能因为安装成功就把 P10 标记完成；P10-B 未完成时状态
 - same-filesystem 检查；
 - 调用原生命令前从运行脚本的稳定测试源绑定完整 tree digest；命令返回后 stable digest 必须保持不变，且 target cache digest 必须精确相等；
 -安装失败自动恢复；
--成功后只保留目标 cache；
+-成功后保留目标 current 与精确安装前 current 作为 retained previous compatibility cache；下一次更新会在显式确认旧会话已重启或关闭后删除更早 cache；
 - transaction snapshot 成功/回滚后清理。
 
 P10-A 的安装命令必须同时传入只读事实中的精确 previous/current 与目标完整 Manifest version：
@@ -97,7 +97,7 @@ python3 <stable-plugin-root>/scripts/reinstall_plugin.py \
   --target-version <target-full-manifest-version>
 ```
 
-其中 `--previous-version` 是安装前 Codex registered/current 版本；`--target-version` 是安装后期望的 current 完整 Manifest version。两者不得相同。事务会先快照所有已有 cache，成功确认有效目标 cache 后才收敛为仅目标 cache。
+其中 `--previous-version` 是安装前 Codex registered/current 版本；`--target-version` 是安装后期望的 current 完整 Manifest version。两者不得相同。事务会先快照所有已有 cache，成功确认有效目标 cache 后精确保留 target 与 exact previous；如安装前已有 retained previous compatibility cache，还必须传入 `--confirm-previous-sessions-restarted`。该确认不推断会话状态，只表示操作者已重启或关闭仍依赖最早 cache 的会话。
 
 不得：
 
@@ -113,7 +113,7 @@ python3 <stable-plugin-root>/scripts/reinstall_plugin.py \
 - stable digest = cache digest；
 - development rules 与部署规则一致；
 - developer/stable/cache 路径独立；
--只有一个 current cache；
+-恰好一个 current cache，并允许零或一个 retained previous compatibility cache；
 -无额外 transaction snapshot；
 - Manifest full version 等于目标版本。
 

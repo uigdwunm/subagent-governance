@@ -92,6 +92,6 @@ StateStore 只接受严格的 `state_format_version=8`，默认数据命名空�
 
 ## 安装与发布
 
-运行环境最终只允许一个当前插件缓存。`reinstall_plugin.py` 不从多 cache 目录名推测 current：有 cache 时必须由操作者传入 `codex plugin list` 证实的 `--previous-version`。它在调用原生命令前绑定脚本所在稳定测试源的完整 tree digest，并在 OS lock 和同一文件系统内快照完整安装前 cache 集合及摘要；命令成功后仍要求稳定源未变化，目标是安全普通目录、Manifest 完整版本匹配且 target tree digest 精确等于已绑定的 stable digest。失败、目标无效或收敛失败时验证摘要后回滚，只有全部验证成功才删除快照和其他缓存。安装锁由操作系统持有，进程退出后自动释放。
+运行环境恰好有一个由稳定源 Manifest 确定的 current 插件缓存，并允许零或一个 retained previous compatibility cache。`reinstall_plugin.py` 不从多 cache 目录名推测 current：有 cache 时必须由操作者传入 `codex plugin list` 证实的 `--previous-version`。它在调用原生命令前绑定脚本所在稳定测试源的完整 tree digest，并在 OS lock 和同一文件系统内快照完整安装前 cache 集合及摘要；原生命令成功返回后会优先从快照恢复或复核精确 previous 路径和 digest，再验证目标。目标是安全普通目录、Manifest 完整版本匹配且 target tree digest 精确等于已绑定的 stable digest；previous 只需与自己的快照 digest 一致。成功后精确保留 target 与安装前 current，并删除更早 cache；已有 compatibility cache 的下一次更新必须显式确认旧会话已重启或关闭。失败、目标无效或收敛失败时验证摘要后恢复安装前完整集合。双版本保留只覆盖原生命令返回后的恢复窗口，不让旧会话热加载新版本。安装锁由操作系统持有，进程退出后自动释放。
 
 发布、安装、Marketplace、运行缓存和 Hook trust 的写入都需要单独授权。

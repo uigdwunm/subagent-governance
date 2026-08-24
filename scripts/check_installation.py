@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only checks for the one current plugin installation."""
+"""Read-only checks for the current plugin and one restart-compatibility cache."""
 
 from __future__ import annotations
 
@@ -71,13 +71,37 @@ def manifest_version(stable: Path) -> str:
     return version.strip()
 
 
-def unexpected_cache_entries(cache_parent: Path, current_cache: Path) -> list[str]:
-    unexpected: list[str] = []
+def rolling_cache_set(
+    cache_parent: Path, current_cache: Path
+) -> tuple[Path | None, str | None, str | None, list[str], bool]:
+    """Validate an optional compatibility cache without assigning platform roles.
+
+    The current cache is established by the stable Manifest.  A second safe
+    directory is merely retained for old sessions; directory names and ordering
+    never establish registered/current identity.
+    """
+    compatibility: list[tuple[Path, str, str]] = []
+    invalid_entries: list[str] = []
     for entry in sorted(cache_parent.iterdir(), key=lambda path: path.name):
         if entry == current_cache:
             continue
-        unexpected.append(str(entry))
-    return unexpected
+        try:
+            ordinary_directory(entry, "兼容插件缓存")
+            version = manifest_version(entry)
+            if version != entry.name:
+                raise RuntimeError("兼容插件缓存 Manifest version 必须与目录名一致")
+            compatibility.append((entry, version, tree_digest(entry)))
+        except (OSError, RuntimeError, ValueError):
+            invalid_entries.append(str(entry))
+
+    valid = not invalid_entries and len(compatibility) <= 1
+    unexpected = invalid_entries[:]
+    if len(compatibility) > 1:
+        unexpected.extend(str(entry) for entry, _, _ in compatibility)
+    if not valid or not compatibility:
+        return None, None, None, unexpected, valid
+    cache, version, digest = compatibility[0]
+    return cache, version, digest, unexpected, valid
 
 
 def failure_report(exc: Exception) -> dict[str, object]:
@@ -133,7 +157,13 @@ def main() -> int:
         ordinary_directory(cache_path, "当前版本缓存")
         cache = cache_path.resolve()
         installation_paths_separated = len({development, stable, cache}) == 3
-        unexpected_caches = unexpected_cache_entries(cache_parent_path, cache_path)
+        (
+            retained_previous,
+            retained_previous_version,
+            retained_previous_digest,
+            unexpected_caches,
+            rolling_cache_set_valid,
+        ) = rolling_cache_set(cache_parent_path, cache_path)
 
         stable_digest = tree_digest(stable)
         cache_digest = tree_digest(cache)
@@ -158,14 +188,17 @@ def main() -> int:
 
         runtime_checks = {
             "installation_paths_separated": installation_paths_separated,
-            "stable_matches_cache": stable_digest == cache_digest,
+            "current_cache_present": True,
+            "current_cache_matches_stable": stable_digest == cache_digest,
             "agents_matches_stable_asset": (
                 expected_block is not None and active_block == expected_block
             ),
-            "single_current_cache": not unexpected_caches,
+            "rolling_cache_set_valid": rolling_cache_set_valid,
         }
         deployment_checks = {
-            "stable_matches_cache": runtime_checks["stable_matches_cache"],
+            "current_cache_matches_stable": runtime_checks[
+                "current_cache_matches_stable"
+            ],
             "agents_matches_stable_asset": runtime_checks[
                 "agents_matches_stable_asset"
             ],
@@ -196,6 +229,19 @@ def main() -> int:
             "version": version,
             "stable_digest": stable_digest,
             "cache_digest": cache_digest,
+            "current_cache_present": runtime_checks["current_cache_present"],
+            "current_cache_matches_stable": runtime_checks[
+                "current_cache_matches_stable"
+            ],
+            "compatibility_cache_count": len(
+                [entry for entry in cache_parent_path.iterdir() if entry != cache_path]
+            ),
+            "rolling_cache_set_valid": rolling_cache_set_valid,
+            "retained_previous_cache": (
+                str(retained_previous) if retained_previous is not None else None
+            ),
+            "retained_previous_version": retained_previous_version,
+            "retained_previous_digest": retained_previous_digest,
             "unexpected_cache_entries": unexpected_caches,
             **runtime_checks,
             "runtime_healthy": not runtime_issues,

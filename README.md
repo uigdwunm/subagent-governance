@@ -116,7 +116,7 @@ python3 scripts/subagent_governance.py --record-terminal-notification --session 
 - 插件不注册 `SubagentStart`、`SubagentStop`；这两个原生事件不参与状态维护或通知处理。
 - `list_agents` 只读取顶层 `agents` 并要求 exact canonical target。平台 terminal 只进入 `await_notification`，不替代原生通知。
 - Stop 只显示 advisory 并固定 fail-open，不替父 Agent 判断业务结果。
-- 升级前结束当前任务；安装成功后只保留目标版本缓存，并在新任务中验证。
+- 安装后仍需重启并在新任务中验证；安装器只保留目标 current 与精确 previous，防止尚未重启的上一代会话因旧路径消失报错，不让其热加载新版本。
 
 完整安全边界见 [SECURITY.md](SECURITY.md)。
 

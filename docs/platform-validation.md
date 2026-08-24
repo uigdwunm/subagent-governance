@@ -13,7 +13,7 @@
 
 ### P10-B 全新真实平台复验（2026-08-24）
 
-- 独立 `gpt-5.6-terra` / `high` 任务的 checkout 为 `37a3c9a02712fc5bc4ff026d31fcb24b892e3e61`，目标完整版本为 `0.4.0-rc.13+codex.20260824114902`。只读安装检查确认 stable/cache digest 都为 `8d4f05e2b61bf62af6bb86c55d0f1b7ec05febbe33c4c50ed7df9204b4e1f004`，路径隔离和 single-current-cache 均通过，且 `codex plugin list` 显示 installed/enabled。
+- 独立 `gpt-5.6-terra` / `high` 任务的 checkout 为 `37a3c9a02712fc5bc4ff026d31fcb24b892e3e61`，目标完整版本为 `0.4.0-rc.13+codex.20260824114902`。当时的只读安装检查确认 stable/cache digest 都为 `8d4f05e2b61bf62af6bb86c55d0f1b7ec05febbe33c4c50ed7df9204b4e1f004`，路径隔离和当时的单缓存规则均通过，且 `codex plugin list` 显示 installed/enabled；P13 后的检查语义为 current + 可选 retained previous compatibility cache。
 - 新任务从 V1 重新取证：unmanaged native spawn 实际收到 Hook allow/no-state、exact target 和 child terminal。V2 的 governed spawn 实际收到 PreToolUse claim，并完成真实 wait 及完整 target 的 `list_agents({"path_prefix":"<完整 canonical target>"})`；但安装版诊断仍显示 `dispatch.state=claimed`、`post_observed=false`、`target_bound=false`，且 observation source 为空。
 - 因此 V2 为 `failed`，其 raw list 不能冒充 canonical observation，也不以 child terminal 反推 PostToolUse 或 exact-list 成功。依 P10 停止 V3–V7；V4 business-resume、interrupt、Session event 与 restart/compact 均未执行。
 - Skill 实际从目标 runtime cache 路径读取。Hook trust 和 Codex registration 的独立状态仍为 `not_checked`：PreToolUse Hook 实际工作不等于已确认 trust，`installed/enabled` 也不等于 Registry 结论。详见 `docs/validation/current-only-real-platform-validation.md`。

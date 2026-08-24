@@ -306,6 +306,58 @@ def restore_snapshot(snapshot: Path, cache_parent: Path) -> list[str]:
     return restored
 
 
+def snapshot_cache_entry(snapshot: Path, version: str) -> dict[str, object]:
+    """Return the exact cache fact recorded before the native add command."""
+    manifest = read_snapshot_manifest(snapshot)
+    entries = manifest["pre_install_caches"]
+    assert isinstance(entries, list)
+    for entry in entries:
+        assert isinstance(entry, dict)
+        if entry["name"] == version:
+            return entry
+    raise RuntimeError(f"事务快照中缺少升级前版本缓存：{version}")
+
+
+def verified_snapshot_cache(snapshot: Path, version: str) -> tuple[Path, dict[str, object]]:
+    entry = snapshot_cache_entry(snapshot, version)
+    source = snapshot / SNAPSHOT_CACHE_DIRECTORY / version
+    ordinary_directory(source, "事务快照缓存")
+    if tree_digest(source) != entry["digest"]:
+        raise RuntimeError(f"事务快照缓存摘要不匹配：{source}")
+    return source, entry
+
+
+def restore_previous_cache(
+    snapshot: Path, cache_parent: Path, previous_version: str | None
+) -> tuple[Path | None, bool, str | None]:
+    """Restore or verify the precise registered/current cache from the snapshot.
+
+    The native command may delete every old cache.  Only the operator-provided
+    previous identity is retained; no directory ordering is used to infer it.
+    """
+    if previous_version is None:
+        return None, False, None
+    source, entry = verified_snapshot_cache(snapshot, previous_version)
+    expected_digest = str(entry["digest"])
+
+    target = cache_parent / previous_version
+    restored = False
+    if target.exists() or target.is_symlink():
+        ordinary_directory(target, "升级前插件缓存")
+        if tree_digest(target) != expected_digest:
+            raise RuntimeError(f"升级前插件缓存摘要在原生命令后发生变化：{target}")
+    else:
+        shutil.copytree(source, target, copy_function=shutil.copy2)
+        restored = True
+
+    ordinary_directory(target, "恢复后的升级前插件缓存")
+    if manifest_version(target) != previous_version:
+        raise RuntimeError(f"升级前插件缓存 Manifest version 不匹配：{target}")
+    if tree_digest(target) != expected_digest:
+        raise RuntimeError(f"恢复后的升级前插件缓存摘要不匹配：{target}")
+    return target, restored, expected_digest
+
+
 def recover_interrupted_transaction(
     snapshot_parent: Path, cache_parent: Path
 ) -> list[str]:
@@ -333,6 +385,7 @@ def install(
     *,
     previous_version: str | None = None,
     target_version: str,
+    confirm_previous_sessions_restarted: bool = False,
     source_root: Path | None = None,
     transaction_file: Path | None = None,
     runner=None,
@@ -357,8 +410,17 @@ def install(
         previous_cache = select_previous_cache(caches, previous_version)
         if previous_cache is not None and previous_cache.name == target_version:
             raise RuntimeError("目标版本必须不同于升级前实际版本")
+        if len(caches) > 1 and not confirm_previous_sessions_restarted:
+            raise RuntimeError(
+                "安装前已有 retained previous compatibility cache；必须显式传入 "
+                "--confirm-previous-sessions-restarted，确认依赖更早版本的会话已重启或关闭"
+            )
         pre_install_caches = cache_entries(caches)
         ordinary_directory(stable_source, "稳定测试源")
+        if manifest_version(stable_source) != target_version:
+            raise RuntimeError("目标版本必须与稳定测试源 Manifest version 精确一致")
+        if previous_cache is not None and manifest_version(previous_cache) != previous_cache.name:
+            raise RuntimeError("升级前插件缓存 Manifest version 必须与目录名一致")
         expected_stable_tree_digest = tree_digest(stable_source)
         transaction_id = f"{TRANSACTION_PREFIX}{os.getpid()}-{uuid.uuid4().hex}"
         snapshot = snapshot_parent / transaction_id
@@ -372,7 +434,11 @@ def install(
             "expected_stable_tree_digest": expected_stable_tree_digest,
             "pre_install_caches": pre_install_caches,
             "previous_version": previous_cache.name if previous_cache else None,
+            "previous_cache_restored": False,
             "recovered_interrupted_caches": recovered_caches,
+            "retained_previous_cache": None,
+            "retained_previous_digest": None,
+            "retained_previous_version": previous_cache.name if previous_cache else None,
             "snapshot_id": transaction_id,
             "snapshot_path": str(snapshot),
             "state": "snapshot_started",
@@ -440,6 +506,12 @@ def install(
             failed_stage = "source_pre_command"
         if failed_stage is None:
             try:
+                if previous_cache is not None:
+                    _, previous_snapshot_entry = verified_snapshot_cache(
+                        snapshot, previous_cache.name
+                    )
+                    if tree_digest(previous_cache) != previous_snapshot_entry["digest"]:
+                        raise RuntimeError("升级前插件缓存摘要在调用原生命令前发生变化")
                 result = run_command(command, check=False)
                 returncode = int(result.returncode)
                 if returncode != 0:
@@ -454,6 +526,20 @@ def install(
         write_json_atomic(transaction_path, transaction)
         target_cache = cache_parent / target_version
         target_valid = False
+        if returncode == 0:
+            try:
+                retained_previous, previous_restored, previous_digest = restore_previous_cache(
+                    snapshot, cache_parent, previous_cache.name if previous_cache else None
+                )
+                transaction.update(
+                    retained_previous_cache=(str(retained_previous) if retained_previous else None),
+                    previous_cache_restored=previous_restored,
+                    retained_previous_digest=previous_digest,
+                )
+            except Exception as exc:
+                returncode = 2
+                failed_stage = "restore_previous"
+                command_error = f"升级前缓存恢复或复核失败：{exc}"
         if returncode == 0:
             verification_errors: list[str] = []
             actual_target_version: str | None = None
@@ -490,13 +576,20 @@ def install(
         removed_cache_entries: list[str] = []
         if returncode == 0:
             try:
+                keep = {target_version}
+                if previous_cache is not None:
+                    keep.add(previous_cache.name)
                 for cache in cache_directories(cache_parent):
-                    if cache != target_cache:
+                    if cache.name not in keep:
                         remove_cache(cache)
-                        removed_cache_entries.append(cache.name)
                 remaining = cache_directories(cache_parent)
-                if [cache.name for cache in remaining] != [target_version]:
-                    raise RuntimeError("安装后缓存收敛未只保留目标版本")
+                if {cache.name for cache in remaining} != keep or len(remaining) != len(keep):
+                    raise RuntimeError("安装后缓存收敛未精确保留目标和升级前版本")
+                removed_cache_entries = [
+                    str(entry["name"])
+                    for entry in pre_install_caches
+                    if entry["name"] not in keep
+                ]
             except Exception as exc:
                 returncode = 2
                 failed_stage = "cleanup"
@@ -574,6 +667,11 @@ def main() -> int:
         "--previous-version",
         help="安装前从 codex plugin list 确认的实际 installed/current 完整版本；已有 cache 时必填",
     )
+    parser.add_argument(
+        "--confirm-previous-sessions-restarted",
+        action="store_true",
+        help="已有 compatibility cache 时，确认依赖更早版本的会话已经重启或关闭",
+    )
     args = parser.parse_args()
     stable_root = Path(__file__).resolve().parents[1]
     try:
@@ -586,6 +684,7 @@ def main() -> int:
             [args.codex_command, "plugin", "add", resolved_plugin_spec],
             previous_version=args.previous_version,
             target_version=target_version,
+            confirm_previous_sessions_restarted=args.confirm_previous_sessions_restarted,
             source_root=stable_root,
         )
     except Exception as exc:

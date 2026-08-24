@@ -1,6 +1,6 @@
 # 发布流程
 
-发布操作只使用当前协议、当前插件版本和一个当前运行缓存。开发仓库是唯一修改源；稳定发布源和运行缓存不是开发源。
+发布操作只使用当前协议、当前插件版本和恰好一个 current 运行缓存；为尚未重启的上一代会话，可额外保留一个 retained previous compatibility cache。开发仓库是唯一修改源；稳定发布源和运行缓存不是开发源。
 
 ## 发布门禁
 
@@ -13,7 +13,7 @@
 5. Plugin validator 与 Skill validator 通过。
 6. Manifest 公共版本、Git tag 和 Marketplace ref 一致。
 7. 开发仓库、稳定发布源和运行缓存是三个不同的普通目录，且不是符号链接。
-8. 运行缓存父目录中只有目标版本缓存。
+8. 运行缓存父目录中有目标 current，并且至多有一个安全的 retained previous compatibility cache。
 9. Hook trust、真实事件投递和 Codex 注册状态没有被本地测试冒充为已验证。
 
 未获得明确授权时，流程只执行开发仓库中的只读验证，不替换稳定源、不安装插件、不更新 Marketplace、不应用全局规则、不修改 Hook trust。
@@ -70,9 +70,9 @@ python3 <stable-plugin-root>/scripts/reinstall_plugin.py \
 1. 验证缓存与快照目录的所有权、权限、文件类型和文件系统边界。
 2. 有 cache 时要求传入从 `codex plugin list` 读取的准确 installed/current 版本；禁止按目录名、mtime 或版本语义推测。
 3. 在调用原生命令前，从运行该脚本的稳定测试源绑定完整 tree digest，并在锁保护且同一文件系统内快照安装前完整 cache 集合及摘要。
-4. 调用原生 `codex plugin add`，随后确认稳定测试源未变化，且目标 cache 是安全普通目录、Manifest 完整版本精确匹配 `--target-version`、tree digest 精确匹配已绑定的稳定源摘要。
+4. 调用原生 `codex plugin add`；命令返回后优先从事务快照恢复或复核精确 `--previous-version` 路径和 digest，再确认稳定测试源未变化，且目标 cache 是安全普通目录、Manifest 完整版本精确匹配 `--target-version`、tree digest 精确匹配已绑定的稳定源摘要。
 5. 命令失败、来源或目标验证失败、目标缓存缺失、清理失败或进程中断时恢复安装前完整 cache 集合。
-6. 只有上述摘要校验成功时才删除其他缓存和事务快照，只保留目标缓存。
+6. 只有上述摘要校验成功时才删除更早缓存和事务快照，精确保留目标 current 与安装前 current 作为 retained previous。若安装前已有 compatibility cache，必须额外传入 `--confirm-previous-sessions-restarted`，确认依赖最老 cache 的会话已重启或关闭。
 
 事务快照只服务当前安装，并在事务成功或回滚完成后删除。
 安装锁使用操作系统文件锁；锁文件稳定保留，锁本身随进程退出自动释放。
@@ -86,10 +86,10 @@ python3 <stable-plugin-root>/scripts/check_installation.py \
 
 检查必须证明：
 
-- 稳定发布源与目标缓存哈希一致。
+- 稳定发布源与 current target 缓存哈希一致。
 - 全局受管理规则与稳定资产一致。
 - 开发、稳定和缓存路径相互独立。
-- 没有额外缓存目录或文件。
+- 只有 current target 与零或一个安全 retained previous compatibility cache；目录集合不用于推断 Codex registered/current。
 
 ## 真实平台验证
 
