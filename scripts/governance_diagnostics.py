@@ -19,7 +19,8 @@ try:
     from scripts.governance_state import validate_current_state_format
     from scripts.governance_storage import PrivateStorageError, read_private_bytes
     from scripts.governance_store_support import owned_by_current_user, private_permissions_safe, safe_filename
-    from scripts.governance_views import action_required_records, recent_activity_records, work_item_views
+    from scripts.governance_spawn_post_probe import SpawnPostProbeStore
+    from scripts.governance_views import action_required_records, recent_activity_records, spawn_post_probe_view, work_item_views
 except ModuleNotFoundError:
     from governance_errors import DiagnosticReadError
     from governance_groups import derive_group_snapshot, validate_group_value
@@ -27,7 +28,8 @@ except ModuleNotFoundError:
     from governance_state import validate_current_state_format
     from governance_storage import PrivateStorageError, read_private_bytes
     from governance_store_support import owned_by_current_user, private_permissions_safe, safe_filename
-    from governance_views import action_required_records, recent_activity_records, work_item_views
+    from governance_spawn_post_probe import SpawnPostProbeStore
+    from governance_views import action_required_records, recent_activity_records, spawn_post_probe_view, work_item_views
 
 
 def diagnostic_issue(code: str, message: str, **context: Any) -> dict[str, Any]:
@@ -90,7 +92,13 @@ def _session_snapshot(state: dict[str, Any], *, path: Path, now: int) -> tuple[d
     issues.sort(key=_issue_key)
     if len(issues) > DIAGNOSTIC_ISSUE_LIMIT:
         omitted += len(issues) - DIAGNOSTIC_ISSUE_LIMIT; issues = issues[:DIAGNOSTIC_ISSUE_LIMIT]
-    return {"session_id": session_id, "component_health": {"status": health.get("status", "unknown"), "source": "persisted_health"}, "counts": {"tasks": len(state.get("tasks", {})), "work_items": len(views), "attempts": sum(len((task or {}).get("executions", {})) for task in state.get("tasks", {}).values() if isinstance(task, dict)), "action_required": len(action_required_records(state)), "recent_activity": len(recent_activity_records(state, now=now)), "groups": len(raw_groups), "tombstones": len(state.get("tombstones", {}))}, "work_items": views, "groups": groups, "issues": issues}, incomplete or bool(omitted), omitted
+    try:
+        probe_receipts = [view for receipt in SpawnPostProbeStore(path.parent.parent).list_receipts(session_id, now=now) if (view := spawn_post_probe_view(receipt)) is not None]
+    except Exception:
+        # Diagnostics remain read-only and conservative: an unavailable probe
+        # directory is not evidence that a platform Post was absent.
+        probe_receipts = []
+    return {"session_id": session_id, "component_health": {"status": health.get("status", "unknown"), "source": "persisted_health"}, "counts": {"tasks": len(state.get("tasks", {})), "work_items": len(views), "attempts": sum(len((task or {}).get("executions", {})) for task in state.get("tasks", {}).values() if isinstance(task, dict)), "action_required": len(action_required_records(state)), "recent_activity": len(recent_activity_records(state, now=now)), "groups": len(raw_groups), "tombstones": len(state.get("tombstones", {}))}, "work_items": views, "groups": groups, "spawn_post_probes": probe_receipts, "issues": issues}, incomplete or bool(omitted), omitted
 
 
 def _base(root: Path, session_id: str | None) -> dict[str, Any]:

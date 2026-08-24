@@ -141,6 +141,30 @@ def lifecycle_response_shape(response: Any) -> str:
     return "explicit_error" if _failed(value) else "top_level_object"
 
 
+def spawn_response_shape(response: Any) -> str:
+    """Classify only a spawn PostToolUse top-level envelope.
+
+    This is deliberately not a success/identity parser: it neither extracts a
+    target nor recursively inspects nested content.
+    """
+    if response is None or response == "":
+        return "empty"
+    if isinstance(response, str):
+        try:
+            value = json.loads(response)
+        except json.JSONDecodeError:
+            return "json_decode_failed"
+    else:
+        value = response
+    if not isinstance(value, dict):
+        return "non_object"
+    # This is a top-level envelope classification only.  The value is not
+    # retained, interpreted as an identity, or traversed.
+    if _failed(value) or ("error" in value and value["error"] is not None and value["error"] is not False):
+        return "explicit_error"
+    return "top_level_object"
+
+
 def adapt_list_agents_response_result(tool_input: Any, response: Any) -> AgentStatusAdaptation:
     """Return one exact bound observation or a bounded rejection reason.
 
@@ -195,5 +219,5 @@ def adapt_list_agents_response(tool_input: Any, response: Any) -> AgentStatusObs
 __all__ = [
     "AgentStatusAdaptation", "AgentStatusObservation", "LifecycleCallObservation", "SpawnCallObservation",
     "adapt_lifecycle_response", "lifecycle_response_shape", "adapt_list_agents_response", "adapt_list_agents_response_result",
-    "adapt_spawn_response",
+    "adapt_spawn_response", "spawn_response_shape",
 ]

@@ -24,6 +24,7 @@ try:
     from scripts.governance_semantics import RETENTION_SECONDS, RETRY_LIMITS
     from scripts.governance_state import initial_plane_records
     from scripts.governance_dispatch_identity import parse_task_name
+    from scripts.governance_spawn_post_probe import SpawnPostProbeStore, marker_record, probe_root_for_store
 except ModuleNotFoundError:
     from governance_errors import (
         PreparedContractConflictError, PreparedContractValidationError, StateConflictError, StateValidationError,
@@ -37,6 +38,7 @@ except ModuleNotFoundError:
     from governance_semantics import RETENTION_SECONDS, RETRY_LIMITS
     from governance_state import initial_plane_records
     from governance_dispatch_identity import parse_task_name
+    from governance_spawn_post_probe import SpawnPostProbeStore, marker_record, probe_root_for_store
 
 
 @dataclass(frozen=True)
@@ -316,6 +318,20 @@ def claim_spawn(
                     f"{exc}；governance degraded：retry exact cleanup failed：{'；'.join(cleanup.errors)}"
                 ) from exc
         raise
+    # P12-A diagnostics are intentionally published only after both claimed
+    # records have been read back exactly.  A probe outage never rolls back a
+    # successful claim or blocks the native call; the Hook emits this fixed,
+    # non-sensitive availability code with its normal allow response.
+    try:
+        SpawnPostProbeStore(probe_root_for_store(state_store)).record_marker(
+            marker_record(
+                session_id, tool_use_id, task_id, attempt, task_ref, operation,
+                desired_retry_count, claimed_at=claimed_at,
+            ), now=claimed_at,
+        )
+        setattr(state_store, "last_spawn_post_probe_warning", None)
+    except Exception:
+        setattr(state_store, "last_spawn_post_probe_warning", "spawn_post_probe_unavailable")
     return claimed_prepared
 
 
