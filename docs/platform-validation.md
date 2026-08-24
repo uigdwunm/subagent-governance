@@ -25,6 +25,13 @@
 - PostToolUse 以私有 current-namespace claimed-ID 索引先筛选 `session_id + tool_use_id`；命中后才构造 StateStore 并重验 canonical claimed pending。未知工具名命中仅记录 `unrecognized` 分类。receipt 的 expected/received ID 必须相等，先持久化 receipt 时刻的 parent-action 枚举/null、再可重入地执行 lifecycle transition；重试会先恢复该动作，随后由 operation-specific 规则覆盖。中间失败保留 receipt、claimed/reconcile 证据，完成后的重复 Post inert。索引发布/重建使用当前时间，过期 canonical claim 不会重新发布。receipt 不保存 message、原始工具名、contract、response values、child final、transcript 或 summary；无 ID、未命中和无关 catch-all 事件不构造 StateStore 且无输出。
 - 这些仍是本地单元测试结论。目标测试版已重新安装并在新任务从 V1 开始复验；V2 已实际暴露 PostToolUse / target binding 未收口，故 V3–V7（含 P11 重点 V4）均未执行。真实 Post 投递、Hook matcher 行为和桌面 UI 仍未获得通过证据。
 
+### P12-A 新重启任务中的最小 Post 诊断（2026-08-24）
+
+- 新的 `gpt-5.6-terra` / `high` 任务在 `188a63142cc563dba520a36c95d64bdcb70cf823` 上只读复核后，实际加载版本为 `0.4.0-rc.13+codex.20260824133045`；stable/cache digest 均为 `4f881c261e7fbcc8d23ed1313bccafee64d2c67cd795662874cff460ab8a0775`。当前 cache 与 development/stable 规则一致，rolling two-version cache 健康；独立 Hook trust/registration 仍为 `not_checked`。
+- 三次彼此独立的最小 governed spawn 均完成 Pre marker 发布并实际创建 child。每次 sidecar diagnose 都没有保存关联 receipt，且 canonical attempt 仍是 Pre claim 基线，未发生 recognized legacy Post transition。没有记录 tool-use ID、原始工具名、prompt、response、message、child final 或完整 envelope。
+- 这只证明插件没有保存关联到这些 claim 的 Post 事实；它不证明平台没有投递，也不定位工具名、ID、router 或 handler 阶段。根据 P12-A 矩阵，P12-B 保持冻结，不能实施 matcher-only 或 storage/handler 修复，也不得以 list、时间、task name 或 child terminal 推断 owner。
+- 后续是独立的 P12-A probe cleanup 实施任务；完成本地门禁和重新授权安装后，才可恢复不含 probe 的测试环境。详见 `docs/validation/current-only-real-platform-validation.md`。
+
 ## 已由本地测试覆盖
 
 - PreparedContract 与 governed spawn 的发送前门禁。
@@ -49,7 +56,7 @@
 
 ## 尚待真实插件验证
 
-- 修复并重新安装后，从 V1 开始先重新验证 V2 governed spawn 的 PostToolUse receipt、target binding 与 exact-list canonical observation；只有此前置通过，才可继续 P11 重点 V4 follow-up receipt 与 attempt-2 exact-list binding。
+- P12-A 的临时 runtime probe cleanup，以及清理后重新授权安装/新独立任务中的 V1–V2 基线复验。P12-B 的 activation evidence 未取得，保持冻结。
 - V3 normal message/terminal/close，随后 V5 interrupt/controlled reconciliation、V6 Stop/SessionStart/SessionEnd 及 V7 restart/compact 后的 mailbox/retained-target 恢复。
 - Hook trust、Codex registration 与桌面 UI 的独立实际状态。
 
