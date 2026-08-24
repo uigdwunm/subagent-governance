@@ -1,10 +1,10 @@
 # P11：followup PostToolUse 与 exact-list 的 current-only 绑定
 
-状态：本地实施与门禁已完成，待用户重新授权测试安装和全新 P10-B 真实复验。  
+状态：本地实施、门禁与测试安装已完成；全新 P10-B 在 V2 governed spawn 的 PostToolUse/canonical identity 闭环失败，V3–V7 未执行，须先另行诊断该前置缺口。  
 前置：P10-B 的 V4 在真实任务 `01a0335e-bc19-7d32-bb57-4d948883f4b8` 失败；实现与文档基线为 `46b13b7`，整合报告提交为 `cb60308`。  
 执行配置：独立新对话，`gpt-5.6-terra`，`high`。
 
-本地实现已集成到当前改进分支：`cd76135`、`11cbd7b`、`6207eb9`。集成后 Python 3.9、3.11、3.12 各 307 个 unittest，以及 `py_compile`、development preflight、Plugin validator、Skill validator 和 `git diff --check` 均通过；未安装、部署或发布。真实平台状态仍以 `docs/platform-validation.md` 为准。
+本地实现已集成到当前改进分支：`cd76135`、`11cbd7b`、`6207eb9`。集成后 Python 3.9、3.11、3.12 各 307 个 unittest，以及 `py_compile`、development preflight、Plugin validator、Skill validator 和 `git diff --check` 均通过。测试版随后已安装，但全新 P10-B 在到达本方案重点 V4 前即于 V2 停止；真实平台状态仍以 `docs/platform-validation.md` 为准。
 
 ## 问题定义
 
