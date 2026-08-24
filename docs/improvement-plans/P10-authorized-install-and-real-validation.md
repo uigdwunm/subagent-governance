@@ -73,9 +73,9 @@ P10-A 不能因为安装成功就把 P10 标记完成；P10-B 未完成时状态
 - 不改变 public version/tag/Marketplace ref，除非用户另行授权发布。
 - cachebuster 修改发生在开发仓库唯一源。
 - 修改后重跑 Manifest、development preflight、Plugin validator、Skill validator 和核心完整测试。
-- 再通过受支持的本地插件同步/安装流程更新测试 stable source；不得先改 cache 再反向补仓库。
+- 先从该干净 commit 显式运行 `sync_stable_plugin.py --source-root ... --stable-root ... --transaction-parent ... --expected-head ... --expected-version ...` 更新测试 stable source，并只读核对 `last-stable-sync.json` 的 HEAD/version/projection digest；不得人工选择 `cp`、`rsync --delete` 或覆盖命令，也不得先改 cache 再反向补仓库。
 
-如果当前 plugin-creator 流程与仓库 `reinstall_plugin.py` 的事务要求不一致，停止并询问，不自行设计复制/覆盖命令。
+随后从 stable root 运行 `reinstall_plugin.py`，再运行 `check_installation.py`；stable sync backup、installer transaction snapshot 和 retained previous cache 分别保护稳定源切换、安装回滚和旧会话兼容，不能互相替代。若流程与 plugin-creator 或安装器事务要求不一致，停止并询问。
 
 ## 安装事务
 

@@ -138,9 +138,23 @@ py -3 <installed-plugin-root>\scripts\apply_agents_block.py --execute
 
 ## 升级与卸载
 
+开发工作树不是 Marketplace 稳定测试源。完成 cachebuster 提交和本地门禁后，先将该干净 commit 的 Git tracked 普通文件投影到稳定源；命令没有默认路径，避免误写本机插件目录：
+
 ```bash
-codex plugin marketplace upgrade subagent-governance
-python3 <installed-plugin-root>/scripts/reinstall_plugin.py \
+python3 scripts/sync_stable_plugin.py \
+  --source-root <clean-development-worktree> \
+  --stable-root <marketplace-stable-plugin-root> \
+  --transaction-parent <plugin-install-transaction-parent> \
+  --expected-head <full-commit-oid> \
+  --expected-version <full-manifest-version>
+```
+
+同步与安装共用 `<transaction-parent>/.install.lock`。同步只部署 `git ls-files -z` 中的 tracked 普通文件，并以同级 staging/backup 事务切换稳定源；它不安装插件、不生成 cachebuster，也不替代安装事务快照或 retained previous cache。
+
+随后从稳定源运行安装器：
+
+```bash
+python3 <marketplace-stable-plugin-root>/scripts/reinstall_plugin.py \
   --previous-version <exact-installed-current-version> \
   --target-version <full-manifest-version>
 ```

@@ -57,7 +57,18 @@ python3 scripts/release_preflight.py --mode release --tag "v<public-version>"
 
 ## 安装事务
 
-取得安装授权后，从稳定发布源运行：
+取得安装授权前，先在开发仓库完成 cachebuster 提交和本地门禁，再从该干净 commit 同步稳定测试源：
+
+```bash
+python3 scripts/sync_stable_plugin.py \
+  --source-root <clean-development-worktree> \
+  --stable-root <marketplace-stable-plugin-root> \
+  --transaction-parent <plugin-install-transaction-parent> \
+  --expected-head <full-commit-oid> \
+  --expected-version <full-manifest-version>
+```
+
+读取 `last-stable-sync.json`，确认 source/stable path、HEAD、version 和 source projection/new stable digest 一致后，才从稳定发布源运行：
 
 ```bash
 python3 <stable-plugin-root>/scripts/reinstall_plugin.py \
@@ -76,6 +87,7 @@ python3 <stable-plugin-root>/scripts/reinstall_plugin.py \
 
 事务快照只服务当前安装，并在事务成功或回滚完成后删除。
 安装锁使用操作系统文件锁；锁文件稳定保留，锁本身随进程退出自动释放。
+稳定源同步的 backup 只服务 stable root 的 rename 切换；它不是安装回滚快照，也不是 retained previous compatibility cache。同步与安装使用同一个 transaction parent 和 `.install.lock`，禁止并发执行。
 
 ## 安装后检查
 

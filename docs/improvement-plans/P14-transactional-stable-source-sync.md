@@ -24,7 +24,7 @@ P14 只实现同步工具、测试和文档，不执行真实稳定源同步、�
 ## 已核实事实
 
 - 开发仓库是唯一开发源，当前执行位于 Git worktree；worktree 根的 `.git` 是 Git 管理文件，不能进入插件稳定源。
-- Marketplace `personal` 当前指向 `/Users/zhaolaiyuan/plugins/subagent-governance`。
+- Marketplace `personal` 当前指向独立的 `<marketplace-stable-plugin-root>`。
 - 该稳定源是普通目录但不是 Git checkout，不能通过 `git pull`、checkout 或 fast-forward 更新。
 - 稳定源当前包含完整插件/仓库 tracked 内容，但不包含 `.git` 和 `__pycache__`。
 - 仓库已有 `reinstall_plugin.py` 的 OS lock、ordinary-file/directory、owner/permission、tree digest、原子 JSON 与中断事务恢复模式，但没有稳定源同步入口。
@@ -44,7 +44,7 @@ P14 只实现同步工具、测试和文档，不执行真实稳定源同步、�
 
 禁止：
 
-- 在实现任务中写 `/Users/zhaolaiyuan/plugins/subagent-governance`；
+- 在实现任务中写真实 Marketplace stable root；
 - 安装、发布、生成第二个 cachebuster、修改 Marketplace/Registry/Hook trust/runtime cache；
 - 将稳定源改成 symlink 或 Git worktree；
 - 复制未跟踪文件或根据 `.gitignore` 猜部署内容；
@@ -331,4 +331,3 @@ P14 提交、复审并合并后，另开 P10-A 安装任务：
 - 用 P13 installer 安装并保留 previous + target；
 - 安装后旧对话 Hook 路径继续存在；
 - 用户重启后再开全新 `gpt-5.6-terra` / `high` 真实验证任务。
-

@@ -15,12 +15,217 @@ from tests.support import ROOT, load_module
 APPLY_SCRIPT = ROOT / "scripts/apply_agents_block.py"
 CHECK_SCRIPT = ROOT / "scripts/check_installation.py"
 INSTALL_SCRIPT = ROOT / "scripts/reinstall_plugin.py"
+SYNC_SCRIPT = ROOT / "scripts/sync_stable_plugin.py"
 
 apply_tool = load_module("apply_agents_block", APPLY_SCRIPT)
 install_tool = load_module("reinstall_plugin", INSTALL_SCRIPT)
+sync_tool = load_module("sync_stable_plugin", SYNC_SCRIPT)
 
 
 class ReleaseToolTests(unittest.TestCase):
+    def create_git_source(self, root: Path, version: str = "0.4.0") -> Path:
+        """Create a clean, committed source fixture without using any real plugin path."""
+        source = root / "source"
+        self.create_plugin(source, version=version)
+        (source / "nested").mkdir()
+        nested = source / "nested" / "tool"
+        nested.write_text("tracked\n", encoding="utf-8")
+        nested.chmod(0o755)
+        subprocess.run(["git", "init", "-q", str(source)], check=True)
+        subprocess.run(["git", "-C", str(source), "add", "."], check=True)
+        subprocess.run(
+            ["git", "-C", str(source), "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture"],
+            check=True,
+        )
+        return source
+
+    @staticmethod
+    def git_head(source: Path) -> str:
+        return subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
+
+    def stable_sync(self, source: Path, stable: Path, transactions: Path, version: str):
+        return sync_tool.sync_stable_plugin(
+            source_root=source,
+            stable_root=stable,
+            transaction_parent=transactions,
+            expected_head=self.git_head(source),
+            expected_version=version,
+        )
+
+    def test_stable_sync_projects_only_clean_tracked_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.create_git_source(root)
+            (source / "untracked.txt").write_text("not deployed", encoding="utf-8")
+            (source / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+            (source / "__pycache__").mkdir()
+            (source / "__pycache__" / "ignored.pyc").write_bytes(b"ignored")
+            # Keep the source clean by making these explicitly ignored fixtures.
+            subprocess.run(["git", "-C", str(source), "add", ".gitignore"], check=True)
+            subprocess.run(["git", "-C", str(source), "commit", "-qm", "ignore"], check=True)
+            (source / "untracked.txt").unlink()
+            stable = root / "stable-parent" / "subagent-governance"
+            self.create_plugin(stable, version="old", rules="old")
+            transactions = root / "transactions"
+            transactions.mkdir()
+
+            returncode, report = self.stable_sync(source, stable, transactions, "0.4.0")
+
+            self.assertEqual(returncode, 0, report)
+            self.assertEqual(report["state"], "sync_succeeded")
+            self.assertEqual(sync_tool.tree_digest(stable), report["source_projection_digest"])
+            self.assertFalse((stable / ".git").exists())
+            self.assertFalse((stable / "__pycache__").exists())
+            self.assertEqual((stable / "nested/tool").stat().st_mode & 0o777, 0o755)
+
+    def test_stable_sync_rejects_dirty_source_before_touching_stable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.create_git_source(root)
+            stable = root / "stable-parent" / "subagent-governance"
+            self.create_plugin(stable, version="old", rules="old")
+            before = sync_tool.tree_digest(stable)
+            transactions = root / "transactions"
+            transactions.mkdir()
+            (source / "dirty").write_text("dirty", encoding="utf-8")
+
+            returncode, report = self.stable_sync(source, stable, transactions, "0.4.0")
+
+            self.assertEqual(returncode, 2)
+            self.assertEqual(report["state"], "sync_failed")
+            self.assertEqual(sync_tool.tree_digest(stable), before)
+
+    def test_stable_sync_shares_installer_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.create_git_source(root)
+            stable = root / "stable-parent" / "subagent-governance"
+            self.create_plugin(stable, version="old")
+            transactions = root / "transactions"
+            transactions.mkdir()
+            with install_tool.operation_lock(transactions):
+                returncode, report = self.stable_sync(source, stable, transactions, "0.4.0")
+            self.assertEqual(returncode, 2)
+            self.assertEqual(report["state"], "sync_failed")
+            self.assertIn("已有安装事务", report["error"])
+
+    @unittest.skipIf(os.name == "nt", "symlink support differs on Windows")
+    def test_stable_sync_rejects_tracked_symlink_before_switch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.create_git_source(root)
+            (source / "linked").symlink_to("nested/tool")
+            subprocess.run(["git", "-C", str(source), "add", "linked"], check=True)
+            subprocess.run(["git", "-C", str(source), "commit", "-qm", "symlink"], check=True)
+            stable = root / "stable-parent" / "subagent-governance"
+            self.create_plugin(stable, version="old")
+            before = sync_tool.tree_digest(stable)
+            transactions = root / "transactions"
+            transactions.mkdir()
+
+            returncode, report = self.stable_sync(source, stable, transactions, "0.4.0")
+
+            self.assertEqual(returncode, 2)
+            self.assertEqual(report["state"], "sync_failed")
+            self.assertEqual(sync_tool.tree_digest(stable), before)
+
+    def test_stable_sync_rolls_back_after_backup_or_activate_fault(self):
+        for fault in ("after_backup", "after_activate"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source = self.create_git_source(root)
+                stable = root / "stable-parent" / "subagent-governance"
+                self.create_plugin(stable, version="old", rules="old")
+                before = sync_tool.tree_digest(stable)
+                transactions = root / "transactions"
+                transactions.mkdir()
+
+                with mock.patch.object(
+                    sync_tool,
+                    "_failpoint",
+                    side_effect=lambda stage: (_ for _ in ()).throw(OSError("fault")) if stage == fault else None,
+                ):
+                    returncode, report = self.stable_sync(source, stable, transactions, "0.4.0")
+
+                self.assertEqual(returncode, 2)
+                self.assertEqual(report["state"], "sync_failed_rolled_back")
+                self.assertTrue(report["rollback_performed"])
+                self.assertEqual(sync_tool.tree_digest(stable), before)
+                self.assertFalse(any(path.name.startswith("stable-sync-") for path in transactions.iterdir()))
+
+    def test_stable_sync_recovers_interrupted_activated_switch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.create_git_source(root)
+            stable = root / "stable-parent" / "subagent-governance"
+            self.create_plugin(stable, version="old")
+            transactions = root / "transactions"
+            transactions.mkdir()
+
+            def interrupt_after_activate(stage):
+                if stage == "after_activate":
+                    raise KeyboardInterrupt("simulated interruption")
+
+            with self.assertRaises(KeyboardInterrupt), mock.patch.object(sync_tool, "_failpoint", side_effect=interrupt_after_activate):
+                self.stable_sync(source, stable, transactions, "0.4.0")
+            self.assertTrue(any(path.name.startswith("stable-sync-") for path in transactions.iterdir()))
+
+            returncode, report = self.stable_sync(source, stable, transactions, "0.4.0")
+
+            self.assertEqual(returncode, 0, report)
+            self.assertTrue(report["recovered_interrupted_transaction"])
+            self.assertEqual(sync_tool.manifest_version(stable), "0.4.0")
+            self.assertFalse(any(path.name.startswith("stable-sync-") for path in transactions.iterdir()))
+
+    def test_stable_sync_cleanup_failure_keeps_verified_new_root_for_recovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.create_git_source(root)
+            stable = root / "stable-parent" / "subagent-governance"
+            self.create_plugin(stable, version="old")
+            transactions = root / "transactions"
+            transactions.mkdir()
+            original_remove = sync_tool._safe_remove_switch_dir
+
+            def fail_backup_cleanup(path, prefix):
+                if prefix == sync_tool.BACKUP_PREFIX:
+                    raise OSError("backup cleanup failed")
+                return original_remove(path, prefix)
+
+            with mock.patch.object(sync_tool, "_safe_remove_switch_dir", side_effect=fail_backup_cleanup):
+                returncode, report = self.stable_sync(source, stable, transactions, "0.4.0")
+            self.assertEqual(returncode, 2)
+            self.assertEqual(report["state"], "sync_succeeded_cleanup_required")
+            self.assertEqual(sync_tool.manifest_version(stable), "0.4.0")
+
+            returncode, report = self.stable_sync(source, stable, transactions, "0.4.0")
+            self.assertEqual(returncode, 0, report)
+            self.assertTrue(report["recovered_interrupted_transaction"])
+            self.assertEqual(sync_tool.manifest_version(stable), "0.4.0")
+
+    def test_stable_sync_rejects_aliases_and_unbound_switch_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.create_git_source(root)
+            transactions = root / "transactions"
+            transactions.mkdir()
+            stable = root / "stable-parent" / "subagent-governance"
+            self.create_plugin(stable, version="old")
+            before = sync_tool.tree_digest(stable)
+
+            same_code, same_report = sync_tool.sync_stable_plugin(
+                source_root=source, stable_root=source, transaction_parent=transactions,
+                expected_head=self.git_head(source), expected_version="0.4.0",
+            )
+            self.assertEqual(same_code, 2)
+            self.assertIn("basename", same_report["error"])
+            orphan = stable.parent / ".subagent-governance.staging-unbound"
+            orphan.mkdir()
+            code, report = self.stable_sync(source, stable, transactions, "0.4.0")
+            self.assertEqual(code, 2)
+            self.assertIn("无法绑定", report["error"])
+            self.assertEqual(sync_tool.tree_digest(stable), before)
+
     @staticmethod
     def managed_block(content="entry"):
         return (
