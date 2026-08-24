@@ -30,8 +30,9 @@
 | P9 | [仓库内综合验收与文档/Schema/Skill 一致性](P9-local-integrated-acceptance.md) | 验证 | P1–P8 |
 | P10 | [经授权安装和新对话真实平台验证](P10-authorized-install-and-real-validation.md) | 真实验证 | P9 |
 | P11 | [followup PostToolUse 与 exact-list 的 current-only 绑定](P11-followup-posttool-and-exact-list-binding.md) | 正确性、可观测性、真实验证修复 | P10-B V4 failure；须先完成P11本地门禁后才可重跑P10 |
+| P12 | [governed spawn PostToolUse 与 canonical identity 绑定](P12-governed-spawn-posttool-and-identity-binding.md) | 正确性、可观测性、真实验证修复 | P11 已安装后的 P10-B V2 failure；须先完成 P12 本地门禁后才可重跑 P10 |
 
-P1–P8 必须顺序执行。即使某个后续方案看起来可以独立修改，也不能在前置模块尚未落地时复制临时实现。P11 是P10-B真实V4 failure后的独立修复方案；它不替代P10的重新授权安装和全新真实复验。
+P1–P8 必须顺序执行。即使某个后续方案看起来可以独立修改，也不能在前置模块尚未落地时复制临时实现。P11 是P10-B真实V4 failure后的独立修复方案；P12 是 P11 已安装后在 V2 暴露的 spawn 前置缺口修复方案。两者都不替代 P10 的重新授权安装和全新真实复验；P12 完成并通过新的 V2 门槛前，不得继续验证 P11 的 V4。
 
 ## 新对话交接模板
 
