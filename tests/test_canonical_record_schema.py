@@ -109,6 +109,21 @@ class CanonicalRecordSchemaTests(unittest.TestCase):
                     set(runtime_values),
                 )
 
+    def test_current_task_name_locations_reference_one_strict_definition(self):
+        strict = {"$ref": "#/$defs/task_name"}
+        self.assertEqual(
+            self.definition("execution_record")["properties"]["task_name"],
+            {"anyOf": [strict, {"type": "null"}]},
+        )
+        self.assertEqual(
+            self.definition("prepared_contract")["properties"]["task_name"],
+            strict,
+        )
+        self.assertEqual(
+            self.definition("prepared_native_parameters")["properties"]["task_name"],
+            strict,
+        )
+
     def test_initial_runtime_record_validates_as_three_plane_container(self):
         container, execution = self.initial_execution()
         task_id = "v5-schema-task"

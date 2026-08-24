@@ -53,10 +53,16 @@ class SemanticBaselineTests(unittest.TestCase):
             ["dispatch_record", "observation_record", "closure_record"],
         )
 
-    def test_task_name_regex_comes_from_machine_semantics(self):
+    def test_task_name_runtime_and_schema_share_one_definition(self):
+        definition = semantics.SEMANTIC_DEFINITIONS["task_name"]
         self.assertEqual(
             semantics.TASK_NAME_RE.pattern,
-            semantics.SEMANTIC_RULES["task_name"]["pattern"],
+            definition["pattern"],
+        )
+        self.assertEqual(semantics.TASK_NAME_MAX_LENGTH, definition["maxLength"])
+        self.assertEqual(
+            semantics.TASK_REF_LENGTHS,
+            tuple(definition["x-task-ref-lengths"]),
         )
 
 

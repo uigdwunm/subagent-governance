@@ -83,12 +83,41 @@ class V6StrictStateContractTests(unittest.TestCase):
         with self.assertRaises(errors.StateValidationError):
             state_domain.require_current_state_format(state)
 
+    @staticmethod
+    def invalid_task_names():
+        return {
+            "space": "bad name",
+            "mode": "sg_legacy_task_t_0123456789ab",
+            "semantic": "sg_standard_bad__name_t_0123456789ab",
+            "short_ref": "sg_standard_task_t_0123456789a",
+            "noncanonical_ref_length": "sg_standard_task_t_0123456789abc",
+            "ref_character": "sg_standard_task_t_0123456789aG",
+            "overlong": "sg_standard_" + ("a" * 64) + "_t_0123456789ab",
+        }
+
     def test_v6_corpus_is_accepted_by_runtime_and_schema(self):
         state = self.canonical_state()
         self.assertEqual(semantics.STATE_FORMAT_VERSION, 6)
         self.assertEqual(self.schema_errors(state), [])
         self.assertEqual(state_domain.validate_current_state_format(state), [])
         self.assertIs(state_domain.require_current_state_format(state), state)
+
+    def test_execution_task_name_accepts_initial_name_and_null_resume(self):
+        initial = self.canonical_state()
+        self.assertEqual(self.schema_errors(initial), [])
+        self.assertEqual(state_domain.validate_current_state_format(initial), [])
+
+        resumed = copy.deepcopy(initial)
+        resumed["tasks"]["v6-state-task"]["executions"]["1"]["task_name"] = None
+        self.assertEqual(self.schema_errors(resumed), [])
+        self.assertEqual(state_domain.validate_current_state_format(resumed), [])
+
+    def test_execution_task_name_invalid_values_are_rejected_by_runtime_and_schema(self):
+        for name, task_name in self.invalid_task_names().items():
+            with self.subTest(name=name):
+                state = self.canonical_state()
+                state["tasks"]["v6-state-task"]["executions"]["1"]["task_name"] = task_name
+                self.assert_rejected_by_both(state)
 
     def test_full_producer_corpus_is_accepted_by_runtime_and_schema(self):
         state = self.canonical_state()
@@ -184,6 +213,33 @@ class V6StrictStateContractTests(unittest.TestCase):
                 prepared_store_module.PreparedContractStore._validate_record(
                     record, "prepared-v6", prepared["task_ref"], root / "record.json"
                 )
+
+    def test_prepared_contract_and_native_parameters_reject_noncanonical_task_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_store = state_store_module.StateStore(root / "sessions")
+            prepared_store = prepared_store_module.PreparedContractStore(root / "prepared")
+            prepared = protocol.prepare_dispatch(
+                self.contract(), "prepared-task-name", state_store=state_store,
+                prepared_store=prepared_store, task_id_factory=lambda: "prepared-task-name-task",
+            )
+            record = prepared_store.read("prepared-task-name", prepared["task_ref"])
+            definition = semantics.MACHINE_SEMANTICS["$defs"]["prepared_contract"]
+            for location in ("task_name", "native_parameters.task_name"):
+                for name, task_name in {"null": None, **self.invalid_task_names()}.items():
+                    with self.subTest(location=location, name=name):
+                        invalid = copy.deepcopy(record)
+                        target = invalid if location == "task_name" else invalid["native_parameters"]
+                        target["task_name"] = task_name
+                        self.assertTrue(
+                            validate_instance(
+                                invalid, definition, root_schema=semantics.MACHINE_SEMANTICS,
+                            )
+                        )
+                        with self.assertRaises(errors.PreparedContractValidationError):
+                            prepared_store_module.PreparedContractStore._validate_record(
+                                invalid, "prepared-task-name", prepared["task_ref"], root / "record.json"
+                            )
 
     def test_mutations_are_rejected_by_runtime_and_schema(self):
         mutations = {

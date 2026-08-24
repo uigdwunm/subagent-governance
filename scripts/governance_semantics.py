@@ -117,10 +117,11 @@ if LIST_AGENTS_MALFORMED_WRAPPER_POLICY != "no_exact_bound_fact":
 PARENT_DISPOSITION_REASON_MAX_LENGTH = int(
     SEMANTIC_RULES["parent_disposition_reason_max_length"]
 )
-TASK_NAME_PATTERN = str(SEMANTIC_RULES["task_name"]["pattern"])
-TASK_NAME_MAX_LENGTH = int(SEMANTIC_RULES["task_name"]["max_length"])
+TASK_NAME_DEFINITION = SEMANTIC_DEFINITIONS["task_name"]
+TASK_NAME_PATTERN = str(TASK_NAME_DEFINITION["pattern"])
+TASK_NAME_MAX_LENGTH = int(TASK_NAME_DEFINITION["maxLength"])
 TASK_REF_LENGTHS = tuple(
-    int(value) for value in SEMANTIC_RULES["task_name"]["task_ref_lengths"]
+    int(value) for value in TASK_NAME_DEFINITION["x-task-ref-lengths"]
 )
 TASK_NAME_RE = re.compile(TASK_NAME_PATTERN)
 

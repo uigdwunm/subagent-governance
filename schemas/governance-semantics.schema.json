@@ -105,6 +105,13 @@
       "maxLength": 64,
       "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*$"
     },
+    "task_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^sg_(light|standard|strict)_([a-z0-9]+(?:_[a-z0-9]+)*)_t_([a-f0-9]{12}(?:[a-f0-9]{4}){0,5})$",
+      "x-task-ref-lengths": [12, 16, 20, 24, 28, 32]
+    },
     "task_id": {
       "type": "string",
       "minLength": 1,
@@ -522,7 +529,7 @@
         "task_ref": {"$ref": "#/$defs/task_ref"},
         "task_name": {
           "anyOf": [
-            {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "\\S"},
+            {"$ref": "#/$defs/task_name"},
             {"type": "null"}
           ]
         },
@@ -667,7 +674,7 @@
       "type": "object",
       "required": ["task_name", "fork_turns", "model", "reasoning_effort"],
       "properties": {
-        "task_name": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "\\S"},
+        "task_name": {"$ref": "#/$defs/task_name"},
         "fork_turns": {"type": "string", "minLength": 1},
         "model": {"$ref": "#/$defs/model"},
         "reasoning_effort": {"$ref": "#/$defs/nullable_reasoning_effort"}
@@ -687,7 +694,7 @@
         "task_id": {"$ref": "#/$defs/task_id"},
         "attempt": {"$ref": "#/$defs/attempt"},
         "task_ref": {"$ref": "#/$defs/task_ref"},
-        "task_name": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "\\S"},
+        "task_name": {"$ref": "#/$defs/task_name"},
         "resolved_mode": {"$ref": "#/$defs/resolved_mode"},
         "contract": {"$ref": "#/$defs/task_contract"},
         "contract_digest": {"$ref": "#/$defs/sha256"},
@@ -1085,11 +1092,6 @@
       "decision_source": "work_item_decision_snapshot",
       "generates_aggregate_result": false,
       "schedules_or_cancels_members": false
-    },
-    "task_name": {
-      "pattern": "^sg_(light|standard|strict)_([a-z0-9]+(?:_[a-z0-9]+)*)_t_([a-f0-9]{12,32})$",
-      "max_length": 64,
-      "task_ref_lengths": [12, 16, 20, 24, 28, 32]
     },
     "canonical_record": {
       "state_format_version": 6,

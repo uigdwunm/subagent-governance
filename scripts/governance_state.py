@@ -15,6 +15,7 @@ try:
         REQUIRED_OBSERVATION_RECORD_FIELDS, REQUIRED_TASK_CONTAINER_FIELDS,
         REQUIRED_WORK_ITEM_FIELDS, SEMANTIC_DEFINITIONS, SEMANTIC_RULES,
         STATE_FORMAT_VERSION,
+        TASK_NAME_MAX_LENGTH, TASK_NAME_RE,
     )
 except ModuleNotFoundError:
     from governance_errors import StateValidationError
@@ -25,6 +26,7 @@ except ModuleNotFoundError:
         REQUIRED_OBSERVATION_RECORD_FIELDS, REQUIRED_TASK_CONTAINER_FIELDS,
         REQUIRED_WORK_ITEM_FIELDS, SEMANTIC_DEFINITIONS, SEMANTIC_RULES,
         STATE_FORMAT_VERSION,
+        TASK_NAME_MAX_LENGTH, TASK_NAME_RE,
     )
 
 
@@ -218,9 +220,9 @@ def validate_current_state_format(value: Any) -> list[StateFormatIssue]:
                     continue
                 if not isinstance(record.get("task_ref"), str) or re.fullmatch(r"[a-f0-9]{12}(?:[a-f0-9]{4}){0,5}", record["task_ref"]) is None:
                     issues.append(StateFormatIssue(f"{execution_path}.task_ref", "无效"))
-                if record.get("task_name") is not None and not _text(record.get("task_name"), 64):
+                if record.get("task_name") is not None and not _text(record.get("task_name"), TASK_NAME_MAX_LENGTH):
                     issues.append(StateFormatIssue(f"{execution_path}.task_name", "必须是非空字符串或 null"))
-                elif record.get("task_name") is not None and re.fullmatch(SEMANTIC_RULES["task_name"]["pattern"], record["task_name"]) is None:
+                elif record.get("task_name") is not None and TASK_NAME_RE.fullmatch(record["task_name"]) is None:
                     issues.append(StateFormatIssue(f"{execution_path}.task_name", "不符合 task name 格式"))
                 if record.get("resolved_mode") not in SEMANTIC_DEFINITIONS["resolved_mode"]["enum"]:
                     issues.append(StateFormatIssue(f"{execution_path}.resolved_mode", "无效"))
