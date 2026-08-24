@@ -6975,6 +6975,39 @@ def _diagnose(session_id: str | None, data_root: Path | None = None) -> int:
     return exit_code
 
 
+# P4 public facade.  Protocol implementations are owned by their dedicated
+# modules; these explicit imports preserve direct-script and package consumers.
+try:
+    from scripts.governance_validation import _required_fields, _validate_text, _validate_text_list
+    from scripts.governance_context import (
+        _run_git, _sha256_file, _validate_context_manifest,
+        _validate_context_verification_record, verify_context_manifest,
+    )
+    from scripts.governance_contracts import (
+        TaskContract, TaskFeatures, _contract_from_input, _contract_summary,
+        _validate_task_features, contract_digest, resolve_governance_mode,
+        validate_task_contract,
+    )
+    from scripts.governance_dispatch_identity import (
+        build_task_name, derive_task_ref, normalize_semantic_name,
+        parse_task_name, select_task_ref,
+    )
+    from scripts.governance_dispatch_rendering import (
+        _context_projection, _render_list, _render_verified_context, _spawn_args,
+        render_dispatch_prompt, render_dispatch_user_message,
+    )
+    from scripts.governance_prepared_store import (
+        PreparedContractStore, _prepared_record, _prepared_root_for_store,
+    )
+except ModuleNotFoundError:
+    from governance_validation import _required_fields, _validate_text, _validate_text_list
+    from governance_context import _run_git, _sha256_file, _validate_context_manifest, _validate_context_verification_record, verify_context_manifest
+    from governance_contracts import TaskContract, TaskFeatures, _contract_from_input, _contract_summary, _validate_task_features, contract_digest, resolve_governance_mode, validate_task_contract
+    from governance_dispatch_identity import build_task_name, derive_task_ref, normalize_semantic_name, parse_task_name, select_task_ref
+    from governance_dispatch_rendering import _context_projection, _render_list, _render_verified_context, _spawn_args, render_dispatch_prompt, render_dispatch_user_message
+    from governance_prepared_store import PreparedContractStore, _prepared_record, _prepared_root_for_store
+
+
 def main() -> int:
     try:
         from scripts.governance_cli import main as cli_main
