@@ -32,8 +32,9 @@
 | P11 | [followup PostToolUse 与 exact-list 的 current-only 绑定](P11-followup-posttool-and-exact-list-binding.md) | 正确性、可观测性、真实验证修复 | P10-B V4 failure；须先完成P11本地门禁后才可重跑P10 |
 | P12-A | [governed spawn PostToolUse 最小诊断门槛](P12A-minimal-spawn-post-diagnostics.md) | 有界诊断、停止门槛 | P11 已安装后的 P10-B V2 failure；不改 canonical 状态机 |
 | P12-B | [governed spawn PostToolUse 与 canonical identity 条件修复](P12-governed-spawn-posttool-and-identity-binding.md) | 条件正确性修复 | 仅在 P12-A 真实证据满足激活门槛后实施，并按证据缩减范围 |
+| P13 | [运行缓存双版本滚动保留与安装事务收口](P13-rolling-two-version-runtime-cache.md) | 安装正确性、旧会话重启兼容 | P12-A 本地门禁；下一次测试安装前必须完成 |
 
-P1–P8 必须顺序执行。即使某个后续方案看起来可以独立修改，也不能在前置模块尚未落地时复制临时实现。P11 是 P10-B 真实 V4 failure 后的独立修复方案。P12-A 只诊断 P11 已安装后在 V2 暴露的 spawn 前置缺口；P12-B 不是默认下一步，只有 P12-A 的真实证据满足激活门槛时才实施。它们都不替代 P10 的重新授权安装和全新真实复验；P12-A 作出继续/停止决定前，不得继续验证 P11 的 V4。
+P1–P8 必须顺序执行。即使某个后续方案看起来可以独立修改，也不能在前置模块尚未落地时复制临时实现。P11 是 P10-B 真实 V4 failure 后的独立修复方案。P12-A 只诊断 P11 已安装后在 V2 暴露的 spawn 前置缺口；P12-B 不是默认下一步，只有 P12-A 的真实证据满足激活门槛时才实施。P13 独立修复安装期间旧运行缓存消失的问题；它不决定 P12-B 是否激活，但必须在下一次安装 P12-A 前完成。P11–P13 都不替代 P10 的重新授权安装和全新真实复验；P12-A 作出继续/停止决定前，不得继续验证 P11 的 V4。
 
 ## 新对话交接模板
 
