@@ -333,6 +333,7 @@ def install(
     *,
     previous_version: str | None = None,
     target_version: str,
+    source_root: Path | None = None,
     transaction_file: Path | None = None,
     runner=None,
 ) -> tuple[int, dict[str, object]]:
@@ -344,6 +345,10 @@ def install(
     if transaction_path.parent != snapshot_parent.absolute():
         raise RuntimeError(f"事务记录必须直接位于事务快照父目录：{transaction_path}")
 
+    stable_source = (
+        source_root or Path(__file__).resolve().parents[1]
+    ).expanduser().absolute()
+
     with operation_lock(snapshot_parent):
         recovered_caches = recover_interrupted_transaction(
             snapshot_parent, cache_parent
@@ -353,19 +358,25 @@ def install(
         if previous_cache is not None and previous_cache.name == target_version:
             raise RuntimeError("目标版本必须不同于升级前实际版本")
         pre_install_caches = cache_entries(caches)
+        ordinary_directory(stable_source, "稳定测试源")
+        expected_stable_tree_digest = tree_digest(stable_source)
         transaction_id = f"{TRANSACTION_PREFIX}{os.getpid()}-{uuid.uuid4().hex}"
         snapshot = snapshot_parent / transaction_id
         snapshot.mkdir(mode=0o700)
         snapshot_caches = snapshot / SNAPSHOT_CACHE_DIRECTORY
         snapshot_caches.mkdir(mode=0o700)
         transaction: dict[str, object] = {
+            "actual_stable_tree_digest": None,
+            "actual_target_tree_digest": None,
             "created_at": utc_now(),
+            "expected_stable_tree_digest": expected_stable_tree_digest,
             "pre_install_caches": pre_install_caches,
             "previous_version": previous_cache.name if previous_cache else None,
             "recovered_interrupted_caches": recovered_caches,
             "snapshot_id": transaction_id,
             "snapshot_path": str(snapshot),
             "state": "snapshot_started",
+            "stable_source_path": str(stable_source),
             "target_version": target_version,
             "transaction_file": str(transaction_path),
             "transaction_id": transaction_id,
@@ -416,29 +427,64 @@ def install(
         command_error: str | None = None
         unexpected_error: Exception | None = None
         returncode = 2
+        failed_stage: str | None = None
         try:
-            result = run_command(command, check=False)
-            returncode = int(result.returncode)
-        except OSError as exc:
-            command_error = str(exc)
+            ordinary_directory(stable_source, "稳定测试源")
+            source_digest_before_command = tree_digest(stable_source)
+            transaction["stable_tree_digest_before_command"] = source_digest_before_command
+            if source_digest_before_command != expected_stable_tree_digest:
+                command_error = "稳定测试源在事务快照后发生变化"
+                failed_stage = "source_pre_command"
         except Exception as exc:
-            unexpected_error = exc
+            command_error = f"调用原生命令前稳定测试源无效：{stable_source}；原因：{exc}"
+            failed_stage = "source_pre_command"
+        if failed_stage is None:
+            try:
+                result = run_command(command, check=False)
+                returncode = int(result.returncode)
+                if returncode != 0:
+                    failed_stage = "codex_command"
+            except OSError as exc:
+                command_error = str(exc)
+                failed_stage = "codex_command"
+            except Exception as exc:
+                unexpected_error = exc
+                failed_stage = "codex_command"
 
-        failed_stage: str | None = "codex_command" if returncode != 0 else None
+        write_json_atomic(transaction_path, transaction)
         target_cache = cache_parent / target_version
         target_valid = False
         if returncode == 0:
+            verification_errors: list[str] = []
+            actual_target_version: str | None = None
             try:
                 ordinary_directory(target_cache, "目标插件缓存")
-                tree_digest(target_cache)
-                if manifest_version(target_cache) != target_version:
-                    raise RuntimeError("目标缓存 Manifest version 与目标版本不一致")
-                target_valid = True
+                transaction["actual_target_tree_digest"] = tree_digest(target_cache)
+                actual_target_version = manifest_version(target_cache)
             except Exception as exc:
-                command_error = f"原生命令返回成功，但目标缓存无效：{target_cache}；原因：{exc}"
+                verification_errors.append(f"目标缓存无效：{target_cache}；原因：{exc}")
+            try:
+                ordinary_directory(stable_source, "稳定测试源")
+                transaction["actual_stable_tree_digest"] = tree_digest(stable_source)
+            except Exception as exc:
+                verification_errors.append(f"稳定测试源无效：{stable_source}；原因：{exc}")
+            actual_target_digest = transaction["actual_target_tree_digest"]
+            actual_stable_digest = transaction["actual_stable_tree_digest"]
+            if actual_target_version != target_version:
+                verification_errors.append("目标缓存 Manifest version 与目标版本不一致")
+            if actual_stable_digest != expected_stable_tree_digest:
+                verification_errors.append("稳定测试源在原生命令期间发生变化")
+            if actual_target_digest != expected_stable_tree_digest:
+                verification_errors.append("目标缓存 tree digest 与稳定测试源不一致")
+            if not verification_errors:
+                target_valid = True
+            else:
+                command_error = "原生命令返回成功，但安装后验证失败：" + "；".join(
+                    verification_errors
+                )
         if returncode == 0 and not target_valid:
             returncode = 2
-            failed_stage = "post_install_cache"
+            failed_stage = "post_install_verification"
 
         restored_caches: list[str] = []
         removed_cache_entries: list[str] = []
@@ -540,6 +586,7 @@ def main() -> int:
             [args.codex_command, "plugin", "add", resolved_plugin_spec],
             previous_version=args.previous_version,
             target_version=target_version,
+            source_root=stable_root,
         )
     except Exception as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False, indent=2), file=sys.stderr)

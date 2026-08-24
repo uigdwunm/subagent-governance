@@ -249,14 +249,120 @@ class ReleaseToolTests(unittest.TestCase):
         )
 
     @staticmethod
-    def cache(path, marker):
+    def cache(path, marker, *, version=None):
         path.mkdir(parents=True)
         manifest = path / ".codex-plugin"
         manifest.mkdir()
         (manifest / "plugin.json").write_text(
-            json.dumps({"version": path.name}), encoding="utf-8"
+            json.dumps({"version": version or path.name}), encoding="utf-8"
         )
         (path / "marker").write_text(marker, encoding="utf-8")
+
+    def stable_source(self, root, target_version, marker="target"):
+        source = root / "stable"
+        self.cache(source, marker, version=target_version)
+        return source
+
+    def assert_digest_mismatch_rolls_back(self, mutate_target):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache_parent = root / "cache"
+            snapshots = root / "snapshots"
+            target_version = "0.4.0-rc.3"
+            source = self.stable_source(root, target_version)
+            self.cache(cache_parent / "0.4.0-rc.1", "one")
+            self.cache(cache_parent / "0.4.0-rc.2", "two")
+            expected_digest = install_tool.tree_digest(source)
+
+            def runner(command, check):
+                shutil.rmtree(cache_parent / "0.4.0-rc.1")
+                shutil.rmtree(cache_parent / "0.4.0-rc.2")
+                target = cache_parent / target_version
+                shutil.copytree(source, target, copy_function=shutil.copy2)
+                mutate_target(target)
+                return subprocess.CompletedProcess(command, 0)
+
+            returncode, report = install_tool.install(
+                cache_parent,
+                snapshots,
+                ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                previous_version="0.4.0-rc.2",
+                target_version=target_version,
+                source_root=source,
+                runner=runner,
+            )
+
+            self.assertEqual(returncode, 2)
+            self.assertEqual(report["state"], "install_failed_rolled_back")
+            self.assertEqual(report["failed_stage"], "post_install_verification")
+            self.assertEqual(report["expected_stable_tree_digest"], expected_digest)
+            self.assertEqual(report["actual_stable_tree_digest"], expected_digest)
+            self.assertNotEqual(report["actual_target_tree_digest"], expected_digest)
+            self.assertEqual(report["removed_cache_entries"], [])
+            self.assertEqual(report["restored_caches"], ["0.4.0-rc.1", "0.4.0-rc.2"])
+            self.assertEqual(
+                sorted(path.name for path in cache_parent.iterdir()),
+                ["0.4.0-rc.1", "0.4.0-rc.2"],
+            )
+            self.assertEqual((cache_parent / "0.4.0-rc.1" / "marker").read_text(), "one")
+            self.assertEqual((cache_parent / "0.4.0-rc.2" / "marker").read_text(), "two")
+
+    def test_target_missing_content_digest_mismatch_rolls_back_complete_cache_set(self):
+        self.assert_digest_mismatch_rolls_back(
+            lambda target: (target / "marker").unlink()
+        )
+
+    def test_target_extra_content_digest_mismatch_rolls_back_complete_cache_set(self):
+        self.assert_digest_mismatch_rolls_back(
+            lambda target: (target / "unexpected").write_text("extra", encoding="utf-8")
+        )
+
+    @unittest.skipIf(os.name == "nt", "file mode checks differ on Windows")
+    def test_target_file_mode_digest_mismatch_rolls_back_complete_cache_set(self):
+        def make_executable(target):
+            marker = target / "marker"
+            marker.chmod(marker.stat().st_mode | 0o100)
+
+        self.assert_digest_mismatch_rolls_back(make_executable)
+
+    def test_stable_source_change_during_command_rolls_back_complete_cache_set(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache_parent = root / "cache"
+            snapshots = root / "snapshots"
+            target_version = "0.4.0-rc.3"
+            source = self.stable_source(root, target_version)
+            self.cache(cache_parent / "0.4.0-rc.1", "one")
+            self.cache(cache_parent / "0.4.0-rc.2", "two")
+            expected_digest = install_tool.tree_digest(source)
+
+            def runner(command, check):
+                shutil.rmtree(cache_parent / "0.4.0-rc.1")
+                shutil.rmtree(cache_parent / "0.4.0-rc.2")
+                shutil.copytree(source, cache_parent / target_version, copy_function=shutil.copy2)
+                (source / "marker").write_text("changed", encoding="utf-8")
+                return subprocess.CompletedProcess(command, 0)
+
+            returncode, report = install_tool.install(
+                cache_parent,
+                snapshots,
+                ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                previous_version="0.4.0-rc.2",
+                target_version=target_version,
+                source_root=source,
+                runner=runner,
+            )
+
+            self.assertEqual(returncode, 2)
+            self.assertEqual(report["failed_stage"], "post_install_verification")
+            self.assertEqual(report["expected_stable_tree_digest"], expected_digest)
+            self.assertNotEqual(report["actual_stable_tree_digest"], expected_digest)
+            self.assertEqual(report["actual_target_tree_digest"], expected_digest)
+            self.assertEqual(report["restored_caches"], ["0.4.0-rc.1", "0.4.0-rc.2"])
+            self.assertEqual(
+                sorted(path.name for path in cache_parent.iterdir()),
+                ["0.4.0-rc.1", "0.4.0-rc.2"],
+            )
 
     def test_successful_install_keeps_only_target_cache(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -264,6 +370,7 @@ class ReleaseToolTests(unittest.TestCase):
             cache_parent = root / "cache"
             snapshots = root / "snapshots"
             current = cache_parent / "0.4.0-rc.1"
+            source = self.stable_source(root, "0.4.0-rc.2")
             self.cache(current, "current")
 
             def runner(command, check):
@@ -277,6 +384,7 @@ class ReleaseToolTests(unittest.TestCase):
                 ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
                 previous_version="0.4.0-rc.1",
                 target_version="0.4.0-rc.2",
+                source_root=source,
                 runner=runner,
             )
 
@@ -335,7 +443,7 @@ class ReleaseToolTests(unittest.TestCase):
             )
 
             self.assertEqual(returncode, 2)
-            self.assertEqual(report["failed_stage"], "post_install_cache")
+            self.assertEqual(report["failed_stage"], "post_install_verification")
             self.assertEqual(report["state"], "install_failed_rolled_back")
             self.assertTrue(current.is_dir())
 
@@ -370,6 +478,7 @@ class ReleaseToolTests(unittest.TestCase):
             root = Path(directory)
             cache_parent = root / "cache"
             snapshots = root / "snapshots"
+            source = self.stable_source(root, "0.4.0-rc.3")
             self.cache(cache_parent / "0.4.0-rc.1", "one")
             self.cache(cache_parent / "0.4.0-rc.2", "two")
 
@@ -383,6 +492,7 @@ class ReleaseToolTests(unittest.TestCase):
                 ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
                 previous_version="0.4.0-rc.2",
                 target_version="0.4.0-rc.3",
+                source_root=source,
                 runner=runner,
             )
 
@@ -462,6 +572,7 @@ class ReleaseToolTests(unittest.TestCase):
             cache_parent = root / "cache"
             snapshots = root / "snapshots"
             cache_parent.mkdir()
+            source = self.stable_source(root, "0.4.0-rc.2")
 
             def runner(command, check):
                 self.cache(cache_parent / "0.4.0-rc.2", "target")
@@ -470,7 +581,7 @@ class ReleaseToolTests(unittest.TestCase):
             returncode, report = install_tool.install(
                 cache_parent, snapshots,
                 ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
-                target_version="0.4.0-rc.2", runner=runner,
+                target_version="0.4.0-rc.2", source_root=source, runner=runner,
             )
 
             self.assertEqual(returncode, 0)
@@ -517,6 +628,7 @@ class ReleaseToolTests(unittest.TestCase):
             root = Path(directory)
             cache_parent = root / "cache"
             snapshots = root / "snapshots"
+            source = self.stable_source(root, "0.4.0-rc.3")
             self.cache(cache_parent / "0.4.0-rc.1", "one")
             self.cache(cache_parent / "0.4.0-rc.2", "two")
             original_remove = install_tool.remove_cache
@@ -537,7 +649,7 @@ class ReleaseToolTests(unittest.TestCase):
                 returncode, report = install_tool.install(
                     cache_parent, snapshots,
                     ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
-                    previous_version="0.4.0-rc.2", target_version="0.4.0-rc.3", runner=runner,
+                    previous_version="0.4.0-rc.2", target_version="0.4.0-rc.3", source_root=source, runner=runner,
                 )
 
             self.assertEqual(returncode, 2)
@@ -590,6 +702,7 @@ class ReleaseToolTests(unittest.TestCase):
             cache_parent = root / "cache"
             snapshots = root / "snapshots"
             cache_parent.mkdir()
+            source = self.stable_source(root, "0.4.0-rc.2")
             snapshot = snapshots / "transaction-stale"
             self.cache(snapshot / "cache" / "0.4.0-rc.1", "original")
             install_tool.write_json_atomic(
@@ -619,6 +732,7 @@ class ReleaseToolTests(unittest.TestCase):
                 ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
                 previous_version="0.4.0-rc.1",
                 target_version="0.4.0-rc.2",
+                source_root=source,
                 runner=runner,
             )
 

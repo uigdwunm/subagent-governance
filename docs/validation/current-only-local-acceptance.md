@@ -41,7 +41,7 @@
 
 P10 新增要求包括“目标 cache 的 Manifest/version/digest 不正确时完整恢复”。该条件不成立。
 
-- [`scripts/reinstall_plugin.py`](/Users/zhaolaiyuan/.codex/worktrees/022b/subagent-governance/scripts/reinstall_plugin.py:433) 对 target 仅调用 `tree_digest(target_cache)`，但丢弃返回值；随后只比较 `manifest_version(target_cache) == target_version`。
+- `scripts/reinstall_plugin.py` 对 target 仅调用 `tree_digest(target_cache)`，但丢弃返回值；随后只比较 `manifest_version(target_cache) == target_version`。
 - installer 没有接收、计算或持久化任何预期 target digest，因此无法判断 target 内容是否被篡改；当前 `test_release_tools.py` 也没有该负向用例。
 - 隔离 `tempfile.TemporaryDirectory()` 复现：预安装 cache 为 `0.4.0-rc.1`，runner 返回 0 并创建 version 正确、Manifest 正确但内容不同的 `0.4.0-rc.2`。预期 target digest 为 `271515f893b0c99544d740a9ebe4260c3029c918b3e96935c63c2a295cac103a`，实际为 `964b156e0ae31218b8b227db3e92582ae4cf11fa62ad392cf0d9e8c1a94442d6`；installer 仍返回 `0`、报告 `state=install_succeeded`、只余 `0.4.0-rc.2`，`rollback_occurred=false`。
 

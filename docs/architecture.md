@@ -92,6 +92,6 @@ StateStore 只接受严格的 `state_format_version=6`，默认数据命名空�
 
 ## 安装与发布
 
-运行环境最终只允许一个当前插件缓存。`reinstall_plugin.py` 不从多 cache 目录名推测 current：有 cache 时必须由操作者传入 `codex plugin list` 证实的 `--previous-version`。它在 OS lock 和同一文件系统内快照完整安装前 cache 集合及摘要；失败、目标无效或收敛失败时验证摘要后回滚，成功后才删除快照和其他缓存。安装锁由操作系统持有，进程退出后自动释放。
+运行环境最终只允许一个当前插件缓存。`reinstall_plugin.py` 不从多 cache 目录名推测 current：有 cache 时必须由操作者传入 `codex plugin list` 证实的 `--previous-version`。它在调用原生命令前绑定脚本所在稳定测试源的完整 tree digest，并在 OS lock 和同一文件系统内快照完整安装前 cache 集合及摘要；命令成功后仍要求稳定源未变化，目标是安全普通目录、Manifest 完整版本匹配且 target tree digest 精确等于已绑定的 stable digest。失败、目标无效或收敛失败时验证摘要后回滚，只有全部验证成功才删除快照和其他缓存。安装锁由操作系统持有，进程退出后自动释放。
 
 发布、安装、Marketplace、运行缓存和 Hook trust 的写入都需要单独授权。

@@ -84,6 +84,7 @@ P10-A 不能因为安装成功就把 P10 标记完成；P10-B 未完成时状态
 - OS file lock；
 -当前 cache snapshot；
 - same-filesystem 检查；
+- 调用原生命令前从运行脚本的稳定测试源绑定完整 tree digest；命令返回后 stable digest 必须保持不变，且 target cache digest 必须精确相等；
 -安装失败自动恢复；
 -成功后只保留目标 cache；
 - transaction snapshot 成功/回滚后清理。
