@@ -8,7 +8,7 @@
 - 独立新任务 `01a0339e-f49b-7990-a5db-d70ca7dee6d9`，开发 checkout 为 `37a3c9a02712fc5bc4ff026d31fcb24b892e3e61`，模型/推理为 `gpt-5.6-terra` / `high`。
 - `codex plugin list` 实际显示 `subagent-governance@personal` 为 `installed, enabled`，完整版本 `0.4.0-rc.13+codex.20260824114902`。
 - 只读安装检查通过：stable/cache digest 均为 `8d4f05e2b61bf62af6bb86c55d0f1b7ec05febbe33c4c50ed7df9204b4e1f004`，`runtime_healthy`、`deployment_in_sync`、`development_rules_in_sync`、`single_current_cache`、`installation_paths_separated` 均为 true。
-- 新任务实际可读取的 `subagent-governance` Skill 路径为 `/Users/zhaolaiyuan/.codex/plugins/cache/personal/subagent-governance/0.4.0-rc.13+codex.20260824114902/skills/subagent-governance/SKILL.md`；这与目标 runtime cache 相符。
+- 新任务实际加载的 `subagent-governance` Skill 版本为 `0.4.0-rc.13+codex.20260824114902`；这与目标 runtime cache 版本相符。主机私有缓存绝对路径不写入可发布验证文档。
 - Codex registration 与 Hook trust 的独立状态均为 `not_checked`：`codex plugin list` 只能证明 installed/enabled，安装检查也明确返回 `codex_registration_checked=false`、`hook_trust_checked=false`。实际 V1/V2 PreToolUse Hook 输出证明 Pre hook 正在处理这两次 spawn，但不替代独立 trust/registration 结论，也不证明 PostToolUse 投递。
 - 本次未修改运行代码、Schema、Hook、Skill、stable source、runtime cache、Hook trust、Marketplace、Registry 或 Manifest；未重装、发布、push 或 tag。
 
