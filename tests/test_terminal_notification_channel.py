@@ -169,6 +169,7 @@ class TerminalNotificationChannelTests(unittest.TestCase):
         self.assertNotIn("parent_disposition", closure)
         self.assertNotIn("disposition_recorded_at", closure)
         self.assertNotIn("last_parent_disposition", task["work_item"])
+        self.assertNotIn(self.target, self.store.read(self.session_id)["agents"])
 
 
 if __name__ == "__main__":

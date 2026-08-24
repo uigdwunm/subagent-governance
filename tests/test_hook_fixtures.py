@@ -112,7 +112,7 @@ class HookFixtureTests(unittest.TestCase):
             )
             events = self.load_fixture("interrupt-v1.json")
             intent = governance.prepare_interrupt(
-                events[0]["tool_input"],
+                {"target": events[0]["tool_input"]["target"]},
                 "interrupt-session",
                 state_store=store,
             )

@@ -1128,6 +1128,15 @@ def apply_parent_disposition(
                 f"close_task:{reason}",
                 current_time,
             )
+        # The agents index is only a current identity index.  Delete mappings
+        # that still point at this work item, but never infer ownership from a
+        # target name or remove a mapping concurrently transferred elsewhere.
+        agents = state.get("agents")
+        if not isinstance(agents, dict):
+            raise StateValidationError("治理状态缺少 agents 对象")
+        for target, mapping in list(agents.items()):
+            if isinstance(mapping, dict) and mapping.get("task_id") == task_id:
+                agents.pop(target, None)
         _apply_canonical_execution_update(current, "closure_parent_action", None)
         current["updated_at"] = current_time
         work_item["lifecycle"] = "tombstoned"
@@ -2151,6 +2160,7 @@ def render_communication_message(
     *,
     resume_contract: TaskContract | None = None,
     resume_context_verification: dict[str, Any] | None = None,
+    resume_identity: dict[str, Any] | None = None,
 ) -> str:
     lines = [
         f"【通信目的】{fields['purpose']}",
@@ -2162,8 +2172,16 @@ def render_communication_message(
             raise CommunicationPreparationError("business_resume 缺少重新验证的 TaskContract")
         if resume_context_verification is None:
             raise CommunicationPreparationError("business_resume 缺少必需上下文验证")
+        if resume_identity is None:
+            raise CommunicationPreparationError("business_resume 缺少新 attempt identity")
         lines.extend(
             (
+                "【本次恢复身份】",
+                f"task_id：{resume_identity['task_id']}",
+                f"attempt：{resume_identity['attempt']}",
+                f"task_ref：{resume_identity['task_ref']}",
+                f"target：{resume_identity['target']}",
+                "终态通知必须使用以上 task_id、attempt、target；不得沿用旧 attempt。",
                 "【继续执行目标】",
                 resume_contract.objective,
                 "【工作范围】",
@@ -2564,6 +2582,10 @@ def _persist_managed_action(
         operation_type,
         resume_contract=resume_contract,
         resume_context_verification=resume_context_verification,
+        resume_identity=(
+            {"task_id": task_id, "attempt": desired_attempt, "task_ref": desired_task_ref, "target": target}
+            if operation_type == "business_resume" else None
+        ),
     )
     return {
         "managed": True,
@@ -2630,6 +2652,10 @@ def _prepare_managed_action(
             "不能复活 active index 或按 unmanaged 放行"
         )
     if admission.disposition != "managed" or admission.candidate is None:
+        if operation_type == "business_resume":
+            raise CommunicationPreparationError(
+                "business_resume 必须具有唯一 managed canonical identity，不能按 unmanaged 发送"
+            )
         resume_contract = None
         resume_context_verification = None
         if operation_type == "business_resume":
@@ -3221,7 +3247,13 @@ def _create_resume_attempt(
         )
     new_attempt = int(pending["attempt"])
     task_ref = str(pending["task_ref"])
-    pending_owner.pop("pending_action", None)
+    work_item = task.get("work_item")
+    if not isinstance(work_item, dict) or work_item.get("current_attempt") != old_attempt:
+        raise StateConflictError("business_resume source 不是 current attempt")
+    if not _execution_is_closed(old):
+        _close_attempt_record(
+            state, task_id, old_attempt, old, "business_resume", claimed_at
+        )
     task_name = str(old.get("task_name") or "")
     created = _initial_task_record(
         new_attempt,
@@ -3233,6 +3265,8 @@ def _create_resume_attempt(
     created_execution = created["executions"][str(new_attempt)]
     _apply_canonical_execution_update(created_execution, "observed_execution_status", "not_started")
     created_execution["task_name"] = None
+    _apply_canonical_execution_update(created_execution, "dispatch_target", pending["target"])
+    _apply_canonical_execution_update(created_execution, "dispatch_tool_use_id", tool_use_id)
     claimed = copy.deepcopy(pending)
     claimed.update(
         {
@@ -3243,7 +3277,11 @@ def _create_resume_attempt(
     )
     created_execution["pending_action"] = claimed
     task["executions"][str(new_attempt)] = created_execution
-    task["work_item"]["current_attempt"] = new_attempt
+    agents = state.get("agents")
+    if not isinstance(agents, dict):
+        raise StateValidationError("治理状态缺少 agents 对象")
+    agents[str(pending["target"])] = _identity_mapping(task_id, new_attempt)
+    work_item["current_attempt"] = new_attempt
     return created_execution
 
 
@@ -3252,11 +3290,25 @@ def _state_claim_commit_status(
     store: StateStore,
     before: dict[str, Any],
     committed: dict[str, Any],
+    *,
+    task_id: str,
+    target: str,
 ) -> str:
+    def projection(state: dict[str, Any]) -> dict[str, Any]:
+        tombstones = state.get("tombstones")
+        return {
+            "task": copy.deepcopy(state.get("tasks", {}).get(task_id)),
+            "agent": copy.deepcopy(state.get("agents", {}).get(target)),
+            "tombstones": {
+                key: copy.deepcopy(value)
+                for key, value in (tombstones.items() if isinstance(tombstones, dict) else [])
+                if key.startswith(f"{task_id}:")
+            },
+        }
     observed = store.read(session_id)
-    if observed == committed:
+    if projection(observed) == projection(committed):
         return "committed"
-    if observed == before:
+    if projection(observed) == projection(before):
         return "not_persisted"
     return "ambiguous"
 
@@ -3446,6 +3498,8 @@ def _claim_pending_action(
                     store,
                     state_before_claim,
                     committed_state,
+                    task_id=task_id,
+                    target=target,
                 )
             except Exception as verification_exc:
                 commit_status = "unavailable"
@@ -3957,6 +4011,22 @@ def _handle_post_tool(payload: dict[str, Any], store: StateStore) -> dict[str, A
     if kind == "spawn":
         return _handle_post_tool_spawn(payload, store, session_id)
     return None
+
+
+# P6 lifecycle APIs are owned by the transaction module.  The runtime keeps
+# only the Hook transport adapter surface; these explicit aliases preserve the
+# existing public facade without a proxy or a second public implementation.
+try:
+    from scripts import governance_lifecycle as _lifecycle
+except ModuleNotFoundError:
+    import governance_lifecycle as _lifecycle
+
+record_terminal_notification = _lifecycle.record_terminal_notification
+apply_parent_disposition = _lifecycle.apply_parent_disposition
+prepare_communication = _lifecycle.prepare_communication
+prepare_interrupt = _lifecycle.prepare_interrupt
+reconcile_interrupted_attempt = _lifecycle.reconcile_interrupted_attempt
+reconcile_pending_actions = _lifecycle.reconcile_pending_actions
 
 
 def _attempt_projection(

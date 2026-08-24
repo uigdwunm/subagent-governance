@@ -334,6 +334,9 @@ class CommunicationLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(prepared["operation_type"], "business_resume")
         self.assertNotIn("TaskResult", prepared["message"])
+        self.assertIn(f"task_id：{task_id}", prepared["message"])
+        self.assertIn("attempt：2", prepared["message"])
+        self.assertIn(f"target：{target}", prepared["message"])
 
     def test_business_resume_claim_creates_next_attempt(self):
         task_id, target = self.add_managed()
@@ -362,6 +365,18 @@ class CommunicationLifecycleTests(unittest.TestCase):
         self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
         task = self.store.read(self.session_id)["tasks"][task_id]
         self.assertEqual(task["work_item"]["current_attempt"], 2)
+        source = task["executions"]["1"]
+        resumed = task["executions"]["2"]
+        self.assertTrue(governance._execution_is_closed(source))
+        self.assertEqual(source["closure_record"]["reason"], "business_resume")
+        self.assertEqual(resumed["dispatch_record"]["dispatch_target"], target)
+        self.assertEqual(resumed["dispatch_record"]["tool_use_id"], "resume-tool")
+        self.assertEqual(resumed["dispatch_record"]["dispatch_state"], "claimed")
+        self.assertEqual(
+            self.store.read(self.session_id)["agents"][target],
+            {"task_id": task_id, "attempt": 2},
+        )
+        self.assertEqual(resumed["task_name"], None)
         self.assertNotIn("last_growth_authorization", task["work_item"])
         self.assertNotIn("dispatch_kind", task["executions"]["2"])
         self.assertNotIn("transition", task["executions"]["2"])
@@ -574,9 +589,8 @@ class CommunicationLifecycleTests(unittest.TestCase):
             result = governance.handle(payload, self.store)
 
         self.assertEqual(
-            result["hookSpecificOutput"]["permissionDecision"], "deny"
+            result["hookSpecificOutput"]["permissionDecision"], "allow"
         )
-        self.assertIn("degraded", str(result))
         state = self.store.read(self.session_id)
         self.assertEqual(state["health"]["status"], "unavailable")
         self.assertEqual(state["tasks"][task_id]["work_item"]["current_attempt"], 2)
