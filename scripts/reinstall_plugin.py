@@ -83,6 +83,16 @@ def ordinary_directory(path: Path, label: str, *, create: bool = False) -> None:
         raise PermissionError(f"{label} 不能允许组用户或其他用户写入：{path}")
 
 
+def ordinary_file(path: Path, label: str) -> None:
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError(f"{label} 必须是普通文件且不能是符号链接：{path}")
+    metadata = path.stat()
+    if not _owned_by_current_user(metadata):
+        raise PermissionError(f"{label} 必须由当前用户拥有：{path}")
+    if os.name != "nt" and stat.S_IMODE(metadata.st_mode) & 0o022:
+        raise PermissionError(f"{label} 不能允许组用户或其他用户写入：{path}")
+
+
 def require_same_filesystem(cache_parent: Path, snapshot_parent: Path) -> None:
     if cache_parent.stat().st_dev != snapshot_parent.stat().st_dev:
         raise RuntimeError(
@@ -107,11 +117,35 @@ def cache_directories(cache_parent: Path) -> list[Path]:
     return caches
 
 
-def select_current_cache(caches: list[Path]) -> Path | None:
-    if len(caches) > 1:
-        names = ", ".join(cache.name for cache in caches)
-        raise RuntimeError(f"检测到多个插件缓存，当前安装只允许一个：{names}")
-    return caches[0] if caches else None
+def select_previous_cache(
+    caches: list[Path], previous_version: str | None
+) -> Path | None:
+    """Validate the operator-provided installed/current cache identity.
+
+    Cache names are not an ordering mechanism.  When caches exist, the exact
+    registered version observed in `codex plugin list` must be supplied.
+    """
+    if not caches:
+        if previous_version is not None:
+            raise RuntimeError(
+                f"指定了升级前版本 {previous_version}，但插件缓存目录为空"
+            )
+        return None
+    if previous_version is None:
+        raise RuntimeError(
+            "发现已有插件缓存；必须通过 --previous-version 传入从 "
+            "codex plugin list 确认的实际 installed/current 版本，"
+            "不能按目录名或时间排序猜测当前版本"
+        )
+    expected = validate_version_name(previous_version, "升级前版本")
+    for cache in caches:
+        if cache.name == expected:
+            return cache
+    raise RuntimeError(f"升级前版本缓存不存在：{expected}")
+
+
+def cache_entries(caches: list[Path]) -> list[dict[str, str]]:
+    return [{"name": cache.name, "digest": tree_digest(cache)} for cache in caches]
 
 
 def write_json_atomic(path: Path, value: dict[str, object]) -> None:
@@ -191,25 +225,48 @@ def operation_lock(snapshot_parent: Path) -> Iterator[Path]:
 def read_snapshot_manifest(snapshot: Path) -> dict[str, object]:
     manifest_path = snapshot / SNAPSHOT_MANIFEST
     cache_root = snapshot / SNAPSHOT_CACHE_DIRECTORY
-    if not manifest_path.is_file() or not cache_root.is_dir():
+    if not manifest_path.exists() or not cache_root.exists():
         raise RuntimeError(f"事务快照不完整：{snapshot}")
+    ordinary_file(manifest_path, "事务快照 manifest")
+    ordinary_directory(cache_root, "事务快照缓存根目录")
     try:
         value = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"事务快照 manifest 无法读取：{manifest_path}") from exc
     if not isinstance(value, dict):
         raise RuntimeError(f"事务快照 manifest 必须是对象：{manifest_path}")
-    current_cache = value.get("current_cache")
-    if current_cache is not None:
-        validate_version_name(str(current_cache), "快照 current_cache")
-        digest = value.get("current_cache_digest")
+    entries = value.get("pre_install_caches")
+    if not isinstance(entries, list):
+        raise RuntimeError(f"事务快照缺少完整 pre_install_caches：{manifest_path}")
+    names: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise RuntimeError(f"事务快照缓存条目必须是对象：{manifest_path}")
+        name = entry.get("name")
+        digest = entry.get("digest")
+        if not isinstance(name, str):
+            raise RuntimeError(f"事务快照缓存条目缺少名称：{manifest_path}")
+        validate_version_name(name, "快照缓存版本")
+        if name in names:
+            raise RuntimeError(f"事务快照缓存版本重复：{manifest_path}")
+        names.add(name)
         if (
             not isinstance(digest, str)
             or len(digest) != 64
             or any(character not in "0123456789abcdef" for character in digest)
         ):
-            raise RuntimeError(f"事务快照缺少有效 current_cache_digest：{manifest_path}")
+            raise RuntimeError(f"事务快照缓存条目缺少有效摘要：{manifest_path}")
+    previous_version = value.get("previous_version")
+    if previous_version is not None:
+        if not isinstance(previous_version, str):
+            raise RuntimeError(f"事务快照 previous_version 无效：{manifest_path}")
+        validate_version_name(previous_version, "快照升级前版本")
+        if previous_version not in names:
+            raise RuntimeError(f"事务快照 previous_version 不在缓存集合中：{manifest_path}")
     validate_version_name(str(value.get("target_version") or ""), "快照 target_version")
+    snapshot_names = [cache.name for cache in cache_directories(cache_root)]
+    if snapshot_names != sorted(names):
+        raise RuntimeError(f"事务快照缓存集合与 manifest 不一致：{manifest_path}")
     return value
 
 
@@ -219,28 +276,39 @@ def remove_cache(path: Path) -> None:
     shutil.rmtree(path)
 
 
-def restore_snapshot(snapshot: Path, cache_parent: Path) -> str | None:
+def restore_snapshot(snapshot: Path, cache_parent: Path) -> list[str]:
     manifest = read_snapshot_manifest(snapshot)
-    current_name = manifest.get("current_cache")
-    source: Path | None = None
-    if current_name is not None:
-        source = snapshot / SNAPSHOT_CACHE_DIRECTORY / str(current_name)
+    entries = manifest["pre_install_caches"]
+    assert isinstance(entries, list)
+    sources: list[tuple[Path, str]] = []
+    for entry in entries:
+        assert isinstance(entry, dict)
+        name = str(entry["name"])
+        source = snapshot / SNAPSHOT_CACHE_DIRECTORY / name
         ordinary_directory(source, "事务快照缓存")
-        if tree_digest(source) != manifest["current_cache_digest"]:
+        if tree_digest(source) != entry["digest"]:
             raise RuntimeError(f"事务快照缓存摘要不匹配：{source}")
+        sources.append((source, name))
     for cache in cache_directories(cache_parent):
         remove_cache(cache)
-    if current_name is None:
-        return None
-    assert source is not None
-    target = cache_parent / str(current_name)
-    shutil.move(str(source), str(target))
-    return str(current_name)
+    restored: list[str] = []
+    for source, name in sources:
+        target = cache_parent / name
+        shutil.copytree(source, target, copy_function=shutil.copy2)
+        expected_digest = next(
+            str(entry["digest"])
+            for entry in entries
+            if isinstance(entry, dict) and entry["name"] == name
+        )
+        if tree_digest(target) != expected_digest:
+            raise RuntimeError(f"已恢复插件缓存摘要不匹配：{target}")
+        restored.append(name)
+    return restored
 
 
 def recover_interrupted_transaction(
     snapshot_parent: Path, cache_parent: Path
-) -> str | None:
+) -> list[str]:
     transactions = [
         path
         for path in sorted(snapshot_parent.iterdir(), key=lambda path: path.name)
@@ -250,7 +318,7 @@ def recover_interrupted_transaction(
         names = ", ".join(path.name for path in transactions)
         raise RuntimeError(f"检测到多个未完成安装事务，无法确定恢复顺序：{names}")
     if not transactions:
-        return None
+        return []
     snapshot = transactions[0]
     ordinary_directory(snapshot, "未完成事务快照")
     restored = restore_snapshot(snapshot, cache_parent)
@@ -263,6 +331,7 @@ def install(
     snapshot_parent: Path,
     command: list[str],
     *,
+    previous_version: str | None = None,
     target_version: str,
     transaction_file: Path | None = None,
     runner=None,
@@ -276,20 +345,24 @@ def install(
         raise RuntimeError(f"事务记录必须直接位于事务快照父目录：{transaction_path}")
 
     with operation_lock(snapshot_parent):
-        recovered_cache = recover_interrupted_transaction(
+        recovered_caches = recover_interrupted_transaction(
             snapshot_parent, cache_parent
         )
-        current_cache = select_current_cache(cache_directories(cache_parent))
+        caches = cache_directories(cache_parent)
+        previous_cache = select_previous_cache(caches, previous_version)
+        if previous_cache is not None and previous_cache.name == target_version:
+            raise RuntimeError("目标版本必须不同于升级前实际版本")
+        pre_install_caches = cache_entries(caches)
         transaction_id = f"{TRANSACTION_PREFIX}{os.getpid()}-{uuid.uuid4().hex}"
         snapshot = snapshot_parent / transaction_id
         snapshot.mkdir(mode=0o700)
         snapshot_caches = snapshot / SNAPSHOT_CACHE_DIRECTORY
         snapshot_caches.mkdir(mode=0o700)
         transaction: dict[str, object] = {
-            "command": command,
             "created_at": utc_now(),
-            "current_cache": current_cache.name if current_cache else None,
-            "recovered_interrupted_cache": recovered_cache,
+            "pre_install_caches": pre_install_caches,
+            "previous_version": previous_cache.name if previous_cache else None,
+            "recovered_interrupted_caches": recovered_caches,
             "snapshot_id": transaction_id,
             "snapshot_path": str(snapshot),
             "state": "snapshot_started",
@@ -299,22 +372,28 @@ def install(
         }
         write_json_atomic(transaction_path, transaction)
         try:
-            current_cache_digest: str | None = None
-            if current_cache is not None:
+            for cache in caches:
                 shutil.copytree(
-                    current_cache,
-                    snapshot_caches / current_cache.name,
+                    cache,
+                    snapshot_caches / cache.name,
                     copy_function=shutil.copy2,
                 )
-                current_cache_digest = tree_digest(
-                    snapshot_caches / current_cache.name
+                snapshot_digest = tree_digest(snapshot_caches / cache.name)
+                expected_digest = next(
+                    entry["digest"]
+                    for entry in pre_install_caches
+                    if entry["name"] == cache.name
                 )
+                if snapshot_digest != expected_digest:
+                    raise RuntimeError(
+                        f"事务快照缓存摘要不匹配：{snapshot_caches / cache.name}"
+                    )
             write_json_atomic(
                 snapshot / SNAPSHOT_MANIFEST,
                 {
                     "completed_at": utc_now(),
-                    "current_cache": current_cache.name if current_cache else None,
-                    "current_cache_digest": current_cache_digest,
+                    "pre_install_caches": pre_install_caches,
+                    "previous_version": previous_cache.name if previous_cache else None,
                     "target_version": target_version,
                     "transaction_id": transaction_id,
                 },
@@ -347,21 +426,40 @@ def install(
 
         failed_stage: str | None = "codex_command" if returncode != 0 else None
         target_cache = cache_parent / target_version
-        if returncode == 0 and not target_cache.is_dir():
+        target_valid = False
+        if returncode == 0:
+            try:
+                ordinary_directory(target_cache, "目标插件缓存")
+                tree_digest(target_cache)
+                if manifest_version(target_cache) != target_version:
+                    raise RuntimeError("目标缓存 Manifest version 与目标版本不一致")
+                target_valid = True
+            except Exception as exc:
+                command_error = f"原生命令返回成功，但目标缓存无效：{target_cache}；原因：{exc}"
+        if returncode == 0 and not target_valid:
             returncode = 2
             failed_stage = "post_install_cache"
-            command_error = f"原生命令返回成功，但目标缓存不存在：{target_cache}"
 
-        restored_cache: str | None = None
+        restored_caches: list[str] = []
         removed_cache_entries: list[str] = []
         if returncode == 0:
-            for cache in cache_directories(cache_parent):
-                if cache != target_cache:
-                    removed_cache_entries.append(cache.name)
-                    remove_cache(cache)
-        else:
             try:
-                restored_cache = restore_snapshot(snapshot, cache_parent)
+                for cache in cache_directories(cache_parent):
+                    if cache != target_cache:
+                        remove_cache(cache)
+                        removed_cache_entries.append(cache.name)
+                remaining = cache_directories(cache_parent)
+                if [cache.name for cache in remaining] != [target_version]:
+                    raise RuntimeError("安装后缓存收敛未只保留目标版本")
+            except Exception as exc:
+                returncode = 2
+                failed_stage = "cleanup"
+                command_error = f"安装后缓存收敛失败：{exc}"
+        else:
+            pass
+        if returncode != 0:
+            try:
+                restored_caches = restore_snapshot(snapshot, cache_parent)
             except Exception as exc:
                 transaction.update(
                     state="rollback_failed",
@@ -391,7 +489,7 @@ def install(
                 state="command_exception_rolled_back",
                 failed_stage="codex_command",
                 error=str(unexpected_error),
-                restored_cache=restored_cache,
+                restored_caches=restored_caches,
                 updated_at=utc_now(),
             )
             write_json_atomic(transaction_path, transaction)
@@ -401,7 +499,7 @@ def install(
             state="install_succeeded" if returncode == 0 else "install_failed_rolled_back",
             returncode=returncode,
             failed_stage=failed_stage,
-            restored_cache=restored_cache,
+            restored_caches=restored_caches,
             removed_cache_entries=removed_cache_entries,
             updated_at=utc_now(),
         )
@@ -426,6 +524,10 @@ def main() -> int:
         "--target-version",
         help="目标完整 Manifest version；默认读取当前稳定脚本所在插件目录",
     )
+    parser.add_argument(
+        "--previous-version",
+        help="安装前从 codex plugin list 确认的实际 installed/current 完整版本；已有 cache 时必填",
+    )
     args = parser.parse_args()
     stable_root = Path(__file__).resolve().parents[1]
     try:
@@ -436,6 +538,7 @@ def main() -> int:
             resolved_cache_parent.expanduser().absolute(),
             args.snapshot_parent.expanduser().absolute(),
             [args.codex_command, "plugin", "add", resolved_plugin_spec],
+            previous_version=args.previous_version,
             target_version=target_version,
         )
     except Exception as exc:

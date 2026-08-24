@@ -141,6 +141,7 @@ py -3 <installed-plugin-root>\scripts\apply_agents_block.py --execute
 ```bash
 codex plugin marketplace upgrade subagent-governance
 python3 <installed-plugin-root>/scripts/reinstall_plugin.py \
+  --previous-version <exact-installed-current-version> \
   --target-version <full-manifest-version>
 ```
 

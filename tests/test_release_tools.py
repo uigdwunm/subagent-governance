@@ -251,6 +251,11 @@ class ReleaseToolTests(unittest.TestCase):
     @staticmethod
     def cache(path, marker):
         path.mkdir(parents=True)
+        manifest = path / ".codex-plugin"
+        manifest.mkdir()
+        (manifest / "plugin.json").write_text(
+            json.dumps({"version": path.name}), encoding="utf-8"
+        )
         (path / "marker").write_text(marker, encoding="utf-8")
 
     def test_successful_install_keeps_only_target_cache(self):
@@ -270,6 +275,7 @@ class ReleaseToolTests(unittest.TestCase):
                 cache_parent,
                 snapshots,
                 ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                previous_version="0.4.0-rc.1",
                 target_version="0.4.0-rc.2",
                 runner=runner,
             )
@@ -300,13 +306,14 @@ class ReleaseToolTests(unittest.TestCase):
                 cache_parent,
                 snapshots,
                 ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                previous_version="0.4.0-rc.1",
                 target_version="0.4.0-rc.2",
                 runner=runner,
             )
 
             self.assertEqual(returncode, 9)
             self.assertEqual(report["state"], "install_failed_rolled_back")
-            self.assertEqual(report["restored_cache"], "0.4.0-rc.1")
+            self.assertEqual(report["restored_caches"], ["0.4.0-rc.1"])
             self.assertEqual((current / "marker").read_text(encoding="utf-8"), "original")
             self.assertFalse((cache_parent / "0.4.0-rc.2").exists())
 
@@ -322,6 +329,7 @@ class ReleaseToolTests(unittest.TestCase):
                 cache_parent,
                 snapshots,
                 ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                previous_version="0.4.0-rc.1",
                 target_version="0.4.0-rc.2",
                 runner=lambda command, check: subprocess.CompletedProcess(command, 0),
             )
@@ -348,6 +356,7 @@ class ReleaseToolTests(unittest.TestCase):
                     cache_parent,
                     snapshots,
                     ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                    previous_version="0.4.0-rc.1",
                     target_version="0.4.0-rc.2",
                     runner=runner,
                 )
@@ -356,7 +365,7 @@ class ReleaseToolTests(unittest.TestCase):
             transaction = json.loads((snapshots / "last-transaction.json").read_text())
             self.assertEqual(transaction["state"], "command_exception_rolled_back")
 
-    def test_multiple_existing_caches_are_rejected(self):
+    def test_two_caches_succeed_and_only_target_remains(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             cache_parent = root / "cache"
@@ -364,12 +373,214 @@ class ReleaseToolTests(unittest.TestCase):
             self.cache(cache_parent / "0.4.0-rc.1", "one")
             self.cache(cache_parent / "0.4.0-rc.2", "two")
 
-            with self.assertRaisesRegex(RuntimeError, "只允许一个"):
+            def runner(command, check):
+                self.cache(cache_parent / "0.4.0-rc.3", "target")
+                return subprocess.CompletedProcess(command, 0)
+
+            returncode, report = install_tool.install(
+                cache_parent,
+                snapshots,
+                ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                previous_version="0.4.0-rc.2",
+                target_version="0.4.0-rc.3",
+                runner=runner,
+            )
+
+            self.assertEqual(returncode, 0)
+            self.assertEqual(
+                [entry["name"] for entry in report["pre_install_caches"]],
+                ["0.4.0-rc.1", "0.4.0-rc.2"],
+            )
+            self.assertTrue(
+                all(len(entry["digest"]) == 64 for entry in report["pre_install_caches"])
+            )
+            self.assertEqual(report["previous_version"], "0.4.0-rc.2")
+            self.assertEqual(report["target_version"], "0.4.0-rc.3")
+            self.assertEqual(sorted(report["removed_cache_entries"]), ["0.4.0-rc.1", "0.4.0-rc.2"])
+            self.assertEqual([path.name for path in cache_parent.iterdir()], ["0.4.0-rc.3"])
+
+    def test_two_caches_failed_add_restores_the_complete_set(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache_parent = root / "cache"
+            snapshots = root / "snapshots"
+            first = cache_parent / "0.4.0-rc.1"
+            second = cache_parent / "0.4.0-rc.2"
+            self.cache(first, "one")
+            self.cache(second, "two")
+
+            def runner(command, check):
+                shutil.rmtree(first)
+                shutil.rmtree(second)
+                self.cache(cache_parent / "0.4.0-rc.3", "partial")
+                return subprocess.CompletedProcess(command, 9)
+
+            returncode, report = install_tool.install(
+                cache_parent, snapshots, ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                previous_version="0.4.0-rc.2", target_version="0.4.0-rc.3", runner=runner,
+            )
+
+            self.assertEqual(returncode, 9)
+            self.assertEqual(report["restored_caches"], ["0.4.0-rc.1", "0.4.0-rc.2"])
+            self.assertEqual((first / "marker").read_text(), "one")
+            self.assertEqual((second / "marker").read_text(), "two")
+            self.assertFalse((cache_parent / "0.4.0-rc.3").exists())
+
+    def test_existing_cache_requires_explicit_previous_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache_parent = root / "cache"
+            snapshots = root / "snapshots"
+            self.cache(cache_parent / "0.4.0-rc.1", "one")
+
+            with self.assertRaisesRegex(RuntimeError, "--previous-version"):
                 install_tool.install(
-                    cache_parent,
-                    snapshots,
+                    cache_parent, snapshots,
                     ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
-                    target_version="0.4.0-rc.3",
+                    target_version="0.4.0-rc.2",
+                    runner=lambda command, check: self.fail("command must not run"),
+                )
+
+    def test_explicit_previous_version_must_exist(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache_parent = root / "cache"
+            snapshots = root / "snapshots"
+            self.cache(cache_parent / "0.4.0-rc.1", "one")
+
+            with self.assertRaisesRegex(RuntimeError, "升级前版本缓存不存在"):
+                install_tool.install(
+                    cache_parent, snapshots,
+                    ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                    previous_version="0.4.0-rc.9", target_version="0.4.0-rc.2",
+                    runner=lambda command, check: self.fail("command must not run"),
+                )
+
+    def test_empty_cache_install_succeeds_without_previous_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache_parent = root / "cache"
+            snapshots = root / "snapshots"
+            cache_parent.mkdir()
+
+            def runner(command, check):
+                self.cache(cache_parent / "0.4.0-rc.2", "target")
+                return subprocess.CompletedProcess(command, 0)
+
+            returncode, report = install_tool.install(
+                cache_parent, snapshots,
+                ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                target_version="0.4.0-rc.2", runner=runner,
+            )
+
+            self.assertEqual(returncode, 0)
+            self.assertIsNone(report["previous_version"])
+            self.assertEqual(report["pre_install_caches"], [])
+
+    def test_target_must_differ_from_explicit_previous_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache_parent = root / "cache"
+            snapshots = root / "snapshots"
+            self.cache(cache_parent / "0.4.0-rc.1", "one")
+
+            with self.assertRaisesRegex(RuntimeError, "必须不同"):
+                install_tool.install(
+                    cache_parent, snapshots,
+                    ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                    previous_version="0.4.0-rc.1", target_version="0.4.0-rc.1",
+                    runner=lambda command, check: self.fail("command must not run"),
+                )
+
+    def test_snapshot_fault_preserves_transaction_and_does_not_run_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache_parent = root / "cache"
+            snapshots = root / "snapshots"
+            self.cache(cache_parent / "0.4.0-rc.1", "one")
+
+            with mock.patch.object(install_tool.shutil, "copytree", side_effect=OSError("copy failed")):
+                with self.assertRaisesRegex(RuntimeError, "快照阶段失败"):
+                    install_tool.install(
+                        cache_parent, snapshots,
+                        ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                        previous_version="0.4.0-rc.1", target_version="0.4.0-rc.2",
+                        runner=lambda command, check: self.fail("command must not run"),
+                    )
+
+            report = json.loads((snapshots / "last-transaction.json").read_text())
+            self.assertEqual(report["state"], "snapshot_failed")
+            self.assertTrue(any(path.name.startswith("transaction-") for path in snapshots.iterdir()))
+
+    def test_cleanup_fault_rolls_back_complete_cache_set(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache_parent = root / "cache"
+            snapshots = root / "snapshots"
+            self.cache(cache_parent / "0.4.0-rc.1", "one")
+            self.cache(cache_parent / "0.4.0-rc.2", "two")
+            original_remove = install_tool.remove_cache
+            raised = False
+
+            def fail_once(path):
+                nonlocal raised
+                if path.name == "0.4.0-rc.1" and not raised:
+                    raised = True
+                    raise OSError("cleanup failed")
+                original_remove(path)
+
+            def runner(command, check):
+                self.cache(cache_parent / "0.4.0-rc.3", "target")
+                return subprocess.CompletedProcess(command, 0)
+
+            with mock.patch.object(install_tool, "remove_cache", side_effect=fail_once):
+                returncode, report = install_tool.install(
+                    cache_parent, snapshots,
+                    ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                    previous_version="0.4.0-rc.2", target_version="0.4.0-rc.3", runner=runner,
+                )
+
+            self.assertEqual(returncode, 2)
+            self.assertEqual(report["failed_stage"], "cleanup")
+            self.assertEqual(report["restored_caches"], ["0.4.0-rc.1", "0.4.0-rc.2"])
+            self.assertEqual(sorted(path.name for path in cache_parent.iterdir()), ["0.4.0-rc.1", "0.4.0-rc.2"])
+
+    def test_restore_fault_is_reported_and_snapshot_is_retained(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache_parent = root / "cache"
+            snapshots = root / "snapshots"
+            self.cache(cache_parent / "0.4.0-rc.1", "one")
+
+            with mock.patch.object(install_tool, "restore_snapshot", side_effect=OSError("restore failed")):
+                with self.assertRaisesRegex(RuntimeError, "回滚失败"):
+                    install_tool.install(
+                        cache_parent, snapshots,
+                        ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                        previous_version="0.4.0-rc.1", target_version="0.4.0-rc.2",
+                        runner=lambda command, check: subprocess.CompletedProcess(command, 9),
+                    )
+
+            report = json.loads((snapshots / "last-transaction.json").read_text())
+            self.assertEqual(report["state"], "rollback_failed")
+            self.assertTrue(any(path.name.startswith("transaction-") for path in snapshots.iterdir()))
+
+    @unittest.skipIf(os.name == "nt", "symlink support differs")
+    def test_symlinked_cache_is_rejected_before_runner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache_parent = root / "cache"
+            snapshots = root / "snapshots"
+            real = root / "real-cache"
+            self.cache(real, "one")
+            cache_parent.mkdir()
+            (cache_parent / "0.4.0-rc.1").symlink_to(real, target_is_directory=True)
+
+            with self.assertRaisesRegex(RuntimeError, "不能是符号链接"):
+                install_tool.install(
+                    cache_parent, snapshots,
+                    ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                    previous_version="0.4.0-rc.1", target_version="0.4.0-rc.2",
                     runner=lambda command, check: self.fail("command must not run"),
                 )
 
@@ -384,10 +595,11 @@ class ReleaseToolTests(unittest.TestCase):
             install_tool.write_json_atomic(
                 snapshot / "snapshot-manifest.json",
                 {
-                    "current_cache": "0.4.0-rc.1",
-                    "current_cache_digest": install_tool.tree_digest(
-                        snapshot / "cache" / "0.4.0-rc.1"
-                    ),
+                    "pre_install_caches": [{
+                        "name": "0.4.0-rc.1",
+                        "digest": install_tool.tree_digest(snapshot / "cache" / "0.4.0-rc.1"),
+                    }],
+                    "previous_version": "0.4.0-rc.1",
                     "target_version": "0.4.0-rc.2",
                     "transaction_id": "transaction-stale",
                 },
@@ -405,12 +617,13 @@ class ReleaseToolTests(unittest.TestCase):
                 cache_parent,
                 snapshots,
                 ["codex", "plugin", "add", "subagent-governance@subagent-governance"],
+                previous_version="0.4.0-rc.1",
                 target_version="0.4.0-rc.2",
                 runner=runner,
             )
 
             self.assertEqual(returncode, 0)
-            self.assertEqual(report["recovered_interrupted_cache"], "0.4.0-rc.1")
+            self.assertEqual(report["recovered_interrupted_caches"], ["0.4.0-rc.1"])
             self.assertEqual([path.name for path in cache_parent.iterdir()], ["0.4.0-rc.2"])
 
     def test_incomplete_transaction_snapshot_is_preserved_and_rejected(self):
@@ -445,8 +658,11 @@ class ReleaseToolTests(unittest.TestCase):
             install_tool.write_json_atomic(
                 snapshot / "snapshot-manifest.json",
                 {
-                    "current_cache": "0.4.0-rc.1",
-                    "current_cache_digest": "0" * 64,
+                    "pre_install_caches": [{
+                        "name": "0.4.0-rc.1",
+                        "digest": "0" * 64,
+                    }],
+                    "previous_version": "0.4.0-rc.1",
                     "target_version": "0.4.0-rc.2",
                     "transaction_id": "transaction-invalid",
                 },
@@ -476,10 +692,10 @@ class ReleaseToolTests(unittest.TestCase):
                 snapshot = snapshots / name
                 (snapshot / "cache").mkdir(parents=True)
                 install_tool.write_json_atomic(
-                    snapshot / "snapshot-manifest.json",
-                    {
-                        "current_cache": None,
-                        "current_cache_digest": None,
+                snapshot / "snapshot-manifest.json",
+                {
+                    "pre_install_caches": [],
+                    "previous_version": None,
                         "target_version": "0.4.0-rc.2",
                         "transaction_id": name,
                     },

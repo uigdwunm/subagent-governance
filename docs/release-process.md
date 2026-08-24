@@ -61,16 +61,17 @@ python3 scripts/release_preflight.py --mode release --tag "v<public-version>"
 
 ```bash
 python3 <stable-plugin-root>/scripts/reinstall_plugin.py \
+  --previous-version <exact-installed-current-version> \
   --target-version <full-manifest-version>
 ```
 
 安装工具执行以下事务：
 
 1. 验证缓存与快照目录的所有权、权限、文件类型和文件系统边界。
-2. 要求安装前最多只有一个当前缓存。
-3. 创建仅属于本次安装的快照。
+2. 有 cache 时要求传入从 `codex plugin list` 读取的准确 installed/current 版本；禁止按目录名、mtime 或版本语义推测。
+3. 在锁保护且同一文件系统内快照安装前完整 cache 集合及摘要。
 4. 调用原生 `codex plugin add`。
-5. 命令失败、目标缓存缺失或进程中断时恢复安装前缓存。
+5. 命令失败、目标缓存缺失、清理失败或进程中断时恢复安装前完整 cache 集合。
 6. 安装成功时删除其他缓存和事务快照，只保留目标缓存。
 
 事务快照只服务当前安装，并在事务成功或回滚完成后删除。

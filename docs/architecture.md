@@ -92,6 +92,6 @@ StateStore 只接受严格的 `state_format_version=6`，默认数据命名空�
 
 ## 安装与发布
 
-运行环境只允许一个当前插件缓存。`reinstall_plugin.py` 的快照仅服务一次安装事务：失败或进程中断时先验证快照摘要再回滚，成功后立即删除快照和其他缓存。安装锁由操作系统持有，进程退出后自动释放。
+运行环境最终只允许一个当前插件缓存。`reinstall_plugin.py` 不从多 cache 目录名推测 current：有 cache 时必须由操作者传入 `codex plugin list` 证实的 `--previous-version`。它在 OS lock 和同一文件系统内快照完整安装前 cache 集合及摘要；失败、目标无效或收敛失败时验证摘要后回滚，成功后才删除快照和其他缓存。安装锁由操作系统持有，进程退出后自动释放。
 
 发布、安装、Marketplace、运行缓存和 Hook trust 的写入都需要单独授权。

@@ -58,7 +58,7 @@ P10-A 不能因为安装成功就把 P10 标记完成；P10-B 未完成时状态
 - target commit/worktree 与报告一致；如 cachebuster 造成 Manifest-only 变化，重新运行相关 P9 门禁。
 - developer/stable/cache 是三个不同的普通目录，不是 symlink。
 - owner/permissions 安全。
-- cache parent 至多一个 current cache。
+- 运行 `codex plugin list`，记录安装前实际 registered/current 的完整版本；cache parent 可以含遗留 cache，但该版本必须以 `--previous-version` 精确传入 installer，禁止按目录名、mtime 或语义版本推测。
 -没有未完成/损坏的 install transaction；如果有，只使用受支持的 recovery 流程。
 - 当前 stable/cache digests 和 Manifest version 已记录。
 -当前 Hook trust 和 Codex registration 仍标记 not checked，而不是从文件存在推断。
@@ -87,6 +87,16 @@ P10-A 不能因为安装成功就把 P10 标记完成；P10-B 未完成时状态
 -安装失败自动恢复；
 -成功后只保留目标 cache；
 - transaction snapshot 成功/回滚后清理。
+
+P10-A 的安装命令必须同时传入只读事实中的精确 previous/current 与目标完整 Manifest version：
+
+```bash
+python3 <stable-plugin-root>/scripts/reinstall_plugin.py \
+  --previous-version <exact-version-from-codex-plugin-list> \
+  --target-version <target-full-manifest-version>
+```
+
+其中 `--previous-version` 是安装前 Codex registered/current 版本；`--target-version` 是安装后期望的 current 完整 Manifest version。两者不得相同。事务会先快照所有已有 cache，成功确认有效目标 cache 后才收敛为仅目标 cache。
 
 不得：
 
