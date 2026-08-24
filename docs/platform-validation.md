@@ -6,11 +6,11 @@
 
 ### P9 local acceptance（2026-08-24）
 
-- 对目标 commit `8757287e0b14e1f901f9fa93186ce09af842634d` 的实现本体，报告写入前仓库内综合验收为 `passed`：Python 3.9/3.11/3.12 完整 unittest 各 266 tests，三版本编译、development preflight、Plugin validator、Skill validator、`git diff --check` 及该目标的 archive preflight 均通过；但 P9 的最终工作树结论是 `failed`。
-- P9 的 runtime/Schema structural matrix 同时拒绝 33/33 必填字段删除、25/25 类型变异、7/7 未知字段变异和 6/6 非法 enum/count/digest/ref/name；完整证据见 `docs/validation/current-only-local-acceptance.md`。
-- `ruff` 与 `coverage` 在验收环境中不存在，未安装，因而相应可选命令未运行。此事实不代表它们通过。
-- 这仍是本地验证。真实 native spawn/wait/notification、Hook trust、事件顺序、桌面 UI、restart/compact 恢复及真实 business-resume 均为 `not_checked`；必须在 P10 获得安装授权后，以新 task 单独验证。
-- failure 原因是 `test_only_current_documents_are_shipped` 将 `docs/` 库存硬编码为 5 个文件，而 P9 所需的 `docs/validation/current-only-local-acceptance.md` 使其在三套完整 unittest 中各出现 1 项失败。P9 不修改 tests 或实现，因此已停止在证据报告阶段。
+- 对 `codex/current-only-improvements` 的 `57f270e489f16158efd0e8f94479509465ec9030`，三套最终工作树完整 unittest（Python 3.9、3.11、3.12）均通过，各 267 tests；三版本编译、development preflight、Plugin/Skill validator、当前 P9 报告白名单/未知 validation 文档拒绝门禁和 archive preflight 均通过。
+- P9 本地综合结论仍为 `failed`：独立 mutation matrix 发现 canonical execution `task_name="bad name"` 被 runtime 按严格语义拒绝，却被 JSON Schema 接受。详见 `docs/validation/current-only-local-acceptance.md`。P9 不修改 Schema、实现或测试，因此停止于失败报告。
+- runtime/Schema 的 producer corpus 仍同时接受；33/33 定义必填字段删除、7/7 未知字段注入及 5/6 非法 enum/count/digest/ref/name mutation 得到两者共同拒绝。唯一不一致即 execution `task_name` 格式。
+- `ruff` 与 `coverage` 在验收环境中不存在，未安装，故相应可选命令未运行；这不代表它们通过。
+- 这仍是本地验证。真实 native spawn/wait/notification、Hook trust、事件顺序、桌面 UI、restart/compact 恢复及真实 business-resume 都是 `not_checked`；只有在 P10 获得安装授权后，以新 task 单独验证。
 
 ## 已由本地测试覆盖
 
