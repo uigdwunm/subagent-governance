@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Thin CLI transport for the current state-v9 dispatch slice."""
+"""Thin CLI transport for the current state-v9 governance runtime."""
 
 from __future__ import annotations
 
@@ -14,6 +14,10 @@ try:
     from scripts.governance_diagnostics import diagnose, status
     from scripts.governance_hook import handle_hook
     from scripts.governance_input import read_json_object
+    from scripts.governance_lifecycle import (
+        close_task, record_call_result, record_interrupt_result,
+        record_platform_observation, record_terminal_notification,
+    )
     from scripts.governance_protocol import prepare_dispatch
     from scripts.governance_state_store import StateStore
     from scripts.governance_store_support import data_root_path
@@ -22,6 +26,7 @@ except ModuleNotFoundError:
     from governance_diagnostics import diagnose, status
     from governance_hook import handle_hook
     from governance_input import read_json_object
+    from governance_lifecycle import close_task, record_call_result, record_interrupt_result, record_platform_observation, record_terminal_notification
     from governance_protocol import prepare_dispatch
     from governance_state_store import StateStore
     from governance_store_support import data_root_path
@@ -38,6 +43,11 @@ def _parser() -> NonExitingArgumentParser:
     modes.add_argument("--prepare-dispatch", action="store_true")
     modes.add_argument("--confirm-dispatch", action="store_true")
     modes.add_argument("--record-dispatch-result", action="store_true")
+    modes.add_argument("--record-platform-observation", action="store_true")
+    modes.add_argument("--record-call-result", action="store_true")
+    modes.add_argument("--record-terminal-notification", action="store_true")
+    modes.add_argument("--record-interrupt-result", action="store_true")
+    modes.add_argument("--close-task", action="store_true")
     modes.add_argument("--status", action="store_true")
     modes.add_argument("--diagnose", action="store_true")
     parser.add_argument("--session")
@@ -97,7 +107,12 @@ def main(
     if unknown:
         print(f"unsupported arguments: {unknown}", file=stderr)
         return 2
-    selected = any((args.prepare_dispatch, args.confirm_dispatch, args.record_dispatch_result, args.status, args.diagnose))
+    selected = any((
+        args.prepare_dispatch, args.confirm_dispatch, args.record_dispatch_result,
+        args.record_platform_observation, args.record_call_result,
+        args.record_terminal_notification, args.record_interrupt_result,
+        args.close_task, args.status, args.diagnose,
+    ))
     if not selected:
         if args.session or args.data_root:
             print("--session/--data-root require an explicit command", file=stderr)
@@ -119,8 +134,18 @@ def main(
                 result = prepare_dispatch(value, args.session, state_store=store)
             elif args.confirm_dispatch:
                 result = confirm_dispatch(args.session, value, state_store=store)
-            else:
+            elif args.record_dispatch_result:
                 result = record_dispatch_result(args.session, value, state_store=store)
+            elif args.record_platform_observation:
+                result = record_platform_observation(args.session, value, state_store=store)
+            elif args.record_call_result:
+                result = record_call_result(args.session, value, state_store=store)
+            elif args.record_terminal_notification:
+                result = record_terminal_notification(args.session, value, state_store=store)
+            elif args.record_interrupt_result:
+                result = record_interrupt_result(args.session, value, state_store=store)
+            else:
+                result = close_task(args.session, value, state_store=store)
     except Exception as exc:
         print(f"operation failed: {exc}", file=stderr)
         return 1

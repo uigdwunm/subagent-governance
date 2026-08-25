@@ -2,13 +2,16 @@
 
 Subagent Governance 是 Codex-first 的原生子 Agent 生命周期治理插件。它保留 `spawn_agent`、`wait_agent`、`send_message`、`list_agents` 和 `interrupt_agent` 作为执行通道，不引入第二套编排平台，也不替代权限、沙箱、Hook trust 或父 Agent 的业务判断。
 
-当前减法收口已完成第一纵向切片：
+当前减法收口已完成派发与最小生命周期两个纵向切片：
 
 - `state_format_version=9` / `state-v9` current-only namespace；
 - 单一 exact-Session ledger，一个 task 对应一个原生 Agent lifecycle；
 - TaskContract v2（`standard|strict`）；
 - `prepare-dispatch → governed spawn Pre claim → explicit exact-target confirm`；
 - first-bind-wins、相同 confirm 幂等、冲突 reconcile；
+- exact platform observation、terminal notification、interrupt result 和 parent close；
+- 普通消息 success/failed 零写入，unknown 只保留 reconcile reason；
+- closed task 固定保留 64 条，并仅由后续 ledger 写操作惰性裁剪；
 - unmanaged spawn 在状态构造前 inert fail-open；
 - best-effort、无锁、零写入的 SessionStart/status/diagnose。
 
@@ -16,7 +19,7 @@ Subagent Governance 是 Codex-first 的原生子 Agent 生命周期治理插件�
 
 ## 当前实现边界
 
-本切片尚未开放 platform observation、terminal notification、interrupt result 和 parent close 的持久写 API。wait 不持久化；普通消息不保存正文或调用历史。完整目标架构与顺序见 [ADR](docs/architecture-reduction-adr.md) 和 [cutover plan](docs/improvement-plans/reduction-cutover.md)。
+wait 不持久化；普通消息不保存正文或调用历史；terminal notification 不保存正文。business resume、managed followup、多 attempt、复杂 recovery/retry budget 和 Group 不属于首版。完整目标架构与顺序见 [ADR](docs/architecture-reduction-adr.md) 和 [cutover plan](docs/improvement-plans/reduction-cutover.md)。
 
 ## TaskContract v2
 
@@ -56,6 +59,20 @@ JSON
 禁止用 list、task name、时间、summary、transcript 或 child final 补绑 identity。原生返回后 confirm 前崩溃时，task 保持 `claimed/unbound`，不自动重派。
 
 明确证明 Agent 未创建时可提交 `record-dispatch-result=failed`；unknown 进入 reconcile。success 必须通过 confirm 携带 exact target。
+
+## 最小生命周期
+
+bound 后可使用以下 stdin JSON 命令；除 close 外均要求 exact task/ref/target（terminal 使用 `sender`）：
+
+```text
+--record-platform-observation  status=running|completed|stopped|interrupted|error|unknown
+--record-call-result           result=success|failed|unknown
+--record-terminal-notification status=completed|stopped|interrupted
+--record-interrupt-result      result=failed|inactive|unknown
+--close-task                   reason=<bounded parent reason>
+```
+
+平台 terminal observation 或 terminal notification 建立 `terminal`；interrupt `inactive` 建立 terminal fact；unknown 进入 `reconcile`。普通消息 success/failed 只校验 exact identity，不写 ledger。close 不调用原生 interrupt，也不保存业务正文。
 
 ## 安装
 

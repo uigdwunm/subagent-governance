@@ -48,9 +48,17 @@ class PluginStructureTests(unittest.TestCase):
     def test_removed_runtime_authorities_are_deleted(self):
         for name in (
             "governance_prepared_store.py", "governance_post_index.py",
-            "governance_execution.py", "governance_lifecycle.py", "governance_groups.py",
+            "governance_execution.py", "governance_groups.py",
         ):
             self.assertFalse((ROOT / "scripts" / name).exists(), name)
+        lifecycle = (ROOT / "scripts/governance_lifecycle.py").read_text(
+            encoding="utf-8"
+        )
+        for removed in (
+            "attempt", "pending_action", "post_receipt", "business_resume",
+            "recovery_budget", "group_id",
+        ):
+            self.assertNotIn(removed, lifecycle)
 
 
 if __name__ == "__main__":

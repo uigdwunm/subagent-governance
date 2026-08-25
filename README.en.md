@@ -2,19 +2,22 @@
 
 Subagent Governance is a Codex-first lifecycle layer for native subagents. Native Agent tools remain the execution channel; the plugin is not a second orchestrator, permission system, sandbox, or platform trust boundary.
 
-The first reduction slice now provides:
+The dispatch and minimal-lifecycle reduction slices now provide:
 
 - strict current-only `state_format_version=9` in `state-v9`;
 - one exact-Session ledger and one native Agent lifecycle per task;
 - TaskContract v2 with `standard|strict` profiles;
 - `prepare-dispatch → governed spawn Pre claim → explicit exact-target confirm`;
 - first-bind-wins, idempotent same-target replay, and reconcile on conflicts;
+- exact platform observations, terminal notifications, interrupt results, and parent close;
+- zero-write normal-call success/failed results, with only a reconcile reason for unknown;
+- fixed retention of 64 closed tasks, lazily pruned only by later ledger writes;
 - inert unmanaged spawn before StateStore construction;
 - lock-free, zero-write SessionStart/status/diagnose reads.
 
 PreparedContractStore, the agents index, PostToolUse receipts/indexes, attempts, pending actions, tombstones, Groups, business resume, and complex retry/recovery state machines are no longer runtime authorities.
 
-This slice does not yet expose persistent platform-observation, terminal-notification, interrupt-result, or parent-close APIs. Wait calls are not persisted, and normal message bodies/history are not stored. See the [reduction ADR](docs/architecture-reduction-adr.md) and [cutover plan](docs/improvement-plans/reduction-cutover.md).
+Wait calls are not persisted, normal message bodies/history are not stored, and terminal notification bodies are never accepted. Business resume, managed followup, multiple attempts, complex recovery/retry budgets, and Groups are outside the first release. See the [reduction ADR](docs/architecture-reduction-adr.md) and [cutover plan](docs/improvement-plans/reduction-cutover.md).
 
 ## TaskContract v2
 
@@ -48,6 +51,10 @@ JSON
 ```
 
 Never bind identity from a list, task name, timing, summary, transcript, or child final. A crash after the native return but before confirmation leaves the task `claimed/unbound` and does not trigger automatic retry.
+
+## Minimal lifecycle
+
+After binding, the CLI exposes exact-identity commands for platform observations, normal-call results, terminal notifications, interrupt results, and parent close. Platform terminal observations and terminal notifications establish `terminal`; interrupt `inactive` establishes a terminal fact; unknown results enter `reconcile`. Normal-call success/failed validates identity without writing the ledger. Parent close does not invoke native interrupt or store business text.
 
 ## Installation
 

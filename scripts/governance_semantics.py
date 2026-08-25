@@ -37,6 +37,18 @@ PROFILES = frozenset(SEMANTIC_RULES["profiles"])
 PHASES = frozenset(SEMANTIC_RULES["phases"])
 TASK_REF_LENGTHS = tuple(int(value) for value in SEMANTIC_RULES["task_ref_lengths"])
 PREPARED_EXPIRY_SECONDS = int(SEMANTIC_RULES["prepared_expiry_seconds"])
+CLOSED_TASK_RETENTION = int(SEMANTIC_RULES["closed_task_retention"])
+PLATFORM_OBSERVATION_STATUSES = frozenset(
+    SEMANTIC_RULES["platform_observation_statuses"]
+)
+PLATFORM_TERMINAL_STATUSES = frozenset(
+    SEMANTIC_RULES["platform_terminal_statuses"]
+)
+TERMINAL_NOTIFICATION_STATUSES = frozenset(
+    SEMANTIC_RULES["terminal_notification_statuses"]
+)
+CALL_RESULTS = frozenset(SEMANTIC_RULES["call_results"])
+INTERRUPT_RESULTS = frozenset(SEMANTIC_RULES["interrupt_results"])
 
 MAX_HOOK_INPUT_BYTES = int(SEMANTIC_RULES["max_hook_input_bytes"])
 MAX_PREPARED_BYTES = MAX_HOOK_INPUT_BYTES
@@ -58,9 +70,23 @@ SESSION_SUMMARY_CONTEXT_LIMIT = 1800
 RECONCILE_CODES = frozenset(
     SEMANTIC_DEFINITIONS["reconcile_fact"]["properties"]["code"]["enum"]
 )
+TERMINAL_FACT_SOURCES = frozenset(
+    SEMANTIC_DEFINITIONS["terminal_fact"]["properties"]["source"]["enum"]
+)
+TERMINAL_FACT_STATUSES = frozenset(
+    SEMANTIC_DEFINITIONS["terminal_fact"]["properties"]["status"]["enum"]
+)
+PERSISTED_PLATFORM_STATUSES = frozenset(
+    SEMANTIC_DEFINITIONS["platform_observation"]["properties"]["status"]["enum"]
+)
+PERSISTED_INTERRUPT_RESULTS = frozenset(
+    SEMANTIC_DEFINITIONS["interrupt_fact"]["properties"]["result"]["enum"]
+)
 
 __all__ = [
     "MACHINE_SEMANTICS",
+    "CALL_RESULTS",
+    "CLOSED_TASK_RETENTION",
     "MAX_BUSINESS_TEXT",
     "MAX_CONTRACT_TEXT",
     "MAX_HOOK_INPUT_BYTES",
@@ -69,6 +95,10 @@ __all__ = [
     "MAX_TASKS_PER_SESSION",
     "NEW_TASK_SOFT_LIMIT_BYTES",
     "PHASES",
+    "PERSISTED_INTERRUPT_RESULTS",
+    "PERSISTED_PLATFORM_STATUSES",
+    "PLATFORM_OBSERVATION_STATUSES",
+    "PLATFORM_TERMINAL_STATUSES",
     "PREPARED_EXPIRY_SECONDS",
     "PROFILES",
     "REASONING_EFFORTS",
@@ -86,4 +116,8 @@ __all__ = [
     "TASK_NAME_PATTERN",
     "TASK_NAME_RE",
     "TASK_REF_LENGTHS",
+    "TERMINAL_FACT_SOURCES",
+    "TERMINAL_FACT_STATUSES",
+    "TERMINAL_NOTIFICATION_STATUSES",
+    "INTERRUPT_RESULTS",
 ]

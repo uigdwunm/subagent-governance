@@ -13,14 +13,16 @@ try:
     )
     from scripts.governance_errors import StateValidationError
     from scripts.governance_semantics import (
-        MAX_TASKS_PER_SESSION, PHASES, RECONCILE_CODES, STATE_FORMAT_VERSION,
-        TASK_REF_LENGTHS,
+        MAX_TASKS_PER_SESSION, PERSISTED_INTERRUPT_RESULTS,
+        PERSISTED_PLATFORM_STATUSES, PHASES, RECONCILE_CODES,
+        STATE_FORMAT_VERSION, TASK_REF_LENGTHS, TERMINAL_FACT_SOURCES,
+        TERMINAL_FACT_STATUSES,
     )
 except ModuleNotFoundError:
     from governance_context import validate_context_verification_record
     from governance_contracts import contract_digest, contract_from_input, contract_summary, spawn_digest
     from governance_errors import StateValidationError
-    from governance_semantics import MAX_TASKS_PER_SESSION, PHASES, RECONCILE_CODES, STATE_FORMAT_VERSION, TASK_REF_LENGTHS
+    from governance_semantics import MAX_TASKS_PER_SESSION, PERSISTED_INTERRUPT_RESULTS, PERSISTED_PLATFORM_STATUSES, PHASES, RECONCILE_CODES, STATE_FORMAT_VERSION, TASK_REF_LENGTHS, TERMINAL_FACT_SOURCES, TERMINAL_FACT_STATUSES
 
 
 @dataclass(frozen=True)
@@ -44,8 +46,16 @@ PHASE_FIELDS = {
     "reconcile": {"reconcile"},
 }
 OPTIONAL_PHASE_FIELDS = {
-    "closed": {"target", "bound_at", "terminal_fact"},
-    "reconcile": {"target", "bound_at", "terminal_fact"},
+    "bound": {"platform_observation", "interrupt_fact"},
+    "terminal": {"platform_observation", "interrupt_fact"},
+    "closed": {
+        "target", "bound_at", "platform_observation", "terminal_fact",
+        "interrupt_fact",
+    },
+    "reconcile": {
+        "target", "bound_at", "platform_observation", "terminal_fact",
+        "interrupt_fact",
+    },
 }
 
 
@@ -74,10 +84,34 @@ def _validate_terminal_fact(value: Any, path: str, issues: list[StateFormatIssue
     if not isinstance(value, dict) or set(value) != fields:
         _issue(issues, path, "terminal_fact 字段集合无效")
         return
-    if value.get("source") not in {"platform", "notification", "interrupt"}:
+    if value.get("source") not in TERMINAL_FACT_SOURCES:
         _issue(issues, f"{path}.source", "terminal source 无效")
-    if value.get("status") not in {"completed", "failed", "stopped", "interrupted", "inactive"}:
+    if value.get("status") not in TERMINAL_FACT_STATUSES:
         _issue(issues, f"{path}.status", "terminal status 无效")
+    if not _timestamp(value.get("observed_at")):
+        _issue(issues, f"{path}.observed_at", "必须是非负整数")
+
+
+def _validate_platform_observation(
+    value: Any, path: str, issues: list[StateFormatIssue]
+) -> None:
+    if not isinstance(value, dict) or set(value) != {"status", "observed_at"}:
+        _issue(issues, path, "platform observation 字段集合无效")
+        return
+    if value.get("status") not in PERSISTED_PLATFORM_STATUSES:
+        _issue(issues, f"{path}.status", "platform status 无效")
+    if not _timestamp(value.get("observed_at")):
+        _issue(issues, f"{path}.observed_at", "必须是非负整数")
+
+
+def _validate_interrupt_fact(
+    value: Any, path: str, issues: list[StateFormatIssue]
+) -> None:
+    if not isinstance(value, dict) or set(value) != {"result", "observed_at"}:
+        _issue(issues, path, "interrupt fact 字段集合无效")
+        return
+    if value.get("result") not in PERSISTED_INTERRUPT_RESULTS:
+        _issue(issues, f"{path}.result", "interrupt result 无效")
     if not _timestamp(value.get("observed_at")):
         _issue(issues, f"{path}.observed_at", "必须是非负整数")
 
@@ -174,6 +208,16 @@ def _validate_task(task_id: str, value: Any, path: str, issues: list[StateFormat
             _issue(issues, path, "bound identity facts 无效")
     if phase == "terminal" or "terminal_fact" in value:
         _validate_terminal_fact(value.get("terminal_fact"), f"{path}.terminal_fact", issues)
+    if "platform_observation" in value:
+        _validate_platform_observation(
+            value.get("platform_observation"),
+            f"{path}.platform_observation",
+            issues,
+        )
+    if "interrupt_fact" in value:
+        _validate_interrupt_fact(
+            value.get("interrupt_fact"), f"{path}.interrupt_fact", issues
+        )
     if phase == "closed":
         if not _text(value.get("close_reason")) or not _timestamp(value.get("closed_at")):
             _issue(issues, path, "close facts 无效")

@@ -2,7 +2,7 @@
 
 Subagent Governance 是 Codex 原生子 Agent 的本地生命周期治理层。它继续使用原生 Agent 工具，不替代平台调度、权限、Hook trust、沙箱或父 Agent 的业务判断。
 
-当前实现处于 [减法收口 cutover](improvement-plans/reduction-cutover.md) 的第一纵向切片：state-v9 单一 Session ledger、TaskContract v2、prepare、governed spawn Pre claim 和父 Agent explicit exact-target confirm 已落地。最小 observation/terminal/interrupt/close 生命周期将在下一切片实现；当前代码不保留旧机制作为兼容 fallback。
+当前实现已完成 [减法收口 cutover](improvement-plans/reduction-cutover.md) 的派发与最小生命周期切片：state-v9 单一 Session ledger、TaskContract v2、prepare、governed spawn Pre claim、父 Agent explicit exact-target confirm，以及 observation/terminal/interrupt/close 已落地。当前代码不保留旧机制作为兼容 fallback。
 
 ## TaskContract v2
 
@@ -67,6 +67,16 @@ identity 的唯一权威是父 Agent 对当前原生 spawn 返回 exact target �
 
 明确 failed 且可靠证明 Agent 未创建时可用 `record-dispatch-result` 关闭该 task；unknown 进入 reconcile。success 必须携带 exact target 走 confirm。
 
+## 最小生命周期
+
+- `record-platform-observation` 只接受已 bound 的 exact target。running/error 更新最后观察；completed/stopped/interrupted 建立 terminal fact；unknown 只写 `platform_observation_unknown` reconcile reason。
+- `record-call-result` 的 success/failed 只读取并校验 exact identity，状态文件字节不变；unknown 只写 `delivery_unknown`，不保存 message、response 或调用历史。
+- `record-terminal-notification` 要求 task/ref 与 exact sender 同时匹配；保存 status/time，不接收或保存正文。相同 terminal status 重放幂等，不同 status 保留首个 terminal fact 并进入 reconcile。
+- `record-interrupt-result` 保存明确 failed/inactive 机械结果；inactive 建立 terminal fact，unknown 只写 `interrupt_unknown`。它不依赖 Hook settlement。
+- `close-task` 是父 Agent 显式判断，不自动调用 interrupt。close 后 capability 被收缩；ledger 只保留最新 64 条 closed task，并在后续真实写操作中惰性裁剪。
+
+allowed next action 由 phase 与上述可靠事实派生，不持久化 parent action。所有输入使用关闭字段集合，正文、summary、transcript 和 child final 不进入 lifecycle state。
+
 ## Hook 与只读恢复
 
 Hook manifest 当前只注册：
@@ -90,7 +100,7 @@ v9 继续复用现有安全 storage primitives：
 
 ## 当前非能力
 
-本切片尚未开放 exact platform observation、terminal notification、interrupt result 和 parent close 的持久写 API。wait 不持久化；普通消息不保存正文或调用历史。business resume、managed followup、多 attempt、复杂 recovery/retry budget 和 Group 不属于首版。
+wait 不持久化。business resume、managed followup、多 attempt、复杂 recovery/retry budget、Group、PostToolUse settlement 和自动跨 Session 恢复不属于首版。
 
 ## 文件所有权
 
@@ -101,6 +111,7 @@ v9 继续复用现有安全 storage primitives：
 - `scripts/governance_state_store.py`：单 ledger 安全存储和无锁只读 reader。
 - `scripts/governance_protocol.py`：prepare composition。
 - `scripts/governance_dispatch.py`：claim/confirm/dispatch-result transitions。
+- `scripts/governance_lifecycle.py`：observation/call/terminal/interrupt/close transitions 与 closed retention。
 - `scripts/governance_diagnostics.py`：status/diagnose 的无锁只读 projection。
 - `scripts/governance_hook.py`：spawn Pre 与 read-only SessionStart router。
 - `scripts/governance_cli.py`：薄 CLI transport。

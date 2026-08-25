@@ -32,6 +32,11 @@ def project_status(state: dict[str, Any], session_id: str) -> dict[str, Any]:
                 "phase": task["phase"],
                 "objective": task["contract_summary"]["objective"],
                 "target": task.get("target"),
+                "platform_status": task.get("platform_observation", {}).get("status"),
+                "terminal_status": task.get("terminal_fact", {}).get("status"),
+                "interrupt_result": task.get("interrupt_fact", {}).get("result"),
+                "reconcile_reason": task.get("reconcile", {}).get("code"),
+                "close_reason": task.get("close_reason"),
                 "next_action": NEXT_ACTIONS[task["phase"]],
             }
             for task_id, task in sorted(state["tasks"].items())

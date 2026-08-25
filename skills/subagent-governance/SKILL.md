@@ -14,7 +14,7 @@ description: 治理 Codex 原生子 Agent 的派发、等待、通信、中断�
 - 不从 `list_agents`、task name、时间邻近、summary、transcript、child final 或唯一候选推断 identity。
 - 不修改或要求其他 Skill 采用本协议；真正调用 `spawn_agent` 的每个任务都是一个独立 governed lifecycle。
 
-当前 runtime 已实现 state-v9 的 `prepare → Pre claim → explicit exact-target confirm` 纵向链路。后续 observation、terminal、interrupt 和 close 写 API 尚未在本切片开放；等待和普通消息仍使用原生工具，但不得伪造持久化结算。
+当前 runtime 已实现 state-v9 的 `prepare → Pre claim → explicit exact-target confirm → minimal lifecycle → parent close`。等待和普通消息仍使用原生工具；治理层只记录下述会改变后续决策的最小事实。
 
 ## TaskContract v2
 
@@ -86,9 +86,22 @@ spawn 返回后、confirm 前如果父任务中断，记录保持 `claimed/unbou
 - bind 后保存 runtime 返回的 exact target，并用原生 `wait_agent` 等待。
 - wait 不持久化；正常超时不等于 failed、terminal 或需要重派。
 - `list_agents` 只允许观察已经 bound 的 exact target，不能建立或修复 identity。
-- 普通 `send_message` success/failed 不保存正文或调用历史；当前切片不提供 managed followup/business resume。
-- unknown delivery 不得自动重发。后续最小 lifecycle API 落地前，如实向用户报告这一未持久化限制。
-- 中断继续使用原生 `interrupt_agent`，但当前切片不把结果写入 ledger，也不能据此声称 lifecycle 已完整关闭。
+- 对 exact target 得到规范化平台观察后，提交：
+
+  ```bash
+  python3 scripts/subagent_governance.py --record-platform-observation --session <exact-session-id>
+  ```
+
+  stdin 精确为 `{"task_id":"...","task_ref":"...","target":"...","status":"running|completed|stopped|interrupted|error|unknown"}`。unknown 只进入 reconcile，不自动重查或猜 terminal。
+- 普通 `send_message` 的机械结果用 `--record-call-result` 提交 exact task/ref/target 和 `result=success|failed|unknown`。success/failed 只校验 identity，ledger 字节不变；unknown 只写 `delivery_unknown`，不得自动重发。任何 message、response 或 summary 字段都会被拒绝。
+- 当前切片不提供 managed followup 或 business resume。原生 `followup_task` 不建立新 attempt，也不进入治理持久状态。
+
+## Terminal、中断与关闭
+
+- 收到原生 child terminal notification 时，用 `--record-terminal-notification` 提交精确 `task_id`、`task_ref`、`sender` 与 `status=completed|stopped|interrupted`。不提交正文。sender 必须等于已 bound target；相同 status 重放幂等，冲突 status 保留首个 terminal fact 并 reconcile。
+- 调用原生 `interrupt_agent` 后，用 `--record-interrupt-result` 提交 exact task/ref/target 和 `result=failed|inactive|unknown`。failed 保存明确失败事实但保持 bound；inactive 建立 terminal fact；unknown 进入 reconcile。不要把模糊成功或 not-found 自行改写为 inactive。
+- 父 Agent 完成验收或明确决定停止跟踪后，用 `--close-task` 提交 `task_id`、`task_ref` 和有界 `reason`。close 不自动调用 interrupt。相同 reason 重放幂等；不同 reason 不覆盖首次 close。
+- ledger 只保留最新 64 条 closed task，并只在后续真实写操作时惰性裁剪。status、diagnose 和 SessionStart 永不清理。
 
 ## 只读恢复与状态
 

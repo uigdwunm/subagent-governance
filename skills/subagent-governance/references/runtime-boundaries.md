@@ -10,4 +10,7 @@
 - 当前 Hook 只注册 spawn PreToolUse 和 best-effort read-only SessionStart；没有 PostToolUse、Stop、SessionEnd 或通信类 PreToolUse。
 - status、diagnose 和 SessionStart 不创建目录、lock、临时文件或空状态，不 cleanup、rebuild、迁移、自动重试或扫描业务正文。
 - transcript、summary、child final、时间邻近、task name 和 `list_agents` 都不是 correctness authority。
-- 当前实现切片只开放 dispatch 链路。observation、terminal、interrupt 和 parent close 将在后续最小 lifecycle 切片实现；不得用旧 API 或旧状态机替代。
+- exact platform observation 只作用于已 bound target；unknown 只写有界 reconcile reason。
+- normal message success/failed 只校验 exact identity 且零写入；unknown 只写 `delivery_unknown`，不保存正文或调用历史。
+- terminal notification 保存 exact sender 对应的 status/time，不接收正文。interrupt 只保存明确 failed/inactive 机械结果；unknown reconcile。
+- parent close 是显式写入，不调用原生 interrupt。closed task 固定保留最新 64 条，只由后续 ledger 写操作惰性裁剪。

@@ -18,6 +18,7 @@ try:
         render_dispatch_user_message, spawn_args,
     )
     from scripts.governance_errors import DispatchPreparationError
+    from scripts.governance_lifecycle import prune_closed_tasks
     from scripts.governance_semantics import PREPARED_EXPIRY_SECONDS
     from scripts.governance_state_store import StateStore
 except ModuleNotFoundError:
@@ -27,6 +28,7 @@ except ModuleNotFoundError:
     from governance_dispatch_identity import build_task_name, normalize_semantic_name, select_task_ref
     from governance_dispatch_rendering import render_dispatch_user_message, spawn_args
     from governance_errors import DispatchPreparationError
+    from governance_lifecycle import prune_closed_tasks
     from governance_semantics import PREPARED_EXPIRY_SECONDS
     from governance_state_store import StateStore
 
@@ -58,6 +60,7 @@ def prepare_dispatch(
     result: dict[str, Any] = {}
 
     def insert(state: dict[str, Any]) -> None:
+        prune_closed_tasks(state)
         occupied_refs = {
             task["task_ref"] for task in state["tasks"].values() if isinstance(task, dict)
         }
