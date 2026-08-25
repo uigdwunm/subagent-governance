@@ -10,9 +10,10 @@
 - allowlisted runtime 与单一开发部署实现：`bc6a61ff0e5aff1fae7cc76cc99ab213607b886b`。
 - cache rollover 二次确认删除：`3a3a66ff8e014a3d56c4e6384704fcb200a2e65b`。
 - missing claim 精确分类修复：`308f28f3fe6a6a0d152f888e9dcdcea79b0f5f65`。
-- 当前部署候选版本：`0.4.0-rc.13+codex.20260825045151`。
+- 当前 checkout 另含 MultiAgent V2 flattened spawn claim 修复；尚未生成下一次部署的 cachebuster。
+- 当前 manifest 基线版本：`0.4.0-rc.13+codex.20260825045151`。
 - 当前格式精确为 `state_format_version=9` / `state-v9`；TaskContract 为 v2。
-- 本记录只描述开发仓库证据；外部安装与真实平台证据单独记录。生成本次候选时尚未运行 `dev_deploy.py --execute`。
+- 本记录只描述开发仓库证据；外部安装与真实平台证据单独记录。当前 V2 修复尚未运行 `dev_deploy.py --execute`。
 
 ## 产品承诺覆盖
 
@@ -33,7 +34,7 @@
 ## Runtime projection
 
 - allowlist：`.codex-plugin/runtime-bundle.json`，精确 30 files。
-- 验收 digest：`d67d3a11975df6f8287ea3e374f33a914c6638d48e3c5c56b40f6f2b65789dcb`。
+- 验收 digest：`aee7b04be4bcb9f4aba09906384d441007696fe696bbfe3e0d8e71e4bb96ae49`。
 - 独立 temporary staging 的 `verify_runtime_bundle` 与 Plugin validator 均通过。
 - tests、CI、plans、validation、`AGENTS.md`、开发依赖、release preflight、`runtime_bundle.py`、`dev_deploy.py` 均不在 projection。
 - 修改被排除的开发文件不改变 bundle digest；目标树多一个文件即被 exact verifier 拒绝。
@@ -42,9 +43,9 @@
 
 | 命令 | exit | 摘要 |
 | --- | ---: | --- |
-| `python3 -m unittest discover -s tests -v` | 0 | Python 3.9.6，81 tests passed |
-| `python3.11 -m unittest discover -s tests -v` | 0 | Python 3.11.15，81 tests passed |
-| `python3.12 -m unittest discover -s tests -v` | 0 | Python 3.12.13，81 tests passed |
+| `python3 -m unittest discover -s tests -v` | 0 | Python 3.9.6，86 tests passed |
+| `python3.11 -m unittest discover -s tests -v` | 0 | Python 3.11.15，86 tests passed |
+| `python3.12 -m unittest discover -s tests -v` | 0 | Python 3.12.13，86 tests passed |
 | 三版本 `python -m py_compile scripts/*.py` | 0 | passed |
 | `python3 scripts/release_preflight.py --mode development` | 0 | `status=passed` |
 | repository Plugin validator | 0 | passed |
@@ -52,7 +53,7 @@
 | Skill validator | 0 | valid |
 | `git diff --check` | 0 | passed |
 
-`ruff` 与 `coverage` 不在 PATH；本次没有安装，也没有记为通过。测试数量从历史 325 缩到当前 81 是删除旧内部机制锁定测试的结果，不作为单独质量指标。
+`ruff` 与 `coverage` 不在 PATH；本次没有安装，也没有记为通过。测试数量从历史 325 缩到当前 86 是删除旧内部机制锁定测试的结果，不作为单独质量指标。
 
 ## 开发部署事务边界
 

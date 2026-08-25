@@ -60,6 +60,8 @@ JSON
 
 禁止用 list、task name、时间、summary、transcript 或 child final 补绑 identity。原生返回后 confirm 前崩溃时，task 保持 `claimed/unbound`，不自动重派。
 
+当前 Codex MultiAgent V2 在本地 PreToolUse 前加密 `message`，并可能以 flattened `collaborationspawn_agent` 暴露工具名。插件显式兼容该名称，以派生 task name/ref 和可见 spawn config claim prepared capability；V2 opaque message 不会被回写，插件也不宣称能在该边界验证明文正文。V1 明文路径仍执行完整参数比较。
+
 明确证明 Agent 未创建时可提交 `record-dispatch-result=failed`；unknown 进入 reconcile。success 必须通过 confirm 携带 exact target。
 
 ## 最小生命周期

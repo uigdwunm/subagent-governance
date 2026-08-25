@@ -20,17 +20,29 @@ except ModuleNotFoundError:
     from governance_store_support import data_root_path
 
 
+_OPAQUE_MESSAGE_SPAWN_TOOLS = {
+    "collaboration.spawn_agent",
+    "collaborationspawn_agent",
+}
+
+
 def tool_kind(tool_name: str) -> str | None:
+    if tool_name in _OPAQUE_MESSAGE_SPAWN_TOOLS:
+        return "spawn"
     leaf = tool_name.rsplit(".", 1)[-1]
     return "spawn" if leaf in {"Agent", "spawn_agent"} else None
 
 
-def _allow(updated_input: dict[str, Any], context: str | None = None) -> dict[str, Any]:
+def _allow(
+    updated_input: dict[str, Any] | None,
+    context: str | None = None,
+) -> dict[str, Any]:
     value: dict[str, Any] = {
         "hookEventName": "PreToolUse",
         "permissionDecision": "allow",
-        "updatedInput": updated_input,
     }
+    if updated_input is not None:
+        value["updatedInput"] = updated_input
     if context:
         value["additionalContext"] = context[:SESSION_SUMMARY_CONTEXT_LIMIT]
     return {"hookSpecificOutput": value}
@@ -47,7 +59,8 @@ def _deny(reason: str) -> dict[str, Any]:
 
 
 def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | None:
-    if tool_kind(str(payload.get("tool_name") or "")) != "spawn":
+    tool_name = str(payload.get("tool_name") or "")
+    if tool_kind(tool_name) != "spawn":
         return None
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
@@ -67,6 +80,7 @@ def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | N
         return _deny("governed spawn 缺少 tool_use_id，无法原子 claim")
     try:
         store = state_store or StateStore()
+        opaque_message = tool_name in _OPAQUE_MESSAGE_SPAWN_TOOLS
         outcome = claim_spawn(
             session_id,
             task_ref,
@@ -74,11 +88,12 @@ def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | N
             tool_input,
             state_store=store,
             now=payload.get("now"),
+            opaque_message=opaque_message,
         )
     except Exception as exc:
         return _deny(f"governed spawn claim 失败：{exc}")
     return _allow(
-        copy.deepcopy(tool_input),
+        None if opaque_message else copy.deepcopy(tool_input),
         f"Subagent Governance 已在 state-v9 单一 ledger 原子 claim task_ref={task_ref}（{outcome['result']}）。原生返回后立即 confirm exact target。",
     )
 

@@ -81,6 +81,25 @@ def _normalized_tool_input(value: Any) -> dict[str, Any]:
     }
 
 
+def _claim_parameters_match(
+    tool_input: Any,
+    expected: Any,
+    *,
+    opaque_message: bool,
+) -> bool:
+    actual = _normalized_tool_input(tool_input)
+    expected_normalized = _normalized_tool_input(expected)
+    if opaque_message:
+        # MultiAgent V2 encrypts message before the local Hook boundary.  The
+        # derived task_name/task_ref and visible spawn config remain exact, but
+        # the plugin cannot claim plaintext-message attestation at this layer.
+        message = actual.get("message")
+        if not isinstance(message, str) or not message:
+            return False
+        actual["message"] = expected_normalized["message"]
+    return actual == expected_normalized
+
+
 def claim_spawn(
     session_id: str,
     task_ref: str,
@@ -89,6 +108,7 @@ def claim_spawn(
     *,
     state_store: Any,
     now: int | None = None,
+    opaque_message: bool = False,
 ) -> dict[str, Any]:
     claimed_at = _now(now)
     if not isinstance(tool_use_id, str) or not tool_use_id.strip() or len(tool_use_id) > 1024:
@@ -101,7 +121,9 @@ def claim_spawn(
         if task.get("phase") == "claimed":
             if task.get("claimed_tool_use_id") == tool_use_id:
                 expected = task.get("prepared", {}).get("expected_native_parameters")
-                if _normalized_tool_input(tool_input) != expected:
+                if not _claim_parameters_match(
+                    tool_input, expected, opaque_message=opaque_message
+                ):
                     raise StateConflictError("重复 claim 的 native parameters 不一致")
                 outcome.update(result="already_claimed", task_id=task_id, task_ref=task_ref)
                 return
@@ -113,7 +135,11 @@ def claim_spawn(
             raise StateConflictError("prepared task 缺少 capability")
         if capability.get("expires_at", -1) <= claimed_at:
             raise StateConflictError("prepared capability 已过期，请重新 prepare")
-        if _normalized_tool_input(tool_input) != capability.get("expected_native_parameters"):
+        if not _claim_parameters_match(
+            tool_input,
+            capability.get("expected_native_parameters"),
+            opaque_message=opaque_message,
+        ):
             raise StateConflictError("原生 spawn 参数与 prepared capability 不一致")
         contract = contract_from_input(capability.get("contract"))
         manifest = contract.context.get("verified")
@@ -140,7 +166,9 @@ def claim_spawn(
             if (
                 task.get("phase") == "claimed"
                 and task.get("claimed_tool_use_id") == tool_use_id
-                and expected == _normalized_tool_input(tool_input)
+                and _claim_parameters_match(
+                    tool_input, expected, opaque_message=opaque_message
+                )
             ):
                 outcome.update(
                     result="claimed_after_write_error",

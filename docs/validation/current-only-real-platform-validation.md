@@ -29,6 +29,13 @@
 - 实际 V2 动作：当前 runtime 的 `--prepare-dispatch`、原生 `spawn_agent`、随后同一 task/ref 与该次机械返回 target 的 `--confirm-dispatch`，再作同一输入的 replay；终态仅运行 exact-session `--status` / `--diagnose`。
 - 因 V2 correctness failure，未调用 wait observation、normal message、terminal notification、interrupt、close、SessionStart probe、restart/compact，亦未自动 retry native spawn；下一步必须回到开发仓库诊断 Pre claim 未落盘的原因，完成本地门禁、重新获得部署授权并再建独立新任务。
 
+### 失败后的开发仓库根因（未部署、未真实复验）
+
+- 重启后通过 Codex app-server `hooks/list` 只读复核，当前 PreToolUse 与 SessionStart 的 current hash 均仍为 `trusted`，排除“重启后 trust 丢失”。
+- 当前 Codex MultiAgent V2 将本地 Hook 的工具名暴露为 flattened `collaborationspawn_agent`。Hook manifest 的 suffix matcher 能选中它，但开发仓库 router 的 `tool_kind()` 只接受精确 `Agent` / `spawn_agent`，因此 handler 在 StateStore 构造前返回 `None`，原生 spawn 继续而 ledger 保持 `prepared`。该确定性分支同时解释本轮和上一轮的 `dispatch_claim_missing`。
+- 同一 V2 边界会把 `message` 变为 opaque encrypted value，不能与 prepare 的明文 message 作相等比较。开发仓库修复显式接受 dotted/flattened V2 spawn 名称，以派生 task name/ref 和可见 spawn config 验证 prepared capability，要求 opaque message 非空，并不返回 `updatedInput`；V1 明文路径仍完整比较 message。插件不把这描述为 V2 plaintext attestation。
+- 上述修复仅存在于开发仓库；本报告的真实 V2 结论仍为 `failed`。完成本地门禁后仍需重新获得部署授权、重启并在另一个独立任务复验。
+
 ---
 
 # P10-B 与 P12-A 全新真实平台验证（历史 v8 基线）

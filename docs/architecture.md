@@ -85,6 +85,10 @@ Hook manifest 当前只注册：
 - native spawn 的 PreToolUse matcher；unmanaged task name 在 StateStore 构造前 inert fail-open，governed spawn 验证 exact prepared facts 并原子 claim；
 - best-effort read-only SessionStart，只读取当前 exact Session 的未关闭摘要。
 
+Codex MultiAgent V2 在 Hook stdin 中使用 flattened `collaborationspawn_agent`，并在到达本地 Hook 前把 `message` 变为 opaque encrypted value。router 只显式接受 `Agent`、`spawn_agent`、`collaboration.spawn_agent` 与 `collaborationspawn_agent`；V2 claim 要求派生的 `task_name/task_ref`、`fork_turns`、`model`、`reasoning_effort` 精确匹配 prepared capability，并要求 opaque message 为非空字符串。它不回写 `updatedInput`，从而保留平台原始加密调用。V1/非 opaque 路径仍精确比较明文 message。
+
+这建立的是父 Agent 协作协议中的 prepared-capability 引用与可见 spawn config 绑定，不是 V2 plaintext message attestation。平台未向该 Hook 暴露明文，因此插件不宣称能在 Pre 边界独立验证实际委派正文；父 Agent 仍必须把 prepare 返回的 `spawn_args` 原样提交。
+
 不存在 PostToolUse、Stop、SessionEnd 或 communication/followup/interrupt PreToolUse。
 
 SessionStart、`status` 和 `diagnose` 使用无锁只读 reader；缺失目录时不创建目录、lock、临时文件或空状态，不 cleanup、rebuild、migrate、reconcile、自动关闭、自动重试、扫描其他 Session 或读取业务正文。

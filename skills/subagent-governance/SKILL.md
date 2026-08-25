@@ -62,6 +62,7 @@ profile 与状态边界见 [references/governance-profiles.md](references/govern
 
 2. 向用户展示返回的 `user_message`。把 `spawn_args` 原样传给当前原生 `spawn_agent`；不要重写 message、task name、model、effort 或 `fork_turns`。
 3. governed spawn 的 PreToolUse 在同一个 Session ledger 原子执行 `prepared → claimed`。unmanaged task name 完全 inert，不创建治理状态。
+   Codex MultiAgent V2 会在本地 Hook 前加密 message；runtime 通过派生 task name/ref 与仍可见的 spawn config 绑定 prepared capability，不宣称对 V2 明文正文提供独立 attestation。父 Agent 的原样提交义务不变。
 4. 读取这一次原生 spawn 的机械返回。只有返回中明确给出的、可直接用于后续原生调用的 exact target 才能绑定；如果平台没有机械暴露 exact target，停止并报告，不使用 list/name/time/final 补绑。
 5. 立即提交 exact target：
 

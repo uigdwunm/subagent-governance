@@ -54,6 +54,8 @@ JSON
 
 Never bind identity from a list, task name, timing, summary, transcript, or child final. A crash after the native return but before confirmation leaves the task `claimed/unbound` and does not trigger automatic retry.
 
+Codex MultiAgent V2 encrypts `message` before the local PreToolUse boundary and may expose the flattened tool name `collaborationspawn_agent`. The plugin explicitly recognizes that name and claims the prepared capability from the derived task name/ref plus visible spawn configuration. It preserves the original opaque V2 input and does not claim plaintext-message attestation; the V1 plaintext path still compares the complete parameters.
+
 ## Minimal lifecycle
 
 After binding, the CLI exposes exact-identity commands for platform observations, normal-call results, terminal notifications, interrupt results, and parent close. Platform terminal observations and terminal notifications establish `terminal`; interrupt `inactive` establishes a terminal fact; unknown results enter `reconcile`. Normal-call success/failed validates identity without writing the ledger. Parent close does not invoke native interrupt or store business text.

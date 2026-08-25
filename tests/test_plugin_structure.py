@@ -16,7 +16,9 @@ class PluginStructureTests(unittest.TestCase):
         self.assertEqual(set(hooks), {"PreToolUse", "SessionStart"})
         self.assertEqual(hooks["PreToolUse"][0]["matcher"], "(^Agent$|.*spawn_agent$)")
         matcher = re.compile(hooks["PreToolUse"][0]["matcher"])
-        self.assertIsNotNone(matcher.search("collaboration.spawn_agent"))
+        for native_name in ("spawn_agent", "collaboration.spawn_agent", "collaborationspawn_agent"):
+            with self.subTest(native_name=native_name):
+                self.assertIsNotNone(matcher.search(native_name))
         for removed in ("send_message", "followup_task", "interrupt_agent", "list_agents"):
             self.assertIsNone(matcher.search("collaboration." + removed))
 

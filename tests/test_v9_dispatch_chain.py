@@ -209,6 +209,126 @@ class V9DispatchChainTests(unittest.TestCase):
         self.assertIn("prepared", task)
         self.assertFalse((self.root / "prepared").exists())
 
+    def test_flattened_v2_spawn_claims_with_opaque_message(self):
+        prepared = self.prepare()
+        encrypted_input = copy.deepcopy(prepared["spawn_args"])
+        encrypted_input["message"] = "gAAAAABopaque-native-v2-message"
+        result = hook.handle_hook(
+            {
+                "session_id": self.session_id,
+                "hook_event_name": "PreToolUse",
+                "tool_name": "collaborationspawn_agent",
+                "tool_use_id": "native-v2-call",
+                "tool_input": encrypted_input,
+                "now": 101,
+            },
+            self.store,
+        )
+        self.assertEqual(
+            result["hookSpecificOutput"]["permissionDecision"], "allow", result
+        )
+        self.assertNotIn("updatedInput", result["hookSpecificOutput"])
+        task = self.store.read(self.session_id)["tasks"][prepared["task_id"]]
+        self.assertEqual(task["phase"], "claimed")
+        self.assertEqual(task["claimed_tool_use_id"], "native-v2-call")
+
+        replay_input = copy.deepcopy(encrypted_input)
+        replay_input["message"] = "gAAAAABopaque-native-v2-message-replay"
+        replay = hook.handle_hook(
+            {
+                "session_id": self.session_id,
+                "hook_event_name": "PreToolUse",
+                "tool_name": "collaborationspawn_agent",
+                "tool_use_id": "native-v2-call",
+                "tool_input": replay_input,
+                "now": 102,
+            },
+            self.store,
+        )
+        self.assertEqual(
+            replay["hookSpecificOutput"]["permissionDecision"], "allow", replay
+        )
+        self.assertIn(
+            "already_claimed", replay["hookSpecificOutput"]["additionalContext"]
+        )
+
+    def test_flattened_v2_spawn_still_rejects_visible_config_mismatch(self):
+        prepared = self.prepare()
+        encrypted_input = copy.deepcopy(prepared["spawn_args"])
+        encrypted_input["message"] = "gAAAAABopaque-native-v2-message"
+        encrypted_input["fork_turns"] = "all"
+        result = hook.handle_hook(
+            {
+                "session_id": self.session_id,
+                "hook_event_name": "PreToolUse",
+                "tool_name": "collaborationspawn_agent",
+                "tool_use_id": "native-v2-call",
+                "tool_input": encrypted_input,
+                "now": 101,
+            },
+            self.store,
+        )
+        self.assertEqual(
+            result["hookSpecificOutput"]["permissionDecision"], "deny", result
+        )
+        task = self.store.read(self.session_id)["tasks"][prepared["task_id"]]
+        self.assertEqual(task["phase"], "prepared")
+
+    def test_flattened_v2_spawn_rejects_missing_opaque_message(self):
+        prepared = self.prepare()
+        encrypted_input = copy.deepcopy(prepared["spawn_args"])
+        encrypted_input["message"] = ""
+        result = hook.handle_hook(
+            {
+                "session_id": self.session_id,
+                "hook_event_name": "PreToolUse",
+                "tool_name": "collaborationspawn_agent",
+                "tool_use_id": "native-v2-call",
+                "tool_input": encrypted_input,
+                "now": 101,
+            },
+            self.store,
+        )
+        self.assertEqual(
+            result["hookSpecificOutput"]["permissionDecision"], "deny", result
+        )
+        task = self.store.read(self.session_id)["tasks"][prepared["task_id"]]
+        self.assertEqual(task["phase"], "prepared")
+
+    def test_spawn_tool_names_cover_native_v1_and_flattened_v2_only(self):
+        for tool_name in (
+            "Agent",
+            "spawn_agent",
+            "collaboration.spawn_agent",
+            "collaborationspawn_agent",
+        ):
+            with self.subTest(tool_name=tool_name):
+                self.assertEqual(hook.tool_kind(tool_name), "spawn")
+        for tool_name in ("send_message", "collaborationsend_message", "spawn_agents"):
+            with self.subTest(tool_name=tool_name):
+                self.assertIsNone(hook.tool_kind(tool_name))
+
+    def test_plaintext_spawn_still_rejects_message_mismatch(self):
+        prepared = self.prepare()
+        changed_input = copy.deepcopy(prepared["spawn_args"])
+        changed_input["message"] += " changed"
+        result = hook.handle_hook(
+            {
+                "session_id": self.session_id,
+                "hook_event_name": "PreToolUse",
+                "tool_name": "spawn_agent",
+                "tool_use_id": "native-v1-call",
+                "tool_input": changed_input,
+                "now": 101,
+            },
+            self.store,
+        )
+        self.assertEqual(
+            result["hookSpecificOutput"]["permissionDecision"], "deny", result
+        )
+        task = self.store.read(self.session_id)["tasks"][prepared["task_id"]]
+        self.assertEqual(task["phase"], "prepared")
+
     def test_unmanaged_spawn_is_inert_even_when_storage_is_unavailable(self):
         missing = self.root / "must-not-exist"
         payload = {
