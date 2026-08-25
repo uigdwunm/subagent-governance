@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts import runtime_bundle
+from scripts import dev_deploy, runtime_bundle
 from tests.support import ROOT
 
 EXPECTED_RUNTIME_FILES = {
@@ -79,12 +79,13 @@ class RuntimeBundleTests(unittest.TestCase):
             target = Path(directory) / "bundle"
             digest = runtime_bundle.stage_runtime_bundle(ROOT, target)
             staged = {
-                str(path.relative_to(target))
+                path.relative_to(target).as_posix()
                 for path in target.rglob("*")
                 if path.is_file()
             }
             self.assertEqual(staged, EXPECTED_RUNTIME_FILES)
             self.assertEqual(digest, runtime_bundle.bundle_digest(target))
+            self.assertEqual(digest, dev_deploy._safe_tree_digest(target))
             self.assertEqual(digest, runtime_bundle.bundle_digest(ROOT))
 
             excluded = target / "tests/noise.txt"

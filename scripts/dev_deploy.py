@@ -184,8 +184,10 @@ def _safe_tree_digest(root: Path) -> str:
 
     _ordinary_directory(root, "插件树")
     digest = hashlib.sha256()
+    paths = list(root.rglob("*"))
+    paths.sort(key=lambda path: path.relative_to(root).as_posix())
     files = 0
-    for path in sorted(root.rglob("*")):
+    for path in paths:
         if path.is_symlink():
             raise RuntimeError(f"插件树中不允许符号链接：{path}")
         if path.is_dir():

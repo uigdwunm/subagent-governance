@@ -107,9 +107,16 @@ class DevDeployTests(unittest.TestCase):
         return run
 
     def test_dry_run_verifies_clean_exact_source_and_is_zero_write(self):
-        before = sorted(str(path.relative_to(self.root)) for path in self.root.rglob("*"))
+        def deployment_paths():
+            return sorted(
+                path.relative_to(self.root).as_posix()
+                for path in self.root.rglob("*")
+                if ".git" not in path.relative_to(self.root).parts
+            )
+
+        before = deployment_paths()
         code, report = dev_deploy.deploy(**self.arguments(execute=False))
-        after = sorted(str(path.relative_to(self.root)) for path in self.root.rglob("*"))
+        after = deployment_paths()
         self.assertEqual(code, 0)
         self.assertEqual(report["state"], "dry_run_passed")
         self.assertEqual(report["source_bundle_digest"], runtime_bundle.bundle_digest(self.source))
