@@ -12,8 +12,10 @@ state-v9 减法收口的 runtime/deploy 实现为 `bc6a61ff0e5aff1fae7cc76cc99ab
 
 - 验证任务的开发 checkout 为 `87f03570eafd6a1cd435f2bb92dfeb560e2a94e2`，实际加载版本为 `0.4.0-rc.13+codex.20260825035757`；当前加载的 Skill 路径与该版本 runtime cache 一致。`codex plugin list` 仅显示 installed/enabled，不能替代 Hook trust 或 Codex registration 的独立结论。
 - exact session identity 为 `01a03722-0244-7c32-82e7-0a2f52b52d3b`。V1 原生 unmanaged spawn 返回 exact target 且收到独立终态；前后只读 status/diagnose 都显示当前 v9 ledger 零 task，故 V1 为 `passed`。child final 不作为治理 identity authority。
-- V2 先由当前 runtime prepare，再把本次 native `spawn_agent` 返回的 exact target 原样立即提交 `confirm-dispatch`。该命令返回 `reconcile`；只读 diagnose 显示 `phase=reconcile`、`reconcile_reason=dispatch_identity_mismatch`、`target=null`。这是 correctness failure；未用 child final、task name、时间或 list 结果补绑或推断根因。
-- 依停止策略，V3（wait/已 bound exact-target observation）、V4（normal message、terminal、interrupt、close）、V5（exact-session SessionStart/status）和 V6（restart/compact）均为 `not_checked`。V7 的 Hook trust、Codex registration 和桌面 UI 分别为 `not_checked`；exact session identity 已单独记录，且本次没有将 installed/enabled 或文件存在写作这些状态的替代证据。
+- V2 先由当前 runtime prepare，再把本次 native `spawn_agent` 返回的 exact target 原样立即提交 `confirm-dispatch`。该命令返回 `reconcile`；只读 diagnose 显示 `phase=reconcile`、`reconcile_reason=dispatch_identity_mismatch`、`target=null`。后续开发仓库诊断确认 task id/ref 与 exact target 形状均正确；该旧 reason 实际来自 confirm 时 task 不在 `claimed` 的共用分支，而不是 target identity 不匹配。
+- 同一诊断中的只读 `hooks/list` 显示当前 PreToolUse handler 的 `currentHash=sha256:307fb66cae3e00fbcec4eb69f5227cb5f993a8583698df6bc6829330f9465081`，配置保留的 `trusted_hash=sha256:d2eedfe914bd63b8e1ebc1c872ee51f1a6ee221b4fa62a062dec61e602c95aff`，平台 trust status 为 `modified`。因此原报告中的“governed Pre claim”不能作为 exact ledger durable claim 已成立的证据；当前证据只支持 native spawn 已执行、confirm 前 exact task 仍未形成 durable claim。
+- 开发仓库已将 `prepared` 上的 exact confirm 单独分类为 `dispatch_claim_missing` 并保持 reconcile/no-bind；真实 task/ref 不匹配仍为 `dispatch_identity_mismatch`，claimed 上的 exact target 仍遵守 first-bind-wins。这是本地修复，尚未部署或真实复验。
+- 依停止策略，V3（wait/已 bound exact-target observation）、V4（normal message、terminal、interrupt、close）、V5（exact-session SessionStart/status）和 V6（restart/compact）均为 `not_checked`。V7 现为 `failed_partial`：Hook trust 已确认为 `modified`，Codex registration 和桌面 UI 仍为 `not_checked`；exact session identity 已单独记录，且没有将 installed/enabled 或文件存在写作这些状态的替代证据。
 
 ### P9 local acceptance（2026-08-24）
 

@@ -325,6 +325,66 @@ class V9DispatchChainTests(unittest.TestCase):
         self.assertNotIn("target", task)
         self.assertEqual(task["reconcile"]["code"], "dispatch_identity_mismatch")
 
+    def test_real_target_shape_distinguishes_missing_claim_from_bound_identity(self):
+        task_id = "sg-8b0fd6192a56b7afa8acf7843c9bd100"
+        target = "/root/sg_standard_v2_t_d3386869e8aa"
+        prepared = protocol.prepare_dispatch(
+            self.contract(objective="V2"),
+            self.session_id,
+            state_store=self.store,
+            task_id_factory=lambda: task_id,
+            now=100,
+        )
+        self.assertEqual(prepared["task_ref"], "d3386869e8aa")
+        self.assertEqual(prepared["spawn_args"]["task_name"], target.removeprefix("/root/"))
+        confirmation = {
+            "task_id": task_id,
+            "task_ref": prepared["task_ref"],
+            "target": target,
+        }
+
+        result = dispatch.confirm_dispatch(
+            self.session_id, confirmation, state_store=self.store, now=102
+        )
+
+        self.assertEqual(result["result"], "reconcile")
+        task = self.store.read(self.session_id)["tasks"][task_id]
+        self.assertEqual(task["reconcile"]["code"], "dispatch_claim_missing")
+        self.assertNotIn("target", task)
+
+        claimed_session = "v9-session-with-claim"
+        claimed = protocol.prepare_dispatch(
+            self.contract(objective="V2"),
+            claimed_session,
+            state_store=self.store,
+            task_id_factory=lambda: task_id,
+            now=100,
+        )
+        claim_result = hook.handle_hook(
+            {
+                "session_id": claimed_session,
+                "hook_event_name": "PreToolUse",
+                "tool_name": "spawn_agent",
+                "tool_use_id": "native-call-real-shape",
+                "tool_input": claimed["spawn_args"],
+                "now": 101,
+            },
+            self.store,
+        )
+        self.assertEqual(
+            claim_result["hookSpecificOutput"]["permissionDecision"], "allow"
+        )
+        self.assertEqual(
+            self.store.read(claimed_session)["tasks"][task_id]["phase"], "claimed"
+        )
+        bound = dispatch.confirm_dispatch(
+            claimed_session, confirmation, state_store=self.store, now=102
+        )
+        self.assertEqual(bound["result"], "bound")
+        self.assertEqual(
+            self.store.read(claimed_session)["tasks"][task_id]["target"], target
+        )
+
     def test_crash_gap_stays_claimed_unbound_and_is_not_retried_or_inferred(self):
         prepared = self.prepare()
         self.claim(prepared)

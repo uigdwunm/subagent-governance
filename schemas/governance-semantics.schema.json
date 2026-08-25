@@ -181,7 +181,7 @@
     "reconcile_fact": {
       "type": "object", "required": ["code", "observed_at"],
       "properties": {
-        "code": {"type": "string", "enum": ["dispatch_target_conflict", "dispatch_identity_mismatch", "dispatch_result_unknown", "delivery_unknown", "platform_observation_unknown", "interrupt_unknown", "terminal_status_conflict"]},
+        "code": {"type": "string", "enum": ["dispatch_target_conflict", "dispatch_identity_mismatch", "dispatch_claim_missing", "dispatch_result_unknown", "delivery_unknown", "platform_observation_unknown", "interrupt_unknown", "terminal_status_conflict"]},
         "observed_at": {"$ref": "#/$defs/timestamp"}
       },
       "additionalProperties": false

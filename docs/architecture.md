@@ -62,6 +62,7 @@ identity 的唯一权威是父 Agent 对当前原生 spawn 返回 exact target �
 - first bind wins；
 - 相同 target 重放幂等；
 - 不同 target 或 task/ref 不匹配进入 reconcile；
+- task/ref 匹配但 exact Session task 仍为 `prepared` 时，以 `dispatch_claim_missing` 进入 reconcile，绝不把未形成 durable Pre claim 的 task 直接绑定；
 - `list_agents`、task name、时间、summary、transcript 和 child final 不能建立或修复 identity；
 - native return 后、confirm 前中断时保持 `claimed/unbound`，不自动重派。
 

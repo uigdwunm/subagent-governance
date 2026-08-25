@@ -198,6 +198,10 @@ def confirm_dispatch(
         if phase == "reconcile":
             outcome.update(result="reconcile", task_id=task_id, task_ref=task_ref, target=task.get("target"))
             return
+        if phase == "prepared":
+            enter_reconcile(task, "dispatch_claim_missing", observed_at)
+            outcome.update(result="reconcile", task_id=task_id, task_ref=task_ref)
+            return
         if phase != "claimed":
             enter_reconcile(task, "dispatch_identity_mismatch", observed_at)
             outcome.update(result="reconcile", task_id=task_id, task_ref=task_ref)
