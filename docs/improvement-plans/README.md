@@ -30,12 +30,12 @@
 | P9 | [仓库内综合验收与文档/Schema/Skill 一致性](P9-local-integrated-acceptance.md) | 验证 | P1–P8 |
 | P10 | [经授权安装和新对话真实平台验证](P10-authorized-install-and-real-validation.md) | 真实验证 | P9 |
 | P11 | [followup PostToolUse 与 exact-list 的 current-only 绑定](P11-followup-posttool-and-exact-list-binding.md) | 正确性、可观测性、真实验证修复 | P10-B V4 failure；须先完成P11本地门禁后才可重跑P10 |
-| P12-A | [governed spawn PostToolUse 最小诊断门槛](P12A-minimal-spawn-post-diagnostics.md) | 有界诊断、停止门槛 | 真实门槛和独立 probe cleanup 均已在开发仓库完成；未安装、未真实复验；P12-B 停止并冻结 |
+| P12-A | [governed spawn PostToolUse 最小诊断门槛](P12A-minimal-spawn-post-diagnostics.md) | 有界诊断、停止门槛 | cleanup 已安装、重启并在新任务完成 V1–V2 基线复验；P12-B 停止并冻结，V2 Post/canonical identity 仍未闭环 |
 | P12-B | [governed spawn PostToolUse 与 canonical identity 条件修复](P12-governed-spawn-posttool-and-identity-binding.md) | 条件正确性修复 | P12-A 未满足激活门槛；保持冻结，不得实施 |
 | P13 | [运行缓存双版本滚动保留与安装事务收口](P13-rolling-two-version-runtime-cache.md) | 安装正确性、旧会话重启兼容 | P12-A 本地门禁；下一次测试安装前必须完成 |
 | P14 | [开发提交到稳定测试源的事务化同步](P14-transactional-stable-source-sync.md) | 部署正确性、稳定源事务安全 | P13；下一次 P10-A 测试安装前必须完成 |
 
-P1–P8 必须顺序执行。即使某个后续方案看起来可以独立修改，也不能在前置模块尚未落地时复制临时实现。P11 是 P10-B 真实 V4 failure 后的独立修复方案。P12-A 已完成停止决定和独立 cleanup：三次真实样本均没有关联 receipt，临时 probe 已从开发仓库移除，故 P12-B 保持冻结；不能以 matcher、list、时间或 child terminal 绕过门槛。下一步只能在用户重新授权后执行 P10-A 测试安装、等待重启，并在新的独立任务从 V1 开始验证不含 probe 的环境。P13 独立修复安装期间旧运行缓存消失的问题；P14 补齐开发提交到非 Git 稳定测试源的事务化同步入口。P13–P14 不改变 P12-B 的冻结结论，但都必须在下一次安装 P12-A 前完成。P11–P14 都不替代 P10 的重新授权安装和全新真实复验。
+P1–P8 必须顺序执行。即使某个后续方案看起来可以独立修改，也不能在前置模块尚未落地时复制临时实现。P11 是 P10-B 真实 V4 failure 后的独立修复方案。P12-A 已完成停止决定和独立 cleanup：三次真实样本均没有关联 receipt，临时 probe 已移除；cleanup 后已完成安装、重启和新任务 V1–V2 基线复验，故 P12-B 保持冻结；不能以 matcher、list、时间或 child terminal 绕过门槛。V2 的 Post/canonical identity 未闭环仍是有界真实事实，须回开发仓库另行处理；本次不继续 V3–V7。P13 独立修复安装期间旧运行缓存消失的问题；P14 补齐开发提交到非 Git 稳定测试源的事务化同步入口。P13–P14 不改变 P12-B 的冻结结论。P11–P14 都不替代 P10 的重新授权安装和全新真实复验。
 
 ## 新对话交接模板
 

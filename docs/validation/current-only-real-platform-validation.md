@@ -1,5 +1,41 @@
 # P10-B 与 P12-A 全新真实平台验证
 
+---
+
+# P12-A probe cleanup 安装后重启复验
+
+日期：2026-08-25  
+结论：`completed_scoped_baseline`（cleanup 的开发—安装—重启—新任务闭环完成；P12-B 继续冻结，P10 V2 的 Post/canonical identity 未闭环仍是已知真实边界）
+
+## 只读安装与加载来源
+
+- 开发 checkout 为 `dbad9eb903c188614d5739f21b0bd291e5db80fa`，并只读确认它包含 cleanup 提交 `4c2567e` 与本次 cachebuster 提交 `dbad9eb`。
+- 新任务实际加载的 `subagent-governance` Skill 和 `codex plugin list` 的 installed/enabled 版本均为 `0.4.0-rc.13+codex.20260825004015`；执行配置为 `gpt-5.6-terra` / `high`。
+- `check_installation.py --require-development-sync` 通过：stable/current digest 均为 `7c6409be936130bcd9e384203273ed5e7cb6a6b30a9fa80ab37aa884e74eea92`，`runtime_healthy`、`deployment_in_sync`、`development_rules_in_sync`、`current_cache_present`、`current_cache_matches_stable`、`rolling_cache_set_valid` 与路径隔离均为 true；兼容缓存数为 1，版本为 `0.4.0-rc.13+codex.20260824133045`。
+- Codex registration 与 Hook trust 的独立结论仍是 `not_checked`。本次未安装、重装、发布或改写 stable source、runtime cache、Hook trust、Marketplace、Registry、runtime、schema 或测试。
+
+## V1–V2 最小真实基线
+
+| 场景 | 状态 | 脱敏机械证据与结论 |
+| --- | --- | --- |
+| V1 unmanaged 原生 spawn | `passed` | PreToolUse 明确按 unmanaged fail-open 放行且不创建 governed state；child 给出独立终态。收到新增超时对账要求后，对完整 native target 做一次 exact `list_agents`，结果为唯一 completed。child final 不是 Post 或 identity authority。 |
+| V2 light / isolated governed spawn | `failed_boundary_confirmed` | 当前安装 Skill 成功 prepare，PreToolUse 消费凭证并完成双门禁，真实 child 完成，规范 wait 结束，exact `list_agents` 返回唯一 completed。只读 canonical/diagnose 仍为 `dispatch.state=claimed`、`post_observed=false`、`target_bound=false`，`observation_record.source=null`。终态登记按精确 sender/dispatch-target 规则被拒绝，因为 canonical 尚无 dispatch target。 |
+
+- 最初一次会话不匹配的 native 调用在 PreToolUse 硬门禁前被拒绝，未创建 child；未复用该凭证，且不计入 V2 样本。
+- V2 的严格结论仅为：**Post/canonical identity 未闭环**。不得由此推断平台未投递、Codex bug、工具名或 ID 漂移，或 handler/storage 原因；exact list、时间、task name 和 child terminal 均不作为 owner 或 Post authority。
+- 依既定停止策略，本次没有执行 V3–V7，也没有激活或实施 P12-B。
+
+## cleanup 专项
+
+- current runtime 不存在 `scripts/governance_spawn_post_probe.py`，且其 `scripts/` 与 `skills/` 不再引用 P12-A marker/receipt 目录或 probe runtime；只读 diagnose 没有 `spawn_post_probes` 投影。
+- 对历史目录只做了前后元数据摘要：marker 目录存在、含 3 个顶层条目、目录 mtime/size 前后一致；receipt 目录前后均不存在。未读取业务内容，未删除、迁移或改写任何历史 probe/state/cache 数据。
+- current Pre、recognized Post 与 unknown catch-all 实现均已不含退役 probe 路径；结合历史目录前后元数据不变，可确认本次没有创建或更新 `spawn-post-probe-ids-v1` / `spawn-post-probes-v1` 数据。以上不以历史数据是否存在来推断事件投递。
+
+## 未验证项
+
+- PostToolUse 是否到达、真实工具名/ID/envelope，以及 handler 的进入或失败阶段；P12-B activation evidence 仍未取得。
+- P10 的 V3–V7、独立 Hook trust/registration 和桌面 UI 状态。
+
 日期：2026-08-24
 结论：`failed`（V2 的真实 PostToolUse / canonical identity 闭环未成立；依 P10 停止，未热修或重装）
 

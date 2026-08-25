@@ -1,6 +1,6 @@
 # P12-A：governed spawn PostToolUse 最小诊断门槛
 
-状态：真实门槛验证完成；三次样本均无关联 receipt，P12-B 已停止并保持冻结；临时 runtime probe 已在开发仓库完成本地清理，尚未安装或真实复验。<br>
+状态：真实门槛验证完成；三次样本均无关联 receipt，P12-B 已停止并保持冻结；临时 runtime probe 已清理、安装、重启并在新任务完成 V1–V2 基线复验。V2 的 Post/canonical identity 仍未闭环。<br>
 执行配置：独立新对话，`gpt-5.6-terra`，`high`。<br>
 原则：只回答“插件能否收到并以 same-ID 安全关联事件、以什么机械形状到达、在哪个关联阶段停止”，不修 identity，不扩大状态机。
 

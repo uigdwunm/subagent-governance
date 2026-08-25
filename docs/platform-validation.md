@@ -32,6 +32,12 @@
 - 这只证明插件没有保存关联到这些 claim 的 Post 事实；它不证明平台没有投递，也不定位工具名、ID、router 或 handler 阶段。根据 P12-A 矩阵，P12-B 保持冻结，不能实施 matcher-only 或 storage/handler 修复，也不得以 list、时间、task name 或 child terminal 推断 owner。
 - 后续的独立 P12-A probe cleanup 已在开发仓库完成本地门禁：临时 marker/receipt storage、claim 后发布、sidecar admission、diagnostics/view 投影、固定 probe reason 和专用测试均已删除；历史 probe 目录不读取、不迁移、不清理、不重写。没有安装或真实复验。下一步只能经用户重新授权 P10-A 安装、等待重启后在新的独立任务从 V1 验证不含 probe 的环境。详见 `docs/validation/current-only-real-platform-validation.md`。
 
+### P12-A probe cleanup 安装后重启复验（2026-08-25）
+
+- 当前运行版本为 `0.4.0-rc.13+codex.20260825004015`；开发 checkout 为 `dbad9eb903c188614d5739f21b0bd291e5db80fa`，包含 cleanup `4c2567e`。stable/current digest 均为 `7c6409be936130bcd9e384203273ed5e7cb6a6b30a9fa80ab37aa884e74eea92`，双缓存健康且保留一个兼容缓存。实际加载 Skill 与 installed/enabled 版本一致。
+- V1 unmanaged spawn 再次证明 fail-open/no-state 和独立终态；V2 的 fresh light/isolated governed spawn 成功完成 prepare、Pre claim、原生派发、wait 与 exact list，但 canonical 仍是 `claimed`、没有 Post receipt/target/observation source。严格记为 **Post/canonical identity 未闭环**，不推断平台未投递、ID/tool drift 或 handler/storage 原因。
+- current runtime 已无 probe module 或 probe runtime references，diagnose 无 `spawn_post_probes` 投影；历史 probe 目录只做前后元数据摘要，未读取或改写。P12-B 继续冻结，V3–V7 仍未执行。详见 `docs/validation/current-only-real-platform-validation.md`。
+
 ## 已由本地测试覆盖
 
 - PreparedContract 与 governed spawn 的发送前门禁。
@@ -56,7 +62,7 @@
 
 ## 尚待真实插件验证
 
-- 清理后的不含 probe 测试安装，以及经重新授权、重启后新独立任务中的 V1–V2 基线复验。P12-B 的 activation evidence 未取得，保持冻结。
+- P12-B 的 activation evidence 仍未取得，保持冻结；尽管 cleanup 后安装、重启、新任务 V1–V2 基线复验已完成，V2 的 Post/canonical identity 未闭环仍须在开发仓库以有界事实另行处理。
 - V3 normal message/terminal/close，随后 V5 interrupt/controlled reconciliation、V6 Stop/SessionStart/SessionEnd 及 V7 restart/compact 后的 mailbox/retained-target 恢复。
 - Hook trust、Codex registration 与桌面 UI 的独立实际状态。
 
