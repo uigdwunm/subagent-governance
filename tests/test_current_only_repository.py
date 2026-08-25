@@ -20,7 +20,7 @@ CURRENT_DOCUMENTS = {
 
 def _shipped_documents():
     return {
-        str(path.relative_to(ROOT))
+        path.relative_to(ROOT).as_posix()
         for path in (ROOT / "docs").rglob("*")
         if path.is_file()
         and not path.name.startswith("private-platform-evidence-")

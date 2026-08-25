@@ -115,6 +115,24 @@ class DevDeployTests(unittest.TestCase):
         self.assertEqual(report["source_bundle_digest"], runtime_bundle.bundle_digest(self.source))
         self.assertEqual(before, after)
 
+    def test_git_observations_disable_optional_repository_writes(self):
+        with mock.patch.object(
+            dev_deploy.subprocess,
+            "check_output",
+            return_value=b"fixture\n",
+        ) as check_output:
+            self.assertEqual(dev_deploy._git(self.source, "status"), "fixture\n")
+        check_output.assert_called_once_with(
+            [
+                "git",
+                "--no-optional-locks",
+                "-C",
+                str(self.source),
+                "status",
+            ],
+            stderr=subprocess.PIPE,
+        )
+
     def test_success_atomically_activates_bundle_and_restores_exact_previous(self):
         previous_version = "0.3.0+codex.previous"
         previous = self.cache(previous_version)

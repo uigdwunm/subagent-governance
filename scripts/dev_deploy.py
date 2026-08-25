@@ -208,7 +208,8 @@ def _safe_tree_digest(root: Path) -> str:
 def _git(source: Path, *arguments: str) -> str:
     try:
         return subprocess.check_output(
-            ["git", "-C", str(source), *arguments], stderr=subprocess.PIPE
+            ["git", "--no-optional-locks", "-C", str(source), *arguments],
+            stderr=subprocess.PIPE,
         ).decode("utf-8", "strict")
     except (OSError, subprocess.CalledProcessError, UnicodeDecodeError) as exc:
         raise RuntimeError(f"Git source 校验失败：{source}") from exc
