@@ -33,7 +33,18 @@ class DevDeployTests(unittest.TestCase):
         )
         subprocess.run(["git", "-C", str(self.source), "add", "-A"], check=True)
         subprocess.run(
-            ["git", "-C", str(self.source), "commit", "-qm", "runtime bundle"],
+            [
+                "git",
+                "-c",
+                "gc.auto=0",
+                "-c",
+                "maintenance.auto=false",
+                "-C",
+                str(self.source),
+                "commit",
+                "-qm",
+                "runtime bundle",
+            ],
             check=True,
         )
         self.head = subprocess.check_output(
