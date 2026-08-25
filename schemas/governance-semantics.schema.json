@@ -42,6 +42,24 @@
         "baseline": {"$ref": "#/$defs/verified_baseline"},
         "required_paths": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/verified_path_declaration"}}
       },
+      "allOf": [{
+        "if": {
+          "properties": {
+            "baseline": {
+              "properties": {"kind": {"const": "working_tree"}}
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "required_paths": {
+              "items": {
+                "properties": {"type": {"const": "file"}}
+              }
+            }
+          }
+        }
+      }],
       "additionalProperties": false
     },
     "contract_context_input": {
