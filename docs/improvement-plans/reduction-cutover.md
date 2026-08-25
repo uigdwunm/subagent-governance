@@ -212,6 +212,8 @@ SessionStart 使用 diagnostics 同等级的无锁只读 reader，不创建目�
 
 ### 6. Runtime bundle 与开发部署
 
+状态：本地实现完成；尚未执行任何 stable/cache/Codex 外部写入。
+
 - 建立机器可检查的 runtime allowlist。
 - bundle digest 只覆盖 allowlisted projection。
 - 将 P13/P14 原则合入一个开发仓库入口；stable sync、installer、checker 和 cache transaction code不进入 bundle。
@@ -221,6 +223,8 @@ SessionStart 使用 diagnostics 同等级的无锁只读 reader，不创建目�
 完成条件：runtime bundle 不含 tests、CI、improvement plans、validation reports、AGENTS、开发依赖或部署工具；普通文档/测试变化不改变 bundle digest。
 
 ### 7. 当前文档与本地综合验收
+
+状态：执行中；以当前 state-v9 suite 与新 runtime/deploy tests 重写验收证据，不复用历史测试数。
 
 - 只有在实现完成后才更新 README、architecture、Skill、runtime boundaries、Hook contract 和 release process。
 - 将 P12-B 标记为 rejected/archived，将 P1–P14 索引标记为历史改造记录。

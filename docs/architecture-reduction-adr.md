@@ -3,7 +3,7 @@
 - 状态：Accepted
 - 日期：2026-08-25
 - 适用范围：下一轮架构收口与验收
-- 实施状态：实施中；state-v9 / TaskContract v2 / prepare→claim→explicit confirm 与最小 lifecycle 切片已落地，runtime bundle/deploy 收口仍待实施；当前运行边界以 `docs/architecture.md` 为准
+- 实施状态：本地实现完成；state-v9 / TaskContract v2、最小 lifecycle、allowlisted runtime bundle 与单一开发部署入口均已落地；未经授权的安装与真实平台验证仍未执行，当前运行边界以 `docs/architecture.md` 为准
 
 ## 背景
 

@@ -1,117 +1,77 @@
-# 发布流程
+# 发布与本机开发部署
 
-发布操作只使用当前协议、当前插件版本和恰好一个 current 运行缓存；为尚未重启的上一代会话，可额外保留一个 retained previous compatibility cache。开发仓库是唯一修改源；稳定发布源和运行缓存不是开发源。
+开发仓库是唯一修改源。Codex 可加载的 runtime 使用
+`.codex-plugin/runtime-bundle.json` 的机器 allowlist 构造；稳定源与运行缓存只保存这份精确 projection，不再投影完整 tracked tree。
 
-## 发布门禁
+## Runtime bundle
 
-发布前必须满足：
+allowlist 只包含插件 Manifest、Hook manifest、当前 Skill 与必要 references、核心 runtime scripts、当前 Schema、`README.md` 和 `LICENSE`。以下内容明确不进入 runtime：
 
-1. Git 工作树干净，目标提交已推送。
-2. Python 3.11 与 3.12 单元测试全部通过。
-3. 所有 Python 脚本编译通过。
-4. development 与 archive release preflight 通过。
-5. Plugin validator 与 Skill validator 通过。
-6. Manifest 公共版本、Git tag 和 Marketplace ref 一致。
-7. 开发仓库、稳定发布源和运行缓存是三个不同的普通目录，且不是符号链接。
-8. 运行缓存父目录中有目标 current，并且至多有一个安全的 retained previous compatibility cache。
-9. Hook trust、真实事件投递和 Codex 注册状态没有被本地测试冒充为已验证。
+- tests、CI、improvement plans 与 validation reports；
+- `AGENTS.md`、贡献/安全文档、开发依赖与 release preflight；
+- `runtime_bundle.py`、`dev_deploy.py` 和其他安装、检查、同步或 cache 管理工具。
 
-未获得明确授权时，流程只执行开发仓库中的只读验证，不替换稳定源、不安装插件、不更新 Marketplace、不应用全局规则、不修改 Hook trust。
+`scripts/runtime_bundle.py` 对 allowlist 做排序、唯一性、普通文件和无符号链接校验。`bundle_digest` 只覆盖 allowlisted path、mode 与 bytes；普通测试或开发文档变化不会改变 runtime digest。`verify_runtime_bundle` 还要求目标树没有任何额外文件。
 
-## 开发仓库验证
+## 本地门禁
 
 ```bash
-python3.11 -m pip install -r requirements-dev.txt
-python3.11 -m unittest discover -s tests -v
-python3.12 -m unittest discover -s tests -v
-python3.11 -m py_compile scripts/*.py
-python3.12 -m py_compile scripts/*.py
-ruff check scripts tests
-coverage run -m unittest discover -s tests -v
-coverage report
+python3 -m unittest discover -s tests -v
+python3 -m py_compile scripts/*.py
 python3 scripts/release_preflight.py --mode development
 python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
 python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/subagent-governance
+git diff --check
 ```
 
-归档验证使用目标提交：
+支持的其他 Python 版本、ruff 与 coverage 可用时也应运行。archive/release preflight、cachebuster、tag 与 Marketplace ref 仍属于正式发布门禁，不属于本机开发部署入口。
+
+## 唯一开发部署入口
+
+`scripts/dev_deploy.py` 是唯一的本机开发测试部署入口。它不会写全局 `AGENTS.md`、Marketplace 配置、Registry 或 Hook trust，也不会检查这些外部状态。省略 `--execute` 时是严格零写入 dry-run：
 
 ```bash
-archive_root="$(mktemp -d)"
-git archive --format=tar HEAD | tar -xf - -C "$archive_root"
-python3 "$archive_root/scripts/release_preflight.py" \
-  --root "$archive_root" \
-  --mode archive
-```
-
-## 版本与 tag
-
-正式发布前生成唯一 cachebuster，重新运行全部门禁，然后提交并创建 tag：
-
-```bash
-python3 ~/.codex/skills/.system/plugin-creator/scripts/update_plugin_cachebuster.py .
-python3 scripts/release_preflight.py --mode release --tag "v<public-version>"
-```
-
-`.codex-plugin/plugin.json` 的公共版本、tag 和 `.agents/plugins/marketplace.json` 的 ref 必须一致。cachebuster 只属于完整 Manifest version。
-
-## 安装事务
-
-取得安装授权前，先在开发仓库完成 cachebuster 提交和本地门禁，再从该干净 commit 同步稳定测试源：
-
-```bash
-python3 scripts/sync_stable_plugin.py \
+python3 scripts/dev_deploy.py \
   --source-root <clean-development-worktree> \
   --stable-root <marketplace-stable-plugin-root> \
-  --transaction-parent <plugin-install-transaction-parent> \
+  --cache-parent <codex-plugin-cache-parent> \
+  --transaction-parent <development-deploy-transaction-parent> \
   --expected-head <full-commit-oid> \
-  --expected-version <full-manifest-version>
+  --expected-version <full-manifest-version> \
+  --marketplace <marketplace-name> \
+  [--previous-version <exact-installed-current-version>]
 ```
 
-读取 `last-stable-sync.json`，确认 source/stable path、HEAD、version 和 source projection/new stable digest 一致后，才从稳定发布源运行：
+任何 stable、cache 或 Codex 写入都必须另行取得当前任务的明确授权。获准后使用相同参数追加 `--execute`；若安装前已有 target 之外的两个 cache，还必须显式追加 `--confirm-previous-sessions-restarted`。
 
-```bash
-python3 <stable-plugin-root>/scripts/reinstall_plugin.py \
-  --previous-version <exact-installed-current-version> \
-  --target-version <full-manifest-version>
-```
+执行入口只接受：
 
-安装工具执行以下事务：
+1. 干净且 HEAD 精确匹配的 Git 根目录；
+2. 与 Manifest 完整版本一致、可构造的 allowlisted source bundle；
+3. 普通、非符号链接、owner/permission 安全且互不重叠的 source/stable/cache/transaction roots；
+4. 操作者从原生状态机械取得的 exact previous version；不按目录时间、版本语义或唯一候选推断。
 
-1. 验证缓存与快照目录的所有权、权限、文件类型和文件系统边界。
-2. 有 cache 时要求传入从 `codex plugin list` 读取的准确 installed/current 版本；禁止按目录名、mtime 或版本语义推测。
-3. 在调用原生命令前，从运行该脚本的稳定测试源绑定完整 tree digest，并在锁保护且同一文件系统内快照安装前完整 cache 集合及摘要。
-4. 调用原生 `codex plugin add`；命令返回后优先从事务快照恢复或复核精确 `--previous-version` 路径和 digest，再确认稳定测试源未变化，且目标 cache 是安全普通目录、Manifest 完整版本精确匹配 `--target-version`、tree digest 精确匹配已绑定的稳定源摘要。
-5. 命令失败、来源或目标验证失败、目标缓存缺失、清理失败或进程中断时恢复安装前完整 cache 集合。
-6. 只有上述摘要校验成功时才删除更早缓存和事务快照，精确保留目标 current 与安装前 current 作为 retained previous。若安装前已有 compatibility cache，必须额外传入 `--confirm-previous-sessions-restarted`，确认依赖最老 cache 的会话已重启或关闭。
+入口在同一 operation lock 内恢复精确绑定的未完成 transaction，然后：
 
-事务快照只服务当前安装，并在事务成功或回滚完成后删除。
-安装锁使用操作系统文件锁；锁文件稳定保留，锁本身随进程退出自动释放。
-稳定源同步的 backup 只服务 stable root 的 rename 切换；它不是安装回滚快照，也不是 retained previous compatibility cache。同步与安装使用同一个 transaction parent 和 `.install.lock`，禁止并发执行。
+1. 快照 stable 和完整安装前 cache 集合及 digest；
+2. stage 并验证精确 allowlisted bundle；
+3. 用同一 stable parent 内的 rename 原子激活 stable；
+4. 调用原生 `codex plugin add <plugin>@<marketplace>`；
+5. 恢复或复核 exact previous，验证 stable/target runtime digest 与 source digest 一致；
+6. 精确保留 target 与可选 previous，只有在全部检查通过后删除更早 compatibility cache 和 transaction。
 
-## 安装后检查
+原生命令失败、target 缺失或摘要不匹配、source/stable 变化、retention 失败都会恢复部署前 stable 与完整 cache 集合。进程在原子切换中断时，下次有写权限的执行只按 transaction manifest 绑定的 staging/backup/recovery path 恢复；存在多个 transaction 或孤立 switch path 时拒绝猜测。
 
-```bash
-python3 <stable-plugin-root>/scripts/check_installation.py \
-  --require-development-sync
-```
-
-检查必须证明：
-
-- 稳定发布源与 current target 缓存哈希一致。
-- 全局受管理规则与稳定资产一致。
-- 开发、稳定和缓存路径相互独立。
-- 只有 current target 与零或一个安全 retained previous compatibility cache；目录集合不用于推断 Codex registered/current。
+直接管理 Codex 内部 cache 是本机开发测试能力，不是通用产品 API。部署命令成功后当前任务应立即停止，等待用户重启 Codex；真实验证必须在重启后的新任务进行。
 
 ## 真实平台验证
 
-运行时代码、Hook 或 Skill 发生变化后，在取得本地测试安装授权后新建 Codex 任务验证：
+获准部署并重启后，在独立任务按以下顺序验证：
 
-- governed spawn 和 PreToolUse claim；
-- wait 与 exact `list_agents`；
-- 原生终态通知记录；
-- parent close；
-- SessionStart/Stop/SessionEnd；
-- 失败安装回滚。
+- unmanaged spawn fail-open 且零状态；
+- prepare → Pre claim → native spawn → explicit exact-target confirm；
+- wait 与 exact bound-target observation；
+- normal message、terminal notification、minimal interrupt 与 parent close；
+- exact-session SessionStart/status 以及用户触发的 restart/compact。
 
-真实平台验证没有执行时必须标记 `not_checked`。不能复用开发或调试当前问题的原任务代替新任务验收。
+Hook trust、Codex registration、桌面 UI 和 exact session identity 分别记录；文件存在、`installed/enabled` 或本地测试不能替代真实证据。未经授权或尚未重启时一律记为 `not_checked`。

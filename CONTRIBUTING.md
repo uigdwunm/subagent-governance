@@ -37,6 +37,7 @@ On Windows, use `py -3` in place of `python3` where appropriate.
 
 - Add a minimal reliable regression test before fixing runtime bugs.
 - Keep persisted governance state current-only and reject non-current data without migration or rewrite. The installation layout may retain exactly one previous immutable plugin cache so tasks that predate a Codex restart keep their original file paths; this retention must not introduce old-version logic into the current plugin.
+- Keep `.codex-plugin/runtime-bundle.json` as the exact minimal runtime projection. Development tests, plans, validation evidence, repository instructions, dependencies, and deployment tools must remain outside that allowlist.
 - Keep protocol, Skill, Hook, Schema, and runtime semantics aligned.
 - Treat unknown platform responses as unknown; do not silently convert them to success or failure.
 - Preserve terminal notification observation and explicit parent lifecycle disposition as separate stages; do not add business-result persistence or acceptance state.
@@ -59,4 +60,4 @@ Runtime code changes should pass the full unit suite, Python compilation, Plugin
 
 Repository tests cannot prove Hook trust, actual Codex event delivery, installed-cache selection, or native Agent identity behavior. Changes affecting those areas should be verified in a new Codex task after installation. Public evidence must be redacted as described in [docs/platform-validation.md](docs/platform-validation.md).
 
-Publishing, installing a stable release, modifying Marketplace state, trusting Hooks, or updating global `AGENTS.md` requires separate explicit authorization and is not implied by accepting a code change.
+Publishing, executing `scripts/dev_deploy.py --execute`, installing a stable release, modifying Marketplace state, or trusting Hooks requires separate explicit authorization and is not implied by accepting a code change. The project has no global `AGENTS.md` writer.

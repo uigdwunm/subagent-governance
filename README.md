@@ -17,6 +17,8 @@ Subagent Governance 是 Codex-first 的原生子 Agent 生命周期治理插件�
 
 旧 PreparedContractStore、agents index、PostToolUse receipt/index、attempt、pending action、tombstone、Group、business resume 和复杂 retry/recovery 状态机不再属于 runtime。
 
+Codex runtime 由 `.codex-plugin/runtime-bundle.json` 的机器 allowlist 精确构造，只含 Manifest、Hook、Skill/references、核心 scripts、Schema 与最小 README/license；tests、plans、validation、`AGENTS.md`、开发依赖和部署工具不进入 bundle。`scripts/dev_deploy.py` 是开发仓库唯一部署入口，默认零写入 dry-run，实际 stable/cache/Codex 写入仍需另行明确授权。
+
 ## 当前实现边界
 
 wait 不持久化；普通消息不保存正文或调用历史；terminal notification 不保存正文。business resume、managed followup、多 attempt、复杂 recovery/retry budget 和 Group 不属于首版。完整目标架构与顺序见 [ADR](docs/architecture-reduction-adr.md) 和 [cutover plan](docs/improvement-plans/reduction-cutover.md)。

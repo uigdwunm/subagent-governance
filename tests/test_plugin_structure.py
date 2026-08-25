@@ -60,6 +60,21 @@ class PluginStructureTests(unittest.TestCase):
         ):
             self.assertNotIn(removed, lifecycle)
 
+    def test_development_deploy_has_one_entry_and_no_global_agents_writer(self):
+        self.assertTrue((ROOT / "scripts/dev_deploy.py").is_file())
+        self.assertTrue((ROOT / "scripts/runtime_bundle.py").is_file())
+        for removed in (
+            "apply_agents_block.py", "check_installation.py",
+            "reinstall_plugin.py", "sync_stable_plugin.py",
+        ):
+            self.assertFalse((ROOT / "scripts" / removed).exists(), removed)
+        self.assertFalse((ROOT / "assets/agents-governance.md").exists())
+        deploy = (ROOT / "scripts/dev_deploy.py").read_text(encoding="utf-8")
+        self.assertIn("本机开发测试专用", deploy)
+        self.assertNotIn("AGENTS.md", json.loads(
+            (ROOT / ".codex-plugin/runtime-bundle.json").read_text(encoding="utf-8")
+        )["files"])
+
 
 if __name__ == "__main__":
     unittest.main()

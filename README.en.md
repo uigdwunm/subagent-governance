@@ -17,6 +17,8 @@ The dispatch and minimal-lifecycle reduction slices now provide:
 
 PreparedContractStore, the agents index, PostToolUse receipts/indexes, attempts, pending actions, tombstones, Groups, business resume, and complex retry/recovery state machines are no longer runtime authorities.
 
+The Codex runtime is an exact projection of the machine-readable `.codex-plugin/runtime-bundle.json` allowlist: manifests, the Skill and references, core scripts, schemas, and minimal README/license material only. Tests, plans, validation reports, `AGENTS.md`, development dependencies, and deployment tools are excluded. `scripts/dev_deploy.py` is the repository's sole development deployment entry and defaults to a zero-write dry run; stable/cache/Codex writes still require separate explicit authorization.
+
 Wait calls are not persisted, normal message bodies/history are not stored, and terminal notification bodies are never accepted. Business resume, managed followup, multiple attempts, complex recovery/retry budgets, and Groups are outside the first release. See the [reduction ADR](docs/architecture-reduction-adr.md) and [cutover plan](docs/improvement-plans/reduction-cutover.md).
 
 ## TaskContract v2
