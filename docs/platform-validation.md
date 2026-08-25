@@ -4,7 +4,7 @@
 
 ## 当前结论
 
-state-v9 减法收口的 runtime/deploy 实现为 `bc6a61ff0e5aff1fae7cc76cc99ab213607b886b`，cache rollover 二次确认删除为 `3a3a66ff8e014a3d56c4e6384704fcb200a2e65b`。Python 3.9/3.11/3.12 各 80 tests、三版本编译、development preflight、Plugin/Skill validator 与精确 30-file runtime projection validator 均通过；详见 [本地验收](validation/current-only-local-acceptance.md)。
+state-v9 减法收口的 runtime/deploy 实现为 `bc6a61ff0e5aff1fae7cc76cc99ab213607b886b`，cache rollover 二次确认删除为 `3a3a66ff8e014a3d56c4e6384704fcb200a2e65b`，missing claim 精确分类修复为 `308f28f3fe6a6a0d152f888e9dcdcea79b0f5f65`。Python 3.9/3.11/3.12 各 81 tests、三版本编译、development preflight、Plugin/Skill validator 与精确 30-file runtime projection validator 均通过；详见 [本地验收](validation/current-only-local-acceptance.md)。
 
 这不能替代稳定源、Marketplace、运行缓存、Hook trust、Codex registration 或桌面 UI 的独立证据。state-v9 已在重启后的独立任务中进行一次真实验证，但 V2 的显式 exact-target confirm 进入 `reconcile`；因此不是 release-ready 结论，V3–V7 均保持 `not_checked`。P12-B 已由 reduction ADR 正式 rejected/archived，不是后续待办。以下 P9–P12 内容只保留减法收口前的历史证据。
 
@@ -15,7 +15,8 @@ state-v9 减法收口的 runtime/deploy 实现为 `bc6a61ff0e5aff1fae7cc76cc99ab
 - V2 先由当前 runtime prepare，再把本次 native `spawn_agent` 返回的 exact target 原样立即提交 `confirm-dispatch`。该命令返回 `reconcile`；只读 diagnose 显示 `phase=reconcile`、`reconcile_reason=dispatch_identity_mismatch`、`target=null`。后续开发仓库诊断确认 task id/ref 与 exact target 形状均正确；该旧 reason 实际来自 confirm 时 task 不在 `claimed` 的共用分支，而不是 target identity 不匹配。
 - 同一诊断中的只读 `hooks/list` 显示当前 PreToolUse handler 的 `currentHash=sha256:307fb66cae3e00fbcec4eb69f5227cb5f993a8583698df6bc6829330f9465081`，配置保留的 `trusted_hash=sha256:d2eedfe914bd63b8e1ebc1c872ee51f1a6ee221b4fa62a062dec61e602c95aff`，平台 trust status 为 `modified`。因此原报告中的“governed Pre claim”不能作为 exact ledger durable claim 已成立的证据；当前证据只支持 native spawn 已执行、confirm 前 exact task 仍未形成 durable claim。
 - 开发仓库已将 `prepared` 上的 exact confirm 单独分类为 `dispatch_claim_missing` 并保持 reconcile/no-bind；真实 task/ref 不匹配仍为 `dispatch_identity_mismatch`，claimed 上的 exact target 仍遵守 first-bind-wins。这是本地修复，尚未部署或真实复验。
-- 依停止策略，V3（wait/已 bound exact-target observation）、V4（normal message、terminal、interrupt、close）、V5（exact-session SessionStart/status）和 V6（restart/compact）均为 `not_checked`。V7 现为 `failed_partial`：Hook trust 已确认为 `modified`，Codex registration 和桌面 UI 仍为 `not_checked`；exact session identity 已单独记录，且没有将 installed/enabled 或文件存在写作这些状态的替代证据。
+- 随后的已授权部署准备中，当前 PreToolUse 与只读 SessionStart 的 exact current hash 已通过 Codex app-server 写入并回读为 `trusted`；该证据不替代修复部署后的 V1–V7 重新验证，也不证明 Codex registration 或桌面 UI 状态。
+- 依停止策略，V3（wait/已 bound exact-target observation）、V4（normal message、terminal、interrupt、close）、V5（exact-session SessionStart/status）和 V6（restart/compact）均为 `not_checked`。该次验证的 V7 为 `failed_partial`：当时 Hook trust 确认为 `modified`，Codex registration 和桌面 UI 仍为 `not_checked`；exact session identity 已单独记录，且没有将 installed/enabled 或文件存在写作这些状态的替代证据。
 
 ### P9 local acceptance（2026-08-24）
 

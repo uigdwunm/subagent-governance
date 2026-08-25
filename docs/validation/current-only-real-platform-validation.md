@@ -27,7 +27,8 @@
 - 只读基线：`git status --porcelain=v1`、`git rev-parse HEAD`、`codex plugin list`、当前 runtime 的 `--status` / `--diagnose`。
 - 实际 V2 动作：当前 runtime 的 `--prepare-dispatch`、原生 `spawn_agent`、随后同一 task/ref 与该次 exact target 的 `--confirm-dispatch`；终态只读 `--diagnose`。
 - 开发仓库最小复现使用同一 task id/ref 和 exact target 形状，证明：`claimed` fact 存在时 exact confirm 正常绑定；只有 `prepared` fact 时旧实现错误分类为 `dispatch_identity_mismatch`。本地修复改为 `dispatch_claim_missing` reconcile/no-bind，没有放宽 identity，也没有恢复推断或自动恢复机制。
-- 重新验证前必须先另行获得部署授权；部署完成后当前任务停止并等待重启。新任务还必须先确认当前 Pre handler 的 hash 已被明确信任，再从 V1/V2 重新取证。当前未部署、未修改 Hook trust，V2 修复后的真实行为及 V3–V7 仍未验证。
+- 用户随后明确授权部署与 Hook trust。部署前通过 Codex app-server `hooks/list` 取得当前最小 Hook 的 exact key/hash，并按 Codex TUI 使用的 `config/batchWrite` 语义写入后回读：PreToolUse `sha256:307fb66cae3e00fbcec4eb69f5227cb5f993a8583698df6bc6829330f9465081` 与 SessionStart `sha256:26915f4009c66b621d5a67739e8b7300d3bd462017bd31b72411317cf638cf45` 均为 `trusted`。这只证明两个当前 Hook 的信任状态；Codex registration 与桌面 UI 仍为 `not_checked`。
+- 修复部署完成后当前任务必须停止并等待重启；新的独立任务从 V1/V2 重新取证。V2 修复后的真实行为及 V3–V7 仍未验证。
 
 ---
 
