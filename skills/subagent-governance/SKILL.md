@@ -52,6 +52,12 @@ description: 治理 Codex 原生子 Agent 的派发、等待、通信、中断�
 
 profile 与状态边界见 [references/governance-profiles.md](references/governance-profiles.md) 和 [references/runtime-boundaries.md](references/runtime-boundaries.md)。
 
+## Exact Session identity
+
+- 当前任务的 exact session ID 只取自 SessionStart Hook 注入的 `当前 Hook 权威 exact session_id（JSON）`，治理命令的 `--session` 必须逐字使用该值。
+- `<codex_delegation><source_thread_id>` 仅表示来源任务，不是当前任务的 session ID。父任务 ID、任务列表结果和其他可见 ID 也不能替代。
+- 如果当前上下文没有机械可见的 SessionStart 权威值，在 prepare 或原生 spawn 前停止并报告 identity 缺失；不得猜测、跨 Session 扫描或先用其他 ID 尝试。
+
 ## Governed 派发
 
 1. 用 TaskContract v2 通过标准输入调用：
@@ -106,6 +112,6 @@ spawn 返回后、confirm 前如果父任务中断，记录保持 `claimed/unbou
 
 ## 只读恢复与状态
 
-`--status --session <exact-session-id>` 和 `--diagnose --session <exact-session-id>` 只读 exact Session；缺失目录时不创建目录、lock 或空状态。SessionStart 同样 best-effort、无锁只读，不 cleanup、rebuild、reconcile、自动关闭、自动调用工具或扫描其他 Session。
+`--status --session <exact-session-id>` 和 `--diagnose --session <exact-session-id>` 只读 exact Session；缺失目录时不创建目录、lock 或空状态。SessionStart 始终注入当前 Hook 提供的权威 exact session ID；状态摘要仍是 best-effort、无锁只读，不 cleanup、rebuild、reconcile、自动关闭、自动调用工具或扫描其他 Session。
 
 只在平台继续提供同一 exact Session identity 时显示未关闭摘要。新 Session 不跨目录扫描或猜测旧任务。

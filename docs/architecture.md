@@ -83,7 +83,7 @@ allowed next action 由 phase 与上述可靠事实派生，不持久化 parent 
 Hook manifest 当前只注册：
 
 - native spawn 的 PreToolUse matcher；unmanaged task name 在 StateStore 构造前 inert fail-open，governed spawn 验证 exact prepared facts 并原子 claim；
-- best-effort read-only SessionStart，只读取当前 exact Session 的未关闭摘要。
+- read-only SessionStart 始终注入 Hook stdin 提供的当前权威 exact session ID，并 best-effort 读取当前 exact Session 的未关闭摘要。
 
 Codex MultiAgent V2 在 Hook stdin 中使用 flattened `collaborationspawn_agent`，并在到达本地 Hook 前把 `message` 变为 opaque encrypted value。router 只显式接受 `Agent`、`spawn_agent`、`collaboration.spawn_agent` 与 `collaborationspawn_agent`；V2 claim 要求派生的 `task_name/task_ref`、`fork_turns`、`model`、`reasoning_effort` 精确匹配 prepared capability，并要求 opaque message 为非空字符串。它不回写 `updatedInput`，从而保留平台原始加密调用。V1/非 opaque 路径仍精确比较明文 message。
 
@@ -91,7 +91,7 @@ Codex MultiAgent V2 在 Hook stdin 中使用 flattened `collaborationspawn_agent
 
 不存在 PostToolUse、Stop、SessionEnd 或 communication/followup/interrupt PreToolUse。
 
-SessionStart、`status` 和 `diagnose` 使用无锁只读 reader；缺失目录时不创建目录、lock、临时文件或空状态，不 cleanup、rebuild、migrate、reconcile、自动关闭、自动重试、扫描其他 Session 或读取业务正文。
+SessionStart、`status` 和 `diagnose` 使用无锁只读 reader；缺失目录时不创建目录、lock、临时文件或空状态，不 cleanup、rebuild、migrate、reconcile、自动关闭、自动重试、扫描其他 Session 或读取业务正文。`<codex_delegation><source_thread_id>` 只表示来源任务，不得替代当前 Hook 的 session ID。
 
 ## 安全存储边界
 

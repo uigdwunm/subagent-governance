@@ -13,7 +13,7 @@ Subagent Governance 是 Codex-first 的原生子 Agent 生命周期治理插件�
 - 普通消息 success/failed 零写入，unknown 只保留 reconcile reason；
 - closed task 固定保留 64 条，并仅由后续 ledger 写操作惰性裁剪；
 - unmanaged spawn 在状态构造前 inert fail-open；
-- best-effort、无锁、零写入的 SessionStart/status/diagnose。
+- SessionStart 无锁、零写入地注入当前 Hook 权威 exact session ID，并 best-effort 展示状态摘要；status/diagnose 同样只读。
 
 旧 PreparedContractStore、agents index、PostToolUse receipt/index、attempt、pending action、tombstone、Group、business resume 和复杂 retry/recovery 状态机不再属于 runtime。
 
@@ -41,6 +41,8 @@ wait 不持久化；普通消息不保存正文或调用历史；terminal notifi
 `objective`、非空 `scope` 和非空 `completion` 必填，其他字段可省略。strict 要求非空 forbidden scope 和 evidence。business digest 排除 spawn config。普通 paths 只是定位提示；需要 hash/tree verification 时显式使用 `context.verified`。`working_tree` baseline 只接受逐文件 SHA-256；目录依赖必须使用 `git_commit` tree object ID。
 
 ## 派发
+
+当前任务的 `<exact-session-id>` 只取自 SessionStart Hook 注入的权威值。`<codex_delegation><source_thread_id>` 是来源任务，不是当前 session ID；没有机械可见的 SessionStart 权威值时必须在 prepare 前停止，不得用父任务、列表或其他 ID 猜测。
 
 ```bash
 python3 scripts/subagent_governance.py \

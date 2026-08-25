@@ -13,7 +13,7 @@ The dispatch and minimal-lifecycle reduction slices now provide:
 - zero-write normal-call success/failed results, with only a reconcile reason for unknown;
 - fixed retention of 64 closed tasks, lazily pruned only by later ledger writes;
 - inert unmanaged spawn before StateStore construction;
-- lock-free, zero-write SessionStart/status/diagnose reads.
+- lock-free, zero-write SessionStart injection of the Hook-authoritative exact session ID with a best-effort state summary, plus read-only status/diagnose.
 
 PreparedContractStore, the agents index, PostToolUse receipts/indexes, attempts, pending actions, tombstones, Groups, business resume, and complex retry/recovery state machines are no longer runtime authorities.
 
@@ -39,6 +39,8 @@ Wait calls are not persisted, normal message bodies/history are not stored, and 
 `objective`, non-empty `scope`, and non-empty `completion` are required; other fields have mechanical defaults. Strict requires non-empty forbidden scope and evidence. The business digest excludes spawn config. Ordinary paths are location hints; hash/tree verification requires explicit `context.verified` opt-in. A `working_tree` baseline accepts per-file SHA-256 declarations only; directory dependencies require a `git_commit` tree object ID.
 
 ## Dispatch
+
+Take the current task's `<exact-session-id>` only from the authoritative value injected by the SessionStart Hook. `<codex_delegation><source_thread_id>` identifies the source task, not the current session. If the SessionStart authority is not mechanically visible, stop before prepare instead of substituting a parent, list, or other ID.
 
 ```bash
 python3 scripts/subagent_governance.py --prepare-dispatch --session '<exact-session-id>' < contract.json

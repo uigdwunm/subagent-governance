@@ -140,13 +140,13 @@ strict 仍是协作协议，不是自动风险检测、权限或安全边界。
 只保留：
 
 1. governed spawn 的精确 PreToolUse：unmanaged spawn 完全 inert；governed spawn 验证并原子执行 `prepared → claimed`。
-2. best-effort、只读 SessionStart：按当前 exact session ID 展示未关闭 task 摘要和派生下一步。
+2. 只读 SessionStart：始终注入 Hook stdin 的当前权威 exact session ID，并 best-effort 展示该 Session 的未关闭 task 摘要和派生下一步。
 
 删除全部 PostToolUse、Stop、SessionEnd，以及通信、followup 和 interrupt 的 PreToolUse。
 
 spawn matcher 与 router 只接受已确认的原生名称 `Agent`、`spawn_agent`、`collaboration.spawn_agent`、`collaborationspawn_agent`；不按 leaf 或后缀匹配第三方工具。未知未来名称按 unmanaged fail-open，只有取得平台真实证据后才扩展 allowlist。
 
-SessionStart 不得创建目录、lock 或空状态，不 cleanup、migrate、rebuild、自动关闭、自动重试、扫描其他 Session 或调用原生工具。SessionStart 未投递不影响 ledger correctness；显式只读 status 命令提供兜底。
+SessionStart 不得创建目录、lock 或空状态，不 cleanup、migrate、rebuild、自动关闭、自动重试、扫描其他 Session 或调用原生工具。`<codex_delegation><source_thread_id>` 只表示来源任务，不能替代当前 Hook 的 session ID。SessionStart 未投递不影响 ledger correctness，但必须停止新的 governed dispatch；显式只读 status 命令只为已有 exact identity 提供状态兜底。
 
 自动恢复只覆盖平台继续提供同一 exact session ID 的场景。新 Session identity 不触发跨 Session 扫描或模糊关联；该平台行为仍需真实验证。
 

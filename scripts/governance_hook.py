@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 from typing import Any
 
@@ -105,27 +106,39 @@ def _session_start(payload: dict[str, Any]) -> dict[str, Any] | None:
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id.strip():
         return None
+    lines = [
+        f"Subagent Governance 当前 Hook 权威 exact session_id（JSON）：{json.dumps(session_id, ensure_ascii=False)}",
+        "所有治理命令的 --session 必须逐字使用上方值。",
+        "<codex_delegation><source_thread_id> 仅表示来源任务，不是当前 session_id；不得用父任务、任务列表或其他 ID 替代。",
+    ]
     root = data_root_path(Path(__file__)) / "sessions"
     try:
         state = read_ledger_readonly(root, session_id)
     except Exception:
-        return None
-    if state is None:
-        return None
-    open_tasks = [
-        (task_id, task)
-        for task_id, task in sorted(state["tasks"].items())
-        if task.get("phase") != "closed"
-    ]
-    if not open_tasks:
-        return None
-    lines = ["Subagent Governance state-v9 exact Session 未关闭任务："]
-    for task_id, task in open_tasks[:8]:
-        target = f" target={task['target']}" if task.get("target") else ""
-        lines.append(
-            f"- task_id={task_id} task_ref={task['task_ref']} phase={task['phase']}{target}"
+        lines.append("当前治理状态摘要不可读取；不得因此猜测其他 Session identity。")
+    else:
+        open_tasks = (
+            []
+            if state is None
+            else [
+                (task_id, task)
+                for task_id, task in sorted(state["tasks"].items())
+                if task.get("phase") != "closed"
+            ]
         )
-    lines.append("使用 status --session <exact-session-id> 获取只读详情；不得自动重派或推断 identity。")
+        if open_tasks:
+            lines.append("Subagent Governance state-v9 当前 exact Session 未关闭任务：")
+            for task_id, task in open_tasks[:8]:
+                target = f" target={task['target']}" if task.get("target") else ""
+                lines.append(
+                    f"- task_id={task_id} task_ref={task['task_ref']} phase={task['phase']}{target}"
+                )
+        else:
+            lines.append("当前 exact Session 没有可读的未关闭治理任务。")
+    lines.append(
+        "使用 status --session <上方 exact session_id> 获取只读详情；"
+        "不得自动重派或推断 identity。"
+    )
     return {
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",

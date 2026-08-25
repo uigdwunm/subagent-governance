@@ -574,7 +574,7 @@ class V9DispatchChainTests(unittest.TestCase):
                     self.assertNotIn("target", task)
                     self.assertNotIn("retry", json.dumps(task).lower())
 
-    def test_session_start_is_exact_read_only_and_missing_root_is_inert(self):
+    def test_session_start_exposes_exact_identity_readonly_even_without_state(self):
         prepared = self.prepare()
         state_path, lock_path = self.store._paths(self.session_id)
         lock_path.unlink()
@@ -585,7 +585,10 @@ class V9DispatchChainTests(unittest.TestCase):
             result = hook.handle_hook(
                 {"hook_event_name": "SessionStart", "session_id": self.session_id}
             )
-        self.assertIn(prepared["task_ref"], result["hookSpecificOutput"]["additionalContext"])
+        context = result["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(f' exact session_id（JSON）："{self.session_id}"', context)
+        self.assertIn(prepared["task_ref"], context)
+        self.assertIn("source_thread_id", context)
         self.assertFalse(lock_path.exists())
         self.assertEqual((state_path.read_bytes(), state_path.stat().st_mtime_ns), before)
 
@@ -593,12 +596,23 @@ class V9DispatchChainTests(unittest.TestCase):
         with mock.patch.dict(
             os.environ, {"SUBAGENT_GOVERNANCE_DATA": str(missing)}, clear=False
         ):
-            self.assertIsNone(
-                hook.handle_hook(
-                    {"hook_event_name": "SessionStart", "session_id": "missing"}
-                )
+            missing_result = hook.handle_hook(
+                {"hook_event_name": "SessionStart", "session_id": "missing"}
             )
+        missing_context = missing_result["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(' exact session_id（JSON）："missing"', missing_context)
+        self.assertIn("source_thread_id", missing_context)
         self.assertFalse(missing.exists())
+
+        with mock.patch.object(
+            hook, "read_ledger_readonly", side_effect=OSError("unreadable")
+        ):
+            unreadable_result = hook.handle_hook(
+                {"hook_event_name": "SessionStart", "session_id": "unreadable"}
+            )
+        unreadable_context = unreadable_result["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(' exact session_id（JSON）："unreadable"', unreadable_context)
+        self.assertIn("状态摘要不可读取", unreadable_context)
 
     def test_default_namespace_is_state_v9_and_v8_is_untouched(self):
         with tempfile.TemporaryDirectory() as directory:
