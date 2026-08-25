@@ -4,11 +4,19 @@
 
 ## 当前结论
 
-state-v9 减法收口的 runtime/deploy 实现为 `bc6a61ff0e5aff1fae7cc76cc99ab213607b886b`，cache rollover 二次确认删除为 `3a3a66ff8e014a3d56c4e6384704fcb200a2e65b`，missing claim 精确分类修复为 `308f28f3fe6a6a0d152f888e9dcdcea79b0f5f65`；安装版 `0.4.0-rc.13+codex.20260825062527` 已包含 MultiAgent V2 flattened spawn claim 修复。当前开发 checkout 又收敛了 Hook 精确工具 allowlist、runtime 禁写 bytecode 和 retained-previous 精确校验；本地门禁结果见 [本地验收](validation/current-only-local-acceptance.md)。
+state-v9 当前实现、精确 Hook allowlist、runtime 禁写 bytecode 与 retained-previous 精确校验已提交为 `a6da1d2278d11b5a83ebf5a6d66b332052d60571`，并部署为 `0.4.0-rc.13+codex.20260825073554`。source、stable、current runtime projection digest 均为 `50e1e2b3b26fd8eec37c4cbe0227a6f796b24028dd328b90a5f0685f590d8fc4`；本地门禁见 [本地验收](validation/current-only-local-acceptance.md)，完整真实矩阵见 [当前真实验收](validation/current-only-real-platform-validation.md)。
 
-这不能替代稳定源、Marketplace、运行缓存、Hook trust、Codex registration 或桌面 UI 的独立证据。早先两次 V2 失败分别表现为错误共用的 `dispatch_identity_mismatch` 与准确的 `dispatch_claim_missing`；最新安装版已在第三个重启后任务完成 `claimed → bound → terminal → closed`，diagnose 为 `issues=[]`。但该父任务实际是 `gpt-5.6-sol` / `high`，且只覆盖 V2、V3、V4 的 terminal 部分和 V5 的 close 部分；V1、normal message、interrupt、SessionStart、restart/compact 均未执行。因此这是主链成功证据，不是完整 V1–V7 或 release-ready 结论。P12-B 已由 reduction ADR 正式 rejected/archived，不是后续待办。以下 P9–P12 内容只保留减法收口前的历史证据。
+独立 exact session `01a03800-6f1b-7ae0-b4aa-d2afe0423cf3` 以显式 `gpt-5.6-terra` / `high` 配置完成 V1–V7；rollout model provenance 为 `gpt-5.6-terra`。未发现 runtime correctness failure，最终所有 governed lifecycle closed、diagnose `issues=[]`。V4 消息与 V5 interrupt 缺少可判定平台回执，分别保守记录为 `delivery_unknown` 与 `interrupt_unknown`，不宣称平台动作成功。P12-B 已由 reduction ADR 正式 rejected/archived，不是后续待办；以下旧失败只保留为历史证据。
 
-### state-v9 独立重启后真实验证（2026-08-25）
+### 最新 state-v9 V1–V7 真实验证（2026-08-25）
+
+- V1 unmanaged 证明 fail-open 与零治理状态；V2 仅以 native spawn 机械返回的 exact target `/root/sg_strict_exact_target_t_020c311e2725` 完成 `prepared → claimed → bound`；V3 对该 bound target 完成 bounded wait 与 completed observation。
+- V4 对独立 bound target 实际调用 normal message；机械结果不可判定时准确进入 `delivery_unknown → reconcile`，exact sender terminal 不覆盖 unknown。V5 对独立 bound target 实际调用 interrupt；仅有 `previous_status=running` 时准确进入 `interrupt_unknown → reconcile`。二者均显式 close 并验证幂等 replay。
+- V6 证明 exact-session status/diagnose 前后 ledger hash、mtime、size 不变。V7 由用户在同一任务 UI 触发真实 Compact，SessionStart 准确恢复 prepared anchor `85141d355bc8`；anchor 随后显式 close。
+- app-server `hooks/list` 只加载当前插件的 PreToolUse 与 SessionStart，二者均 `enabled=true`、`trustStatus=trusted`。app-server `plugin/list` 报告 `subagent-governance@personal` 为 installed、enabled、available，local version 与运行 cache 一致；桌面插件页的视觉渲染未另行截图。
+- 验收后已删除 5 个退役插件 Hook 的 trust sections，并将三个历史 reconcile ledger 以可恢复方式移出 state-v9 运行目录。当前成功验收 ledger 与 runtime/cache 未被清理。
+
+### 历史：较早的 state-v9 独立重启后真实验证（2026-08-25）
 
 - 最新安装版 `0.4.0-rc.13+codex.20260825062527` 的 exact session `01a037ae-a8ac-7ff3-a80b-85c2c0764973` 已完成 governed prepare/claim、exact target bind、一次 wait、exact completed observation、terminal notification 与 parent close；最终 ledger closed、diagnose `issues=[]`，只读检查零写入。父任务实际为 `gpt-5.6-sol` / `high`，不符合项目规定的真实测试任务 `gpt-5.6-terra` / `high`；详见当前真实验证记录。
 - 该轮未执行 V1 unmanaged、V4 normal message、V5 interrupt、V6 SessionStart/status 事件恢复或 V7 restart/compact。不得把已通过的主链外推为这些场景已通过。
@@ -77,15 +85,11 @@ state-v9 减法收口的 runtime/deploy 实现为 `bc6a61ff0e5aff1fae7cc76cc99ab
 - 插件不保存通知正文，不判断业务质量，不提供 accept/reject 状态。
 - Stop 当时只给 advisory 并固定 fail-open；state-v9 已删除 Stop Hook。
 
-## 尚待真实插件验证
+## 当前真实验证边界
 
-- V1 unmanaged spawn fail-open 与零状态。
-- 在显式 `gpt-5.6-terra` / `high` 父任务中重跑 V2 与 V3，避免把错误父模型下的成功证据当作正式验收。
-- V4 normal message；terminal notification 可一并重放确认。
-- V5 minimal interrupt；parent close 可一并重放确认。
-- V6 exact-session SessionStart/status 恢复。
-- V7 用户触发的 restart/compact。
-- stable/cache transaction、Hook trust、Codex registration 与桌面 UI 的独立实际状态。
+- V1–V7 已在显式 `gpt-5.6-terra` / `high` 独立任务完成；stable/current digest、Hook trust 与 app-server 注册后端均有机械证据。
+- V4 message 的实际投递/回执和 V5 interrupt 的实际 inactive 结果仍为平台 `unknown`。当前产品 invariant 是保守保存 unknown 且不自动重发、不猜终态；本轮已验证该 invariant，不把它们升级为平台成功证据。
+- 桌面插件页没有单独截图；`plugin/list` 已证明当前 UI 后端返回 installed/enabled/available。需要视觉回归时应另作 UI 验证，不把视觉截图作为 runtime correctness 前置。
 
 P12-B 已 rejected/archived，不恢复 PostToolUse authority、receipt/index 或 matcher-only 实验。
 

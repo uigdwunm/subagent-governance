@@ -1,27 +1,34 @@
 # state-v9 独立重启后真实平台验证
 
 日期：2026-08-25  
-结论：`partial_passed`（最新安装版已完成 governed claim/bind、wait、exact observation、terminal 与 close；父任务不是验收要求的 `gpt-5.6-terra` / `high`，且未完整覆盖 V1–V7，因此不能记为完整验收或 release-ready）
+结论：`passed_with_platform_unknowns`（最新安装版已在独立 `gpt-5.6-terra` / `high` 任务完成 V1–V7；未发现 runtime correctness failure。V4 消息投递与 V5 interrupt 的平台结果均缺少可判定机械回执，治理层按 current-only 协议保留 `unknown`，不把它们改写为成功。）
 
 ## 最新安装版的有界成功证据
 
-- 实际加载版本为 `0.4.0-rc.13+codex.20260825062527`；对应开发 checkout 为 `335509ac13a1a7d6e9c9d6ab3d42e7c18e5f6046`。stable/current 的精确 runtime projection digest 均为 `87a03ff2313cd1635e3730974b7870c4db9285981f70b9cb05ca0b7dc6223972`。
-- exact session identity 为 `01a037ae-a8ac-7ff3-a80b-85c2c0764973`。受治理任务的 ref 为 `7fbdf8f31688`，原生返回并绑定的 exact target 为 `/root/sg_strict_agent_t_7fbdf8f31688`。
-- state-v9 单一 ledger 机械记录了 `prepared → claimed → bound → terminal → closed`；platform observation 为 completed，terminal notification 与 parent close 均已登记，最终只读 diagnose 为 `issues=[]`，且只读检查前后 ledger hash 不变。
-- 本轮实际执行过一次 wait，并完成 exact target observation；没有把 child final、名称、时间或 list 模糊匹配当作 identity authority。
-- session metadata 显示父任务实际模型为 `gpt-5.6-sol`，任务配置的推理强度为 `high`；受治理 child 明确使用 `gpt-5.6-terra` / `high`。项目要求真实测试任务本身显式使用 `gpt-5.6-terra` / `high`，因此模型要求只能记为不符合，不能用 child 配置替代。
+- 独立验收任务由创建接口显式指定 `gpt-5.6-terra` / `high`；rollout session metadata 的 model provenance 机械确认为 `gpt-5.6-terra`。exact session identity 为 `01a03800-6f1b-7ae0-b4aa-d2afe0423cf3`。
+- 实际加载版本为 `0.4.0-rc.13+codex.20260825073554`，开发 checkout 为 `a6da1d2278d11b5a83ebf5a6d66b332052d60571`。source、stable、current 的精确 runtime projection digest 均为 `50e1e2b3b26fd8eec37c4cbe0227a6f796b24028dd328b90a5f0685f590d8fc4`。
+- app-server `plugin/list` 将 `subagent-governance@personal` 报告为 `installed=true`、`enabled=true`、`availability=AVAILABLE`，local version 与上述运行版本一致；这作为 Codex 注册后端证据，区别于 CLI 文本与文件存在。桌面插件页的视觉渲染未另行截图。
+- app-server `hooks/list` 只返回当前插件的 PreToolUse 与 SessionStart 两个 handler；二者均 `enabled=true`、`trustStatus=trusted`。PreToolUse current hash 为 `sha256:22ae579f77878dd9e405b95207177c5a9f0d74ed63d94f2549c0e025d96f1916`，SessionStart current hash 为 `sha256:26915f4009c66b621d5a67739e8b7300d3bd462017bd31b72411317cf638cf45`。
+- V2 主链仅以本次原生 spawn 返回的 exact target `/root/sg_strict_exact_target_t_020c311e2725` 建立 identity，完成 `prepared → claimed → bound → terminal → closed`；V3 只观察该已 bound target。没有使用名称、时间、summary、transcript、child final 或候选列表补绑。
+- 真实 Compact 后，同一 exact session 的 SessionStart 恢复摘要准确显示 prepared recovery anchor `85141d355bc8`；只读 status/diagnose 精确匹配且前后 ledger hash、mtime、size 不变。验收后 anchor 已显式关闭，最终所有 lifecycle closed、diagnose `issues=[]`。
 
 | 场景 | 最新证据状态 | 边界 |
 | --- | --- | --- |
-| V1 unmanaged spawn、fail-open、零状态 | `not_checked` | 本轮没有独立执行 unmanaged 基线。 |
-| V2 prepare → claim → native spawn → confirm exact target | `passed` | flattened V2 名称被正确识别；exact target 已绑定。 |
-| V3 wait 与 exact bound-target observation | `passed` | 一次 wait 与 exact completed observation 已登记。 |
-| V4 normal message 与 terminal notification | `partial_passed` | terminal 已登记；normal message 未执行。 |
-| V5 minimal interrupt 与 parent close | `partial_passed` | close 已登记；interrupt 未执行。 |
-| V6 SessionStart/status exact-session 恢复 | `not_checked` | 仅有显式只读 status/diagnose，不等于 SessionStart 事件验证。 |
-| V7 用户触发的 restart/compact | `not_checked` | 未执行。 |
+| V1 unmanaged spawn、fail-open、零状态 | `passed` | unmanaged target `/root/v1_unmanaged_probe` 正常终态；exact-session ledger 前后治理 task 数均为 0。 |
+| V2 prepare → claim → native spawn → confirm exact target | `passed` | task ref `020c311e2725` 完成 durable claim 和 exact bind；唯一 target 为本次 spawn 机械返回值。 |
+| V3 wait 与 exact bound-target observation | `passed` | bounded wait 正常超时不判失败；随后仅对已 bound target 记录规范化 `completed` observation。 |
+| V4 normal message 与 terminal notification | `passed_unknown_boundary` | target `/root/sg_strict_task_t_31953db382e7` 的消息调用没有可判定回执，准确记录 `delivery_unknown → reconcile`；exact sender terminal 未覆盖该 unknown。实际投递与 terminal 持久化未证实。 |
+| V5 minimal interrupt 与 parent close | `passed_unknown_boundary` | target `/root/sg_strict_interrupt_t_39b5464fc185` 的 interrupt 只返回 `previous_status=running`，不足以证明 inactive，准确记录 `interrupt_unknown → reconcile`；显式 close 与同 reason replay 正常。 |
+| V6 SessionStart/status exact-session 恢复 | `passed` | status/diagnose 零写入；prepared recovery anchor 为真实 SessionStart 提供了 exact-session 恢复样本。 |
+| V7 用户触发的 restart/compact | `passed` | 用户在同一任务 UI 触发真实 Compact；context compaction 与 SessionStart 恢复摘要均机械可见，anchor 随后显式关闭。 |
 
-因此，上一安装版的 `identity mismatch` / `dispatch_claim_missing` 仍是历史失败证据；最新成功证明 flattened V2 修复已打通主链，但不补齐未执行的场景。本轮之后开发仓库新增的 Hook 精确工具 allowlist、runtime 禁写 bytecode 与 retained-previous 精确校验仍仅是本地修改，尚未部署或真实复验。
+上一安装版的 `identity mismatch` / `dispatch_claim_missing` 保留为历史失败证据，不再描述当前安装版。Hook 精确工具 allowlist、runtime 禁写 bytecode、retained-previous 精确校验均已部署并由当前 source/stable/current digest 一致性及本次真实验收覆盖。V4/V5 的平台 unknown 是受支持的保守结果，不是成功证据，也不是 runtime correctness failure。
+
+## 验收后卫生收尾
+
+- 配置中仅保留当前插件 PreToolUse 与 SessionStart 的 trust sections；已删除 PostToolUse、SubagentStart、SubagentStop、Stop、SessionEnd 的 5 个历史插件 trust sections。
+- 三个历史 reconcile session ledger（`01a03722-…`、`01a03783-…`、`01a037f2-…`）已从 state-v9 运行目录移至用户废纸篓，可恢复；当前成功验收 ledger 未删除。
+- 上述清理不改变当前 runtime bundle、stable/current cache、Hook manifest 或 current validation ledger 的 correctness facts。
 
 ## 历史：上一安装版的 V2 失败
 
