@@ -10,8 +10,8 @@
 - allowlisted runtime 与单一开发部署实现：`bc6a61ff0e5aff1fae7cc76cc99ab213607b886b`。
 - cache rollover 二次确认删除：`3a3a66ff8e014a3d56c4e6384704fcb200a2e65b`。
 - missing claim 精确分类修复：`308f28f3fe6a6a0d152f888e9dcdcea79b0f5f65`。
-- 当前 checkout 另含 MultiAgent V2 flattened spawn claim 修复；尚未生成下一次部署的 cachebuster。
-- 当前 manifest 基线版本：`0.4.0-rc.13+codex.20260825045151`。
+- 当前 checkout 另含 MultiAgent V2 flattened spawn claim 修复，并已生成本次部署候选的 cachebuster。
+- 当前 manifest 候选版本：`0.4.0-rc.13+codex.20260825062527`。
 - 当前格式精确为 `state_format_version=9` / `state-v9`；TaskContract 为 v2。
 - 本记录只描述开发仓库证据；外部安装与真实平台证据单独记录。当前 V2 修复尚未运行 `dev_deploy.py --execute`。
 
@@ -34,7 +34,7 @@
 ## Runtime projection
 
 - allowlist：`.codex-plugin/runtime-bundle.json`，精确 30 files。
-- 验收 digest：`aee7b04be4bcb9f4aba09906384d441007696fe696bbfe3e0d8e71e4bb96ae49`。
+- 验收 digest：`87a03ff2313cd1635e3730974b7870c4db9285981f70b9cb05ca0b7dc6223972`。
 - 独立 temporary staging 的 `verify_runtime_bundle` 与 Plugin validator 均通过。
 - tests、CI、plans、validation、`AGENTS.md`、开发依赖、release preflight、`runtime_bundle.py`、`dev_deploy.py` 均不在 projection。
 - 修改被排除的开发文件不改变 bundle digest；目标树多一个文件即被 exact verifier 拒绝。
