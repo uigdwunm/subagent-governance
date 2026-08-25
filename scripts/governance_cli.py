@@ -10,23 +10,32 @@ from pathlib import Path
 from typing import BinaryIO, TextIO
 
 try:
-    from scripts.governance_dispatch import confirm_dispatch, record_dispatch_result
     from scripts.governance_diagnostics import diagnose, status
+    from scripts.governance_dispatch import confirm_dispatch, record_dispatch_result
     from scripts.governance_hook import handle_hook
     from scripts.governance_input import read_json_object
     from scripts.governance_lifecycle import (
-        close_task, record_call_result, record_interrupt_result,
-        record_platform_observation, record_terminal_notification,
+        close_task,
+        record_call_result,
+        record_interrupt_result,
+        record_platform_observation,
+        record_terminal_notification,
     )
     from scripts.governance_protocol import prepare_dispatch
     from scripts.governance_state_store import StateStore
     from scripts.governance_store_support import data_root_path
 except ModuleNotFoundError:
-    from governance_dispatch import confirm_dispatch, record_dispatch_result
     from governance_diagnostics import diagnose, status
+    from governance_dispatch import confirm_dispatch, record_dispatch_result
     from governance_hook import handle_hook
     from governance_input import read_json_object
-    from governance_lifecycle import close_task, record_call_result, record_interrupt_result, record_platform_observation, record_terminal_notification
+    from governance_lifecycle import (
+        close_task,
+        record_call_result,
+        record_interrupt_result,
+        record_platform_observation,
+        record_terminal_notification,
+    )
     from governance_protocol import prepare_dispatch
     from governance_state_store import StateStore
     from governance_store_support import data_root_path

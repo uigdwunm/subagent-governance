@@ -12,12 +12,21 @@ from typing import Any
 try:
     from scripts.governance_context import validate_context_manifest
     from scripts.governance_semantics import (
-        MAX_BUSINESS_TEXT, MAX_CONTRACT_TEXT, PROFILES, REASONING_EFFORTS,
+        MAX_BUSINESS_TEXT,
+        MAX_CONTRACT_TEXT,
+        PROFILES,
+        REASONING_EFFORTS,
         TASK_CONTRACT_FIELDS,
     )
 except ModuleNotFoundError:
     from governance_context import validate_context_manifest
-    from governance_semantics import MAX_BUSINESS_TEXT, MAX_CONTRACT_TEXT, PROFILES, REASONING_EFFORTS, TASK_CONTRACT_FIELDS
+    from governance_semantics import (
+        MAX_BUSINESS_TEXT,
+        MAX_CONTRACT_TEXT,
+        PROFILES,
+        REASONING_EFFORTS,
+        TASK_CONTRACT_FIELDS,
+    )
 
 
 @dataclass(frozen=True)

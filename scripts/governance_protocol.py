@@ -12,10 +12,13 @@ try:
     from scripts.governance_contracts import contract_digest, contract_from_input
     from scripts.governance_dispatch import initial_task_record
     from scripts.governance_dispatch_identity import (
-        build_task_name, normalize_semantic_name, select_task_ref,
+        build_task_name,
+        normalize_semantic_name,
+        select_task_ref,
     )
     from scripts.governance_dispatch_rendering import (
-        render_dispatch_user_message, spawn_args,
+        render_dispatch_user_message,
+        spawn_args,
     )
     from scripts.governance_errors import DispatchPreparationError
     from scripts.governance_lifecycle import prune_closed_tasks
@@ -25,7 +28,11 @@ except ModuleNotFoundError:
     from governance_context import verify_context_manifest
     from governance_contracts import contract_digest, contract_from_input
     from governance_dispatch import initial_task_record
-    from governance_dispatch_identity import build_task_name, normalize_semantic_name, select_task_ref
+    from governance_dispatch_identity import (
+        build_task_name,
+        normalize_semantic_name,
+        select_task_ref,
+    )
     from governance_dispatch_rendering import render_dispatch_user_message, spawn_args
     from governance_errors import DispatchPreparationError
     from governance_lifecycle import prune_closed_tasks

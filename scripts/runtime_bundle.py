@@ -10,7 +10,6 @@ import shutil
 import stat
 from pathlib import Path, PurePosixPath
 
-
 MANIFEST_RELATIVE = Path(".codex-plugin/runtime-bundle.json")
 FORMAT_VERSION = 1
 

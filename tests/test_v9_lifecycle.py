@@ -9,11 +9,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts import governance_lifecycle as lifecycle
 from scripts import governance_diagnostics as diagnostics
+from scripts import governance_lifecycle as lifecycle
 from scripts import governance_protocol as protocol
-from scripts import governance_state as state_domain
 from scripts import governance_semantics as semantics
+from scripts import governance_state as state_domain
 from scripts.governance_errors import StateConflictError
 from scripts.governance_hook import handle_hook
 from scripts.governance_state_store import StateStore

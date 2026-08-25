@@ -2,7 +2,6 @@ import unittest
 
 from tests.support import ROOT
 
-
 VALIDATION_DOCUMENTS = {
     "docs/validation/current-only-local-acceptance.md",
     "docs/validation/current-only-real-platform-validation.md",

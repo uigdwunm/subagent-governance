@@ -15,7 +15,6 @@ from pathlib import Path
 from scripts import runtime_bundle
 from tests.support import ROOT
 
-
 EXPECTED_RUNTIME_FILES = {
     ".codex-plugin/plugin.json",
     ".codex-plugin/runtime-bundle.json",

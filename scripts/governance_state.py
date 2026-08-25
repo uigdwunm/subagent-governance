@@ -9,20 +9,43 @@ from typing import Any
 try:
     from scripts.governance_context import validate_context_verification_record
     from scripts.governance_contracts import (
-        contract_digest, contract_from_input, contract_summary, spawn_digest,
+        contract_digest,
+        contract_from_input,
+        contract_summary,
+        spawn_digest,
     )
     from scripts.governance_errors import StateValidationError
     from scripts.governance_semantics import (
-        MAX_TASKS_PER_SESSION, PERSISTED_INTERRUPT_RESULTS,
-        PERSISTED_PLATFORM_STATUSES, PHASES, RECONCILE_CODES,
-        STATE_FORMAT_VERSION, TASK_REF_LENGTHS, TERMINAL_FACT_SOURCES,
+        MAX_TASKS_PER_SESSION,
+        PERSISTED_INTERRUPT_RESULTS,
+        PERSISTED_PLATFORM_STATUSES,
+        PHASES,
+        RECONCILE_CODES,
+        STATE_FORMAT_VERSION,
+        TASK_REF_LENGTHS,
+        TERMINAL_FACT_SOURCES,
         TERMINAL_FACT_STATUSES,
     )
 except ModuleNotFoundError:
     from governance_context import validate_context_verification_record
-    from governance_contracts import contract_digest, contract_from_input, contract_summary, spawn_digest
+    from governance_contracts import (
+        contract_digest,
+        contract_from_input,
+        contract_summary,
+        spawn_digest,
+    )
     from governance_errors import StateValidationError
-    from governance_semantics import MAX_TASKS_PER_SESSION, PERSISTED_INTERRUPT_RESULTS, PERSISTED_PLATFORM_STATUSES, PHASES, RECONCILE_CODES, STATE_FORMAT_VERSION, TASK_REF_LENGTHS, TERMINAL_FACT_SOURCES, TERMINAL_FACT_STATUSES
+    from governance_semantics import (
+        MAX_TASKS_PER_SESSION,
+        PERSISTED_INTERRUPT_RESULTS,
+        PERSISTED_PLATFORM_STATUSES,
+        PHASES,
+        RECONCILE_CODES,
+        STATE_FORMAT_VERSION,
+        TASK_REF_LENGTHS,
+        TERMINAL_FACT_SOURCES,
+        TERMINAL_FACT_STATUSES,
+    )
 
 
 @dataclass(frozen=True)

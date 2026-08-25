@@ -24,7 +24,9 @@ from typing import Any, Iterator
 
 try:
     from scripts.runtime_bundle import (
-        bundle_digest, stage_runtime_bundle, verify_runtime_bundle,
+        bundle_digest,
+        stage_runtime_bundle,
+        verify_runtime_bundle,
     )
 except ModuleNotFoundError:
     from runtime_bundle import bundle_digest, stage_runtime_bundle, verify_runtime_bundle

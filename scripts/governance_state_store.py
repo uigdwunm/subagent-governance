@@ -10,28 +10,68 @@ from typing import Any, Callable, Iterator
 
 try:
     from scripts.governance_errors import (
-        StateCapacityError, StateConflictError, StateStoreError,
-        StateValidationError, StateWriteError,
+        StateCapacityError,
+        StateConflictError,
+        StateStoreError,
+        StateValidationError,
+        StateWriteError,
     )
     from scripts.governance_semantics import (
-        MAX_STATE_BYTES, NEW_TASK_SOFT_LIMIT_BYTES, STATE_FORMAT_VERSION,
+        MAX_STATE_BYTES,
+        NEW_TASK_SOFT_LIMIT_BYTES,
+        STATE_FORMAT_VERSION,
     )
     from scripts.governance_state import require_current_state_format
     from scripts.governance_storage import (
-        PrivateStorageCapacityError, PrivateStorageError, PrivateStorageWriteError,
-        atomic_write_bytes, locked_file, read_private_bytes,
+        PrivateStorageCapacityError,
+        PrivateStorageError,
+        PrivateStorageWriteError,
+        atomic_write_bytes,
+        locked_file,
+        read_private_bytes,
     )
     from scripts.governance_store_support import (
-        data_root_path, exclusive_file_lock, owned_by_current_user,
-        prepare_private_directory, private_permissions_safe, restrict_descriptor,
-        safe_filename, sync_directory,
+        data_root_path,
+        exclusive_file_lock,
+        owned_by_current_user,
+        prepare_private_directory,
+        private_permissions_safe,
+        restrict_descriptor,
+        safe_filename,
+        sync_directory,
     )
 except ModuleNotFoundError:
-    from governance_errors import StateCapacityError, StateConflictError, StateStoreError, StateValidationError, StateWriteError
-    from governance_semantics import MAX_STATE_BYTES, NEW_TASK_SOFT_LIMIT_BYTES, STATE_FORMAT_VERSION
+    from governance_errors import (
+        StateCapacityError,
+        StateConflictError,
+        StateStoreError,
+        StateValidationError,
+        StateWriteError,
+    )
+    from governance_semantics import (
+        MAX_STATE_BYTES,
+        NEW_TASK_SOFT_LIMIT_BYTES,
+        STATE_FORMAT_VERSION,
+    )
     from governance_state import require_current_state_format
-    from governance_storage import PrivateStorageCapacityError, PrivateStorageError, PrivateStorageWriteError, atomic_write_bytes, locked_file, read_private_bytes
-    from governance_store_support import data_root_path, exclusive_file_lock, owned_by_current_user, prepare_private_directory, private_permissions_safe, restrict_descriptor, safe_filename, sync_directory
+    from governance_storage import (
+        PrivateStorageCapacityError,
+        PrivateStorageError,
+        PrivateStorageWriteError,
+        atomic_write_bytes,
+        locked_file,
+        read_private_bytes,
+    )
+    from governance_store_support import (
+        data_root_path,
+        exclusive_file_lock,
+        owned_by_current_user,
+        prepare_private_directory,
+        private_permissions_safe,
+        restrict_descriptor,
+        safe_filename,
+        sync_directory,
+    )
 
 
 def _empty_state(session_id: str) -> dict[str, Any]:

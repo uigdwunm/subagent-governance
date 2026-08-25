@@ -9,7 +9,10 @@ from typing import Any
 try:
     from scripts.governance_context import verify_context_manifest
     from scripts.governance_contracts import (
-        TaskContract, contract_digest, contract_from_input, contract_summary,
+        TaskContract,
+        contract_digest,
+        contract_from_input,
+        contract_summary,
         spawn_digest,
     )
     from scripts.governance_dispatch_rendering import expected_native_parameters
@@ -17,7 +20,13 @@ try:
     from scripts.governance_lifecycle import enter_reconcile, prune_closed_tasks
 except ModuleNotFoundError:
     from governance_context import verify_context_manifest
-    from governance_contracts import TaskContract, contract_digest, contract_from_input, contract_summary, spawn_digest
+    from governance_contracts import (
+        TaskContract,
+        contract_digest,
+        contract_from_input,
+        contract_summary,
+        spawn_digest,
+    )
     from governance_dispatch_rendering import expected_native_parameters
     from governance_errors import StateConflictError
     from governance_lifecycle import enter_reconcile, prune_closed_tasks

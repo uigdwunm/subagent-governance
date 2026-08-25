@@ -8,7 +8,10 @@ from typing import Any
 
 try:
     from scripts.governance_semantics import (
-        PROFILES, TASK_NAME_MAX_LENGTH, TASK_NAME_RE, TASK_REF_LENGTHS,
+        PROFILES,
+        TASK_NAME_MAX_LENGTH,
+        TASK_NAME_RE,
+        TASK_REF_LENGTHS,
     )
 except ModuleNotFoundError:
     from governance_semantics import PROFILES, TASK_NAME_MAX_LENGTH, TASK_NAME_RE, TASK_REF_LENGTHS

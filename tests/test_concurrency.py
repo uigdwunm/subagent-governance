@@ -10,7 +10,6 @@ from pathlib import Path
 
 from scripts.governance_hook import handle_hook
 from scripts.governance_protocol import prepare_dispatch
-
 from scripts.governance_state_store import StateStore
 from tests.support import ROOT
 

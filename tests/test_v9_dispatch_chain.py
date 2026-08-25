@@ -12,8 +12,8 @@ from pathlib import Path
 from unittest import mock
 
 from scripts import governance_contracts as contracts
-from scripts import governance_dispatch as dispatch
 from scripts import governance_diagnostics as diagnostics
+from scripts import governance_dispatch as dispatch
 from scripts import governance_hook as hook
 from scripts import governance_protocol as protocol
 from scripts import governance_semantics as semantics
