@@ -1,13 +1,19 @@
-# 平台验证摘要（历史 v8 证据；v9 尚未部署）
+# 平台验证摘要（state-v9 真实验证；历史 v8 证据）
 
-> 本文保留导致减法收口决策的历史平台证据，不描述当前 state-v9 runtime 能力。
-> 当前 state-v9 dispatch 与最小 lifecycle runtime 只有本地验证，尚未安装、发布或在重启后的新任务中真实复验。
+> 本文保留导致减法收口决策的历史 v8 证据，并记录当前 state-v9 的独立重启后真实验证。历史结果不描述或替代 state-v9 runtime 能力。
 
 ## 当前结论
 
 state-v9 减法收口的 runtime/deploy 实现为 `bc6a61ff0e5aff1fae7cc76cc99ab213607b886b`，cache rollover 二次确认删除为 `3a3a66ff8e014a3d56c4e6384704fcb200a2e65b`。Python 3.9/3.11/3.12 各 80 tests、三版本编译、development preflight、Plugin/Skill validator 与精确 30-file runtime projection validator 均通过；详见 [本地验收](validation/current-only-local-acceptance.md)。
 
-这不能证明稳定源、Marketplace、运行缓存、Hook trust 或真实平台事件投递。state-v9 尚未安装或发布，真实验证保持 `not_checked`。P12-B 已由 reduction ADR 正式 rejected/archived，不是后续待办。以下 P9–P12 内容只保留减法收口前的历史证据。
+这不能替代稳定源、Marketplace、运行缓存、Hook trust、Codex registration 或桌面 UI 的独立证据。state-v9 已在重启后的独立任务中进行一次真实验证，但 V2 的显式 exact-target confirm 进入 `reconcile`；因此不是 release-ready 结论，V3–V7 均保持 `not_checked`。P12-B 已由 reduction ADR 正式 rejected/archived，不是后续待办。以下 P9–P12 内容只保留减法收口前的历史证据。
+
+### state-v9 独立重启后真实验证（2026-08-25）
+
+- 验证任务的开发 checkout 为 `87f03570eafd6a1cd435f2bb92dfeb560e2a94e2`，实际加载版本为 `0.4.0-rc.13+codex.20260825035757`；当前加载的 Skill 路径与该版本 runtime cache 一致。`codex plugin list` 仅显示 installed/enabled，不能替代 Hook trust 或 Codex registration 的独立结论。
+- exact session identity 为 `01a03722-0244-7c32-82e7-0a2f52b52d3b`。V1 原生 unmanaged spawn 返回 exact target 且收到独立终态；前后只读 status/diagnose 都显示当前 v9 ledger 零 task，故 V1 为 `passed`。child final 不作为治理 identity authority。
+- V2 先由当前 runtime prepare，再把本次 native `spawn_agent` 返回的 exact target 原样立即提交 `confirm-dispatch`。该命令返回 `reconcile`；只读 diagnose 显示 `phase=reconcile`、`reconcile_reason=dispatch_identity_mismatch`、`target=null`。这是 correctness failure；未用 child final、task name、时间或 list 结果补绑或推断根因。
+- 依停止策略，V3（wait/已 bound exact-target observation）、V4（normal message、terminal、interrupt、close）、V5（exact-session SessionStart/status）和 V6（restart/compact）均为 `not_checked`。V7 的 Hook trust、Codex registration 和桌面 UI 分别为 `not_checked`；exact session identity 已单独记录，且本次没有将 installed/enabled 或文件存在写作这些状态的替代证据。
 
 ### P9 local acceptance（2026-08-24）
 

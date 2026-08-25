@@ -1,6 +1,38 @@
+# state-v9 独立重启后真实平台验证
+
+日期：2026-08-25  
+结论：`failed`（V2 的 parent explicit exact-target confirm 进入 `reconcile`；依 correctness failure 停止）
+
+## 基线、加载与独立状态
+
+- 开发 checkout 为 `87f03570eafd6a1cd435f2bb92dfeb560e2a94e2`，工作树在开始验证时干净；期望且实际加载版本均为 `0.4.0-rc.13+codex.20260825035757`。实际 Skill 从该版本 runtime cache 读取。
+- exact session identity 为 `01a03722-0244-7c32-82e7-0a2f52b52d3b`。验证使用 `gpt-5.6-terra` / `high`；受治理 child 使用 `fork_turns=none`。
+- `codex plugin list` 显示 installed/enabled，仅作为安装可见性证据。Hook trust、Codex registration 与桌面 UI 没有独立实际证据，分别记为 `not_checked`；不以 installed/enabled 或路径存在替代。
+- 本次没有修改 runtime、schema、Skill、stable source、runtime cache、Marketplace、Registry 或 Hook trust；仅产生验证所需的当前 exact-session v9 ledger 状态。
+
+## V1–V7 结果
+
+| 场景 | 状态 | 最小有界证据 |
+| --- | --- | --- |
+| V1 unmanaged spawn、fail-open、零治理状态 | `passed` | 原生 spawn 机械返回 exact target，child 给出独立终态；前后 status/diagnose 都显示本 session 为 `state_format_version=9` 且 `tasks=[]`。child final 不作为 identity authority。 |
+| V2 prepare → governed Pre claim → native spawn → explicit confirm | `failed` | 当前 runtime prepare 后，本次 native spawn 的 exact target 被原样立即提交 `confirm-dispatch`；返回 `reconcile`。只读 diagnose 为 `phase=reconcile`、`reconcile_reason=dispatch_identity_mismatch`、`target=null`。不以 child final、task name、时间或 list 补绑，也不推断根因。 |
+| V3 wait 与 exact bound-target observation | `not_checked` | V2 correctness failure 后停止；没有未绑定 target 的 observation。 |
+| V4 normal message、terminal notification、minimal interrupt、parent close | `not_checked` | V2 correctness failure 后停止；未以 child terminal 构造 managed terminal fact。 |
+| V5 exact-session SessionStart/status | `not_checked` | 仅执行了 CLI 的 exact-session 只读 status/diagnose；没有可归因于本次任务的 SessionStart 实际事件证据。 |
+| V6 restart / compact | `not_checked` | V2 correctness failure 后停止。 |
+| V7 Hook trust、Codex registration、桌面 UI、exact session identity | `not_checked` | 前三项没有独立实际证据；exact session identity 已记录为 `01a03722-0244-7c32-82e7-0a2f52b52d3b`，但不将其误作前三项的替代证据。 |
+
+## 验证命令与后续边界
+
+- 只读基线：`git status --porcelain=v1`、`git rev-parse HEAD`、`codex plugin list`、当前 runtime 的 `--status` / `--diagnose`。
+- 实际 V2 动作：当前 runtime 的 `--prepare-dispatch`、原生 `spawn_agent`、随后同一 task/ref 与该次 exact target 的 `--confirm-dispatch`；终态只读 `--diagnose`。
+- 本报告不归因该 mismatch，也不包含 prompt、message、response、transcript、summary 或 child final 正文。若要继续，必须在开发仓库新任务中最小复现、修复并完成本地门禁，重新获得部署授权、重启后再新建独立真实验证任务从 V1 开始。
+
+---
+
 # P10-B 与 P12-A 全新真实平台验证（历史 v8 基线）
 
-> 本报告保留减法收口前的真实平台证据；state-v9 尚未安装或真实复验。
+> 以下保留减法收口前的真实平台证据，不描述或替代当前 state-v9 runtime 的结果。
 
 ---
 
