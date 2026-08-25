@@ -275,7 +275,7 @@ def _cache_facts(cache_parent: Path) -> list[dict[str, str]]:
 
 def _select_previous(
     caches: list[dict[str, str]], previous_version: str | None,
-    target_version: str, confirmed: bool,
+    target_version: str,
 ) -> str | None:
     names = {item["name"] for item in caches}
     if target_version in names:
@@ -295,10 +295,6 @@ def _select_previous(
         raise RuntimeError("target version 必须不同于 previous version")
     if len(caches) > 2:
         raise RuntimeError("安装前 cache 超过双版本边界")
-    if len(caches) == 2 and not confirmed:
-        raise RuntimeError(
-            "已有 compatibility cache；必须传入 --confirm-previous-sessions-restarted"
-        )
     return previous
 
 
@@ -559,7 +555,6 @@ def deploy(
     expected_version: str,
     marketplace: str,
     previous_version: str | None,
-    confirm_previous_sessions_restarted: bool,
     execute: bool,
     runner=None,
     codex_command: str = "codex",
@@ -594,7 +589,6 @@ def deploy(
             pre_caches = _cache_facts(cache)
             previous = _select_previous(
                 pre_caches, previous_version, expected_version,
-                confirm_previous_sessions_restarted,
             )
             report["retained_previous_version"] = previous
             report["state"] = "dry_run_passed"
@@ -611,7 +605,6 @@ def deploy(
             pre_caches = _cache_facts(cache)
             previous = _select_previous(
                 pre_caches, previous_version, expected_version,
-                confirm_previous_sessions_restarted,
             )
             report["retained_previous_version"] = previous
             transaction_id = f"{TRANSACTION_PREFIX}{os.getpid()}-{uuid.uuid4().hex}"
@@ -738,7 +731,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-version", required=True)
     parser.add_argument("--marketplace", required=True)
     parser.add_argument("--previous-version")
-    parser.add_argument("--confirm-previous-sessions-restarted", action="store_true")
     parser.add_argument("--codex-command", default="codex")
     parser.add_argument(
         "--execute", action="store_true",
@@ -754,7 +746,6 @@ def main(argv: list[str] | None = None) -> int:
         expected_version=args.expected_version,
         marketplace=args.marketplace,
         previous_version=args.previous_version,
-        confirm_previous_sessions_restarted=args.confirm_previous_sessions_restarted,
         execute=args.execute,
         codex_command=args.codex_command,
     )

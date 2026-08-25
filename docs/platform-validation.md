@@ -5,7 +5,7 @@
 
 ## 当前结论
 
-state-v9 减法收口的本地实现提交为 `bc6a61ff0e5aff1fae7cc76cc99ab213607b886b`。Python 3.9/3.11/3.12 各 81 tests、三版本编译、development preflight、Plugin/Skill validator 与精确 30-file runtime projection validator 均通过；详见 [本地验收](validation/current-only-local-acceptance.md)。
+state-v9 减法收口的本地实现提交为 `bc6a61ff0e5aff1fae7cc76cc99ab213607b886b`。Python 3.9/3.11/3.12 各 80 tests、三版本编译、development preflight、Plugin/Skill validator 与精确 30-file runtime projection validator 均通过；详见 [本地验收](validation/current-only-local-acceptance.md)。
 
 这不能证明稳定源、Marketplace、运行缓存、Hook trust 或真实平台事件投递。state-v9 尚未安装或发布，真实验证保持 `not_checked`。P12-B 已由 reduction ADR 正式 rejected/archived，不是后续待办。以下 P9–P12 内容只保留减法收口前的历史证据。
 

@@ -81,7 +81,6 @@ class DevDeployTests(unittest.TestCase):
             "expected_version": self.version,
             "marketplace": "personal",
             "previous_version": None,
-            "confirm_previous_sessions_restarted": False,
             "execute": True,
         }
         value.update(overrides)
@@ -145,16 +144,13 @@ class DevDeployTests(unittest.TestCase):
         self.assertEqual(report["retained_previous_version"], previous_version)
         self.assertEqual(list(self.transactions.glob("transaction-*")), [])
 
-    def test_confirmed_rollover_drops_only_oldest_compatibility_cache(self):
+    def test_rollover_drops_only_oldest_compatibility_cache(self):
         oldest_version = "0.2.0+codex.oldest"
         previous_version = "0.3.0+codex.previous"
         self.cache(oldest_version)
         self.cache(previous_version)
         code, report = dev_deploy.deploy(
-            **self.arguments(
-                previous_version=previous_version,
-                confirm_previous_sessions_restarted=True,
-            ),
+            **self.arguments(previous_version=previous_version),
             runner=self.native_runner(),
         )
         self.assertEqual(code, 0, report)
@@ -203,28 +199,13 @@ class DevDeployTests(unittest.TestCase):
         self.assertEqual(report["failed_stage"], "admission")
         runner.assert_not_called()
 
-    def test_two_existing_caches_require_restart_confirmation(self):
-        previous_version = "0.3.0+codex.previous"
-        self.cache("0.2.0+codex.oldest")
-        self.cache(previous_version)
-        runner = mock.Mock()
-        code, report = dev_deploy.deploy(
-            **self.arguments(previous_version=previous_version), runner=runner
-        )
-        self.assertEqual(code, 2)
-        self.assertIn("confirm", report["error"])
-        runner.assert_not_called()
-
     def test_preexisting_target_version_is_rejected_before_native_install(self):
         previous_version = "0.3.0+codex.previous"
         self.cache(previous_version)
         self.cache(self.version)
         runner = mock.Mock()
         code, report = dev_deploy.deploy(
-            **self.arguments(
-                previous_version=previous_version,
-                confirm_previous_sessions_restarted=True,
-            ),
+            **self.arguments(previous_version=previous_version),
             runner=runner,
         )
         self.assertEqual(code, 2)

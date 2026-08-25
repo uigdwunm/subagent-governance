@@ -42,7 +42,7 @@ python3 scripts/dev_deploy.py \
   [--previous-version <exact-installed-current-version>]
 ```
 
-任何 stable、cache 或 Codex 写入都必须另行取得当前任务的明确授权。获准后使用相同参数追加 `--execute`；若安装前已有 target 之外的两个 cache，还必须显式追加 `--confirm-previous-sessions-restarted`。
+任何 stable、cache 或 Codex 写入都必须另行取得当前任务的明确授权。获准后使用相同参数追加 `--execute`。安装前已有两个 cache 时，显式 `previous-version` 仍绑定当前安装版；成功后直接按双版本规则从 `A+B` 轮换为 `B+C`，不要求第二次人工确认。
 
 执行入口只接受：
 

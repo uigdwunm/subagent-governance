@@ -39,9 +39,9 @@
 
 | 命令 | exit | 摘要 |
 | --- | ---: | --- |
-| `python3 -m unittest discover -s tests -v` | 0 | Python 3.9.6，81 tests passed |
-| `python3.11 -m unittest discover -s tests -v` | 0 | Python 3.11.15，81 tests passed |
-| `python3.12 -m unittest discover -s tests -v` | 0 | Python 3.12.13，81 tests passed |
+| `python3 -m unittest discover -s tests -v` | 0 | Python 3.9.6，80 tests passed |
+| `python3.11 -m unittest discover -s tests -v` | 0 | Python 3.11.15，80 tests passed |
+| `python3.12 -m unittest discover -s tests -v` | 0 | Python 3.12.13，80 tests passed |
 | 三版本 `python -m py_compile scripts/*.py` | 0 | passed |
 | `python3 scripts/release_preflight.py --mode development` | 0 | `status=passed` |
 | repository Plugin validator | 0 | passed |
@@ -49,13 +49,13 @@
 | Skill validator | 0 | valid |
 | `git diff --check` | 0 | passed |
 
-`ruff` 与 `coverage` 不在 PATH；本次没有安装，也没有记为通过。测试数量从历史 325 缩到当前 81 是删除旧内部机制锁定测试的结果，不作为单独质量指标。
+`ruff` 与 `coverage` 不在 PATH；本次没有安装，也没有记为通过。测试数量从历史 325 缩到当前 80 是删除旧内部机制锁定测试的结果，不作为单独质量指标。
 
 ## 开发部署事务边界
 
 `scripts/dev_deploy.py` 是唯一入口，默认 dry-run。单元测试覆盖：
 
-- empty/single/two cache admission，显式 previous identity 与 restart confirmation；
+- empty/single/two cache admission、显式 previous identity，以及无需二次确认的 `A+B → B+C` 轮换；
 - target cache 预存在时在调用原生命令前拒绝；
 - successful target + exact previous retention，以及 A+B → B+C rollover；
 - 原生命令失败、target digest 错误时恢复部署前 stable 和完整 cache set；

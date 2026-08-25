@@ -71,6 +71,7 @@ class PluginStructureTests(unittest.TestCase):
         self.assertFalse((ROOT / "assets/agents-governance.md").exists())
         deploy = (ROOT / "scripts/dev_deploy.py").read_text(encoding="utf-8")
         self.assertIn("本机开发测试专用", deploy)
+        self.assertNotIn("confirm-previous-sessions-restarted", deploy)
         self.assertNotIn("AGENTS.md", json.loads(
             (ROOT / ".codex-plugin/runtime-bundle.json").read_text(encoding="utf-8")
         )["files"])
