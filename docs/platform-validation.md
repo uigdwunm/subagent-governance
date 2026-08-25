@@ -5,7 +5,9 @@
 
 ## 当前结论
 
-以下结论属于减法收口前实现。仓库验证不能证明稳定源、Marketplace、运行缓存、Hook trust 或真实平台事件投递。
+state-v9 减法收口的本地实现提交为 `bc6a61ff0e5aff1fae7cc76cc99ab213607b886b`。Python 3.9/3.11/3.12 各 81 tests、三版本编译、development preflight、Plugin/Skill validator 与精确 30-file runtime projection validator 均通过；详见 [本地验收](validation/current-only-local-acceptance.md)。
+
+这不能证明稳定源、Marketplace、运行缓存、Hook trust 或真实平台事件投递。state-v9 尚未安装或发布，真实验证保持 `not_checked`。P12-B 已由 reduction ADR 正式 rejected/archived，不是后续待办。以下 P9–P12 内容只保留减法收口前的历史证据。
 
 ### P9 local acceptance（2026-08-24）
 
@@ -41,7 +43,7 @@
 - V1 unmanaged spawn 再次证明 fail-open/no-state 和独立终态；V2 的 fresh light/isolated governed spawn 成功完成 prepare、Pre claim、原生派发、wait 与 exact list，但 canonical 仍是 `claimed`、没有 Post receipt/target/observation source。严格记为 **Post/canonical identity 未闭环**，不推断平台未投递、ID/tool drift 或 handler/storage 原因。
 - current runtime 已无 probe module 或 probe runtime references，diagnose 无 `spawn_post_probes` 投影；历史 probe 目录只做前后元数据摘要，未读取或改写。P12-B 继续冻结，V3–V7 仍未执行。详见 `docs/validation/current-only-real-platform-validation.md`。
 
-## 已由本地测试覆盖
+## 历史 v8 当时由本地测试覆盖
 
 - PreparedContract 与 governed spawn 的发送前门禁。
 - exact dispatch target identity 和 retained provenance。
@@ -55,19 +57,24 @@
 - diagnose 不创建或修改运行状态。
 - StateStore 只接受当前格式，其他版本原样拒绝。
 
-## 平台能力边界
+## 历史 v8 当时的平台能力边界
 
 - 插件不注册官方 `SubagentStart`、`SubagentStop`；它们保留在能力契约 fixture 中，但不参与运行时状态维护或终态通知处理。
 - transcript、summary、final history 和未知 Hook 扩展不作为 correctness authority。
 - list terminal observation 不替代原生 child notification。
 - 插件不保存通知正文，不判断业务质量，不提供 accept/reject 状态。
-- Stop 当前只给 advisory 并固定 fail-open。
+- Stop 当时只给 advisory 并固定 fail-open；state-v9 已删除 Stop Hook。
 
 ## 尚待真实插件验证
 
-- P12-B 的 activation evidence 仍未取得，保持冻结；尽管 cleanup 后安装、重启、新任务 V1–V2 基线复验已完成，V2 的 Post/canonical identity 未闭环仍须在开发仓库以有界事实另行处理。
-- V3 normal message/terminal/close，随后 V5 interrupt/controlled reconciliation、V6 Stop/SessionStart/SessionEnd 及 V7 restart/compact 后的 mailbox/retained-target 恢复。
-- Hook trust、Codex registration 与桌面 UI 的独立实际状态。
+- V1 unmanaged spawn fail-open 与零状态。
+- V2 prepare → claim → native spawn → parent explicit exact-target confirm。
+- V3 wait 与 exact bound-target platform observation。
+- V4 normal message、terminal notification、minimal interrupt 与 parent close。
+- V5 exact-session SessionStart/status 与用户触发的 restart/compact。
+- stable/cache transaction、Hook trust、Codex registration 与桌面 UI 的独立实际状态。
+
+P12-B 已 rejected/archived，不恢复 PostToolUse authority、receipt/index 或 matcher-only 实验。
 
 真实 correctness failure 后必须在开发仓库新任务复现和修复，重新完成相应本地门禁、重新获得安装授权并创建另一个全新 P10-B 任务；不得在当前验证环境热修后继续验收。
 

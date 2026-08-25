@@ -224,7 +224,7 @@ SessionStart 使用 diagnostics 同等级的无锁只读 reader，不创建目�
 
 ### 7. 当前文档与本地综合验收
 
-状态：执行中；以当前 state-v9 suite 与新 runtime/deploy tests 重写验收证据，不复用历史测试数。
+状态：本地完成；当前验收为三套 Python 各 81 tests，真实平台仍为 `not_checked`。
 
 - 只有在实现完成后才更新 README、architecture、Skill、runtime boundaries、Hook contract 和 release process。
 - 将 P12-B 标记为 rejected/archived，将 P1–P14 索引标记为历史改造记录。
