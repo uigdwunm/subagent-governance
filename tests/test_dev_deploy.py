@@ -137,6 +137,10 @@ class DevDeployTests(unittest.TestCase):
         )
         self.assertEqual(runtime_bundle.bundle_digest(self.cache_parent / previous_version), previous_digest)
         self.assertEqual(
+            runtime_bundle.verify_runtime_bundle(self.cache_parent / previous_version),
+            previous_digest,
+        )
+        self.assertEqual(
             runtime_bundle.bundle_digest(self.cache_parent / self.version),
             runtime_bundle.bundle_digest(self.source),
         )
@@ -159,6 +163,69 @@ class DevDeployTests(unittest.TestCase):
             {previous_version, self.version},
         )
         self.assertEqual(report["removed_cache_entries"], [oldest_version])
+
+    def test_rollover_can_remove_dirty_oldest_when_selected_previous_is_exact(self):
+        oldest_version = "0.2.0+codex.oldest"
+        previous_version = "0.3.0+codex.previous"
+        oldest = self.cache(oldest_version)
+        extra = oldest / "scripts/__pycache__/legacy.pyc"
+        extra.parent.mkdir()
+        extra.write_bytes(b"legacy bytecode")
+        self.cache(previous_version)
+        code, report = dev_deploy.deploy(
+            **self.arguments(previous_version=previous_version),
+            runner=self.native_runner(),
+        )
+        self.assertEqual(code, 0, report)
+        self.assertEqual(
+            {path.name for path in self.cache_parent.iterdir()},
+            {previous_version, self.version},
+        )
+        self.assertEqual(report["removed_cache_entries"], [oldest_version])
+
+    def test_dirty_selected_previous_is_rejected_before_native_install(self):
+        previous_version = "0.3.0+codex.previous"
+        previous = self.cache(previous_version)
+        extra = previous / "scripts/__pycache__/runtime.pyc"
+        extra.parent.mkdir()
+        extra.write_bytes(b"runtime bytecode")
+        runner = mock.Mock()
+        code, report = dev_deploy.deploy(
+            **self.arguments(previous_version=previous_version),
+            runner=runner,
+        )
+        self.assertEqual(code, 2, report)
+        self.assertEqual(report["failed_stage"], "admission")
+        self.assertIn("文件集合不精确", report["error"])
+        runner.assert_not_called()
+
+    def test_previous_mutated_after_restore_fails_exact_verification_and_rolls_back(self):
+        previous_version = "0.3.0+codex.previous"
+        previous = self.cache(previous_version)
+        stable_digest = runtime_bundle.bundle_digest(self.stable)
+        previous_digest = runtime_bundle.verify_runtime_bundle(previous)
+        original_restore = dev_deploy._restore_previous
+
+        def restore_then_mutate(*args, **kwargs):
+            restored = original_restore(*args, **kwargs)
+            extra = self.cache_parent / previous_version / "scripts/__pycache__/late.pyc"
+            extra.parent.mkdir()
+            extra.write_bytes(b"late bytecode")
+            return restored
+
+        with mock.patch.object(
+            dev_deploy, "_restore_previous", side_effect=restore_then_mutate
+        ):
+            code, report = dev_deploy.deploy(
+                **self.arguments(previous_version=previous_version),
+                runner=self.native_runner(),
+            )
+        self.assertEqual(code, 2, report)
+        self.assertEqual(report["failed_stage"], "post_install_verification")
+        self.assertEqual(runtime_bundle.bundle_digest(self.stable), stable_digest)
+        self.assertEqual(
+            runtime_bundle.verify_runtime_bundle(previous), previous_digest
+        )
 
     def test_native_failure_rolls_back_stable_and_complete_cache_set(self):
         previous_version = "0.3.0+codex.previous"

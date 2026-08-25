@@ -1,28 +1,50 @@
 # state-v9 独立重启后真实平台验证
 
 日期：2026-08-25  
-结论：`failed`（修复部署并重启后的独立复验中，V2 仍未形成 Pre claim；exact confirm 正确分类为 `dispatch_claim_missing`，依 correctness failure 停止）
+结论：`partial_passed`（最新安装版已完成 governed claim/bind、wait、exact observation、terminal 与 close；父任务不是验收要求的 `gpt-5.6-terra` / `high`，且未完整覆盖 V1–V7，因此不能记为完整验收或 release-ready）
 
-## 基线、加载与独立状态
+## 最新安装版的有界成功证据
+
+- 实际加载版本为 `0.4.0-rc.13+codex.20260825062527`；对应开发 checkout 为 `335509ac13a1a7d6e9c9d6ab3d42e7c18e5f6046`。stable/current 的精确 runtime projection digest 均为 `87a03ff2313cd1635e3730974b7870c4db9285981f70b9cb05ca0b7dc6223972`。
+- exact session identity 为 `01a037ae-a8ac-7ff3-a80b-85c2c0764973`。受治理任务的 ref 为 `7fbdf8f31688`，原生返回并绑定的 exact target 为 `/root/sg_strict_agent_t_7fbdf8f31688`。
+- state-v9 单一 ledger 机械记录了 `prepared → claimed → bound → terminal → closed`；platform observation 为 completed，terminal notification 与 parent close 均已登记，最终只读 diagnose 为 `issues=[]`，且只读检查前后 ledger hash 不变。
+- 本轮实际执行过一次 wait，并完成 exact target observation；没有把 child final、名称、时间或 list 模糊匹配当作 identity authority。
+- session metadata 显示父任务实际模型为 `gpt-5.6-sol`，任务配置的推理强度为 `high`；受治理 child 明确使用 `gpt-5.6-terra` / `high`。项目要求真实测试任务本身显式使用 `gpt-5.6-terra` / `high`，因此模型要求只能记为不符合，不能用 child 配置替代。
+
+| 场景 | 最新证据状态 | 边界 |
+| --- | --- | --- |
+| V1 unmanaged spawn、fail-open、零状态 | `not_checked` | 本轮没有独立执行 unmanaged 基线。 |
+| V2 prepare → claim → native spawn → confirm exact target | `passed` | flattened V2 名称被正确识别；exact target 已绑定。 |
+| V3 wait 与 exact bound-target observation | `passed` | 一次 wait 与 exact completed observation 已登记。 |
+| V4 normal message 与 terminal notification | `partial_passed` | terminal 已登记；normal message 未执行。 |
+| V5 minimal interrupt 与 parent close | `partial_passed` | close 已登记；interrupt 未执行。 |
+| V6 SessionStart/status exact-session 恢复 | `not_checked` | 仅有显式只读 status/diagnose，不等于 SessionStart 事件验证。 |
+| V7 用户触发的 restart/compact | `not_checked` | 未执行。 |
+
+因此，上一安装版的 `identity mismatch` / `dispatch_claim_missing` 仍是历史失败证据；最新成功证明 flattened V2 修复已打通主链，但不补齐未执行的场景。本轮之后开发仓库新增的 Hook 精确工具 allowlist、runtime 禁写 bytecode 与 retained-previous 精确校验仍仅是本地修改，尚未部署或真实复验。
+
+## 历史：上一安装版的 V2 失败
+
+### 基线、加载与独立状态
 
 - 开发 checkout 为 `af0935b1214b483b8152be7053f83438d8fa5817`，开始时工作树干净，且包含修复提交 `308f28f3fe6a6a0d152f888e9dcdcea79b0f5f65`。`codex plugin list` 的 installed/enabled 版本与实际已加载 Skill cache 均为 `0.4.0-rc.13+codex.20260825045151`；stable 与 current runtime projection digest 均为 `d67d3a11975df6f8287ea3e374f33a914c6638d48e3c5c56b40f6f2b65789dcb`，并只保留一个 previous cache `0.4.0-rc.13+codex.20260825035757`。
 - exact session identity 为 `01a03783-0fa1-7613-ab2a-2e05d331ea00`。当前可用读取接口不公开父任务模型/推理参数，故不把它记为已机械确认；受治理 child 的原生 spawn 参数明确为 `gpt-5.6-terra` / `high` 与 `fork_turns=none`。
 - `codex plugin list` 只作为安装可见性证据。部署前的 app-server 回读曾报告当前 PreToolUse hash `sha256:307fb66cae3e00fbcec4eb69f5227cb5f993a8583698df6bc6829330f9465081` 和 SessionStart hash `sha256:26915f4009c66b621d5a67739e8b7300d3bd462017bd31b72411317cf638cf45` 为 trusted；本任务没有可用的只读 Hook-trust API，故本轮 trust 是 `not_checked`，不以历史记录、installed/enabled 或文件存在替代。Codex registration 与桌面 UI 同为 `not_checked`。
 - 本任务没有安装、部署、修改 stable source、runtime cache、Marketplace、Registry 或 Hook trust；只产生该 exact session 的 v9 ledger 状态与本报告的文档更新。
 
-## V1–V7 结果
+### V1–V7 结果
 
 | 场景 | 状态 | 最小有界证据 |
 | --- | --- | --- |
 | V1 unmanaged spawn、fail-open、零治理状态 | `passed` | 原生 spawn 机械返回 exact target；child 给出独立终态。前后 status 都为 `state_format_version=9` 且 `tasks=[]`，证明本次 unmanaged 调用未创建 governance state；child final 不作为 identity authority。 |
 | V2 prepare → governed Pre gate → native spawn → explicit confirm | `failed` | prepare 后把本次 native `spawn_agent` 返回的 exact target 立即原样提交 `confirm-dispatch`；首次返回 `reconcile`，只读 status/diagnose 为 `phase=reconcile`、`reconcile_reason=dispatch_claim_missing`、`target=null`。这证明修复后的 prepared/unclaimed 分类已生效，但 Pre durable claim 仍未形成，不能达到 bound。未使用 list、时间、名称、task name、child final、transcript 或 summary 补绑；same-target replay亦保持 `reconcile`，没有绕过 first-bind-wins。 |
 | V3 wait 与 exact bound-target observation | `not_checked` | V2 correctness failure 后停止；没有未绑定 target 的 observation。 |
-| V4 normal message、terminal notification、minimal interrupt、parent close | `not_checked` | V2 correctness failure 后停止；未以 child terminal 构造 managed terminal fact。 |
-| V5 exact-session SessionStart/status | `not_checked` | 仅执行了 CLI 的 exact-session 只读 status/diagnose；没有可归因于本次任务的 SessionStart 实际事件证据。 |
-| V6 restart / compact | `not_checked` | V2 correctness failure 后停止。 |
-| V7 Hook trust、Codex registration、桌面 UI、exact session identity | `not_checked_partial` | Hook trust、Codex registration、桌面 UI 均未在本轮以独立实际接口验证。exact session identity 已机械记录为 `01a03783-0fa1-7613-ab2a-2e05d331ea00`，但不作为其他三项的替代证据。 |
+| V4 normal message、terminal notification | `not_checked` | V2 correctness failure 后停止；未以 child terminal 构造 managed terminal fact。 |
+| V5 minimal interrupt、parent close | `not_checked` | V2 correctness failure 后停止。 |
+| V6 exact-session SessionStart/status | `not_checked` | 仅执行了 CLI 的 exact-session 只读 status/diagnose；没有可归因于本次任务的 SessionStart 实际事件证据。 |
+| V7 restart / compact | `not_checked` | V2 correctness failure 后停止。 |
 
-## 验证命令与后续边界
+### 验证命令与后续边界
 
 - 只读基线：`git status --porcelain=v1`、`git rev-parse HEAD`、`codex plugin list`、stable/current/previous runtime projection digest、current runtime 的 exact-session `--status` / `--diagnose`。
 - 实际 V1 动作：unmanaged 原生 `spawn_agent`、原生 wait 与前后 exact-session status；不准备 contract，也不写治理状态。

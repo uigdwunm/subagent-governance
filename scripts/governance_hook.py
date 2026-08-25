@@ -20,6 +20,12 @@ except ModuleNotFoundError:
     from governance_store_support import data_root_path
 
 
+_NATIVE_SPAWN_TOOLS = {
+    "Agent",
+    "spawn_agent",
+    "collaboration.spawn_agent",
+    "collaborationspawn_agent",
+}
 _OPAQUE_MESSAGE_SPAWN_TOOLS = {
     "collaboration.spawn_agent",
     "collaborationspawn_agent",
@@ -27,10 +33,7 @@ _OPAQUE_MESSAGE_SPAWN_TOOLS = {
 
 
 def tool_kind(tool_name: str) -> str | None:
-    if tool_name in _OPAQUE_MESSAGE_SPAWN_TOOLS:
-        return "spawn"
-    leaf = tool_name.rsplit(".", 1)[-1]
-    return "spawn" if leaf in {"Agent", "spawn_agent"} else None
+    return "spawn" if tool_name in _NATIVE_SPAWN_TOOLS else None
 
 
 def _allow(

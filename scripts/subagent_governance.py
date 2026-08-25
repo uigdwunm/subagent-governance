@@ -3,6 +3,11 @@
 
 from __future__ import annotations
 
+import sys
+
+# Runtime bundles, including the retained previous cache, are immutable.
+sys.dont_write_bytecode = True
+
 try:
     from scripts.governance_cli import main as cli_main
     from scripts.governance_contracts import TaskContract

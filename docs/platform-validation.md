@@ -4,12 +4,14 @@
 
 ## 当前结论
 
-state-v9 减法收口的 runtime/deploy 实现为 `bc6a61ff0e5aff1fae7cc76cc99ab213607b886b`，cache rollover 二次确认删除为 `3a3a66ff8e014a3d56c4e6384704fcb200a2e65b`，missing claim 精确分类修复为 `308f28f3fe6a6a0d152f888e9dcdcea79b0f5f65`；当前 checkout 又修复了 MultiAgent V2 flattened spawn claim。Python 3.9/3.11/3.12 各 86 tests、三版本编译、development preflight、Plugin/Skill validator 与精确 30-file runtime projection validator 均通过；详见 [本地验收](validation/current-only-local-acceptance.md)。
+state-v9 减法收口的 runtime/deploy 实现为 `bc6a61ff0e5aff1fae7cc76cc99ab213607b886b`，cache rollover 二次确认删除为 `3a3a66ff8e014a3d56c4e6384704fcb200a2e65b`，missing claim 精确分类修复为 `308f28f3fe6a6a0d152f888e9dcdcea79b0f5f65`；安装版 `0.4.0-rc.13+codex.20260825062527` 已包含 MultiAgent V2 flattened spawn claim 修复。当前开发 checkout 又收敛了 Hook 精确工具 allowlist、runtime 禁写 bytecode 和 retained-previous 精确校验；本地门禁结果见 [本地验收](validation/current-only-local-acceptance.md)。
 
-这不能替代稳定源、Marketplace、运行缓存、Hook trust、Codex registration 或桌面 UI 的独立证据。state-v9 已在两个重启后的独立任务中验证；两次 V2 都因 durable Pre claim 缺失而进入 `reconcile`，第二次已准确分类为 `dispatch_claim_missing`。因此当前仍不是 release-ready 结论，V3–V7 均保持 `not_checked`。P12-B 已由 reduction ADR 正式 rejected/archived，不是后续待办。以下 P9–P12 内容只保留减法收口前的历史证据。
+这不能替代稳定源、Marketplace、运行缓存、Hook trust、Codex registration 或桌面 UI 的独立证据。早先两次 V2 失败分别表现为错误共用的 `dispatch_identity_mismatch` 与准确的 `dispatch_claim_missing`；最新安装版已在第三个重启后任务完成 `claimed → bound → terminal → closed`，diagnose 为 `issues=[]`。但该父任务实际是 `gpt-5.6-sol` / `high`，且只覆盖 V2、V3、V4 的 terminal 部分和 V5 的 close 部分；V1、normal message、interrupt、SessionStart、restart/compact 均未执行。因此这是主链成功证据，不是完整 V1–V7 或 release-ready 结论。P12-B 已由 reduction ADR 正式 rejected/archived，不是后续待办。以下 P9–P12 内容只保留减法收口前的历史证据。
 
 ### state-v9 独立重启后真实验证（2026-08-25）
 
+- 最新安装版 `0.4.0-rc.13+codex.20260825062527` 的 exact session `01a037ae-a8ac-7ff3-a80b-85c2c0764973` 已完成 governed prepare/claim、exact target bind、一次 wait、exact completed observation、terminal notification 与 parent close；最终 ledger closed、diagnose `issues=[]`，只读检查零写入。父任务实际为 `gpt-5.6-sol` / `high`，不符合项目规定的真实测试任务 `gpt-5.6-terra` / `high`；详见当前真实验证记录。
+- 该轮未执行 V1 unmanaged、V4 normal message、V5 interrupt、V6 SessionStart/status 事件恢复或 V7 restart/compact。不得把已通过的主链外推为这些场景已通过。
 - 验证任务的开发 checkout 为 `87f03570eafd6a1cd435f2bb92dfeb560e2a94e2`，实际加载版本为 `0.4.0-rc.13+codex.20260825035757`；当前加载的 Skill 路径与该版本 runtime cache 一致。`codex plugin list` 仅显示 installed/enabled，不能替代 Hook trust 或 Codex registration 的独立结论。
 - exact session identity 为 `01a03722-0244-7c32-82e7-0a2f52b52d3b`。V1 原生 unmanaged spawn 返回 exact target 且收到独立终态；前后只读 status/diagnose 都显示当前 v9 ledger 零 task，故 V1 为 `passed`。child final 不作为治理 identity authority。
 - V2 先由当前 runtime prepare，再把本次 native `spawn_agent` 返回的 exact target 原样立即提交 `confirm-dispatch`。该命令返回 `reconcile`；只读 diagnose 显示 `phase=reconcile`、`reconcile_reason=dispatch_identity_mismatch`、`target=null`。后续开发仓库诊断确认 task id/ref 与 exact target 形状均正确；该旧 reason 实际来自 confirm 时 task 不在 `claimed` 的共用分支，而不是 target identity 不匹配。
@@ -17,7 +19,7 @@ state-v9 减法收口的 runtime/deploy 实现为 `bc6a61ff0e5aff1fae7cc76cc99ab
 - 开发仓库已将 `prepared` 上的 exact confirm 单独分类为 `dispatch_claim_missing` 并保持 reconcile/no-bind；真实 task/ref 不匹配仍为 `dispatch_identity_mismatch`，claimed 上的 exact target 仍遵守 first-bind-wins。这是本地修复，尚未部署或真实复验。
 - 随后的已授权部署准备中，当前 PreToolUse 与只读 SessionStart 的 exact current hash 已通过 Codex app-server 写入并回读为 `trusted`；该证据不替代修复部署后的 V1–V7 重新验证，也不证明 Codex registration 或桌面 UI 状态。
 - 修复部署并重启后的第二次独立验证中，V1 通过，V2 以新 reason `dispatch_claim_missing` 严格失败。后续开发诊断只读确认 Hook trust 仍为 `trusted`，并定位到 router 未识别 MultiAgent V2 flattened `collaborationspawn_agent`；本地兼容修复同时保留 V2 opaque-message 边界和 V1 完整明文比较，尚未部署或真实复验。详见当前真实验证记录。
-- 依停止策略，V3（wait/已 bound exact-target observation）、V4（normal message、terminal、interrupt、close）、V5（exact-session SessionStart/status）和 V6（restart/compact）均为 `not_checked`。该次验证的 V7 为 `failed_partial`：当时 Hook trust 确认为 `modified`，Codex registration 和桌面 UI 仍为 `not_checked`；exact session identity 已单独记录，且没有将 installed/enabled 或文件存在写作这些状态的替代证据。
+- 依停止策略，按当前最终矩阵，V3（wait/已 bound exact-target observation）、V4（normal message/terminal）、V5（interrupt/close）、V6（exact-session SessionStart/status）和 V7（restart/compact）均为 `not_checked`。当时 Hook trust 确认为 `modified`，Codex registration 和桌面 UI 仍为 `not_checked`；这些外部状态与 exact session identity 分别记录，不纳入 V1–V7 编号，也不由 installed/enabled 或文件存在替代。
 
 ### P9 local acceptance（2026-08-24）
 
@@ -78,10 +80,11 @@ state-v9 减法收口的 runtime/deploy 实现为 `bc6a61ff0e5aff1fae7cc76cc99ab
 ## 尚待真实插件验证
 
 - V1 unmanaged spawn fail-open 与零状态。
-- V2 prepare → claim → native spawn → parent explicit exact-target confirm。
-- V3 wait 与 exact bound-target platform observation。
-- V4 normal message、terminal notification、minimal interrupt 与 parent close。
-- V5 exact-session SessionStart/status 与用户触发的 restart/compact。
+- 在显式 `gpt-5.6-terra` / `high` 父任务中重跑 V2 与 V3，避免把错误父模型下的成功证据当作正式验收。
+- V4 normal message；terminal notification 可一并重放确认。
+- V5 minimal interrupt；parent close 可一并重放确认。
+- V6 exact-session SessionStart/status 恢复。
+- V7 用户触发的 restart/compact。
 - stable/cache transaction、Hook trust、Codex registration 与桌面 UI 的独立实际状态。
 
 P12-B 已 rejected/archived，不恢复 PostToolUse authority、receipt/index 或 matcher-only 实验。

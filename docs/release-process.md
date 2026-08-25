@@ -11,7 +11,7 @@ allowlist 只包含插件 Manifest、Hook manifest、当前 Skill 与必要 refe
 - `AGENTS.md`、贡献/安全文档、开发依赖与 release preflight；
 - `runtime_bundle.py`、`dev_deploy.py` 和其他安装、检查、同步或 cache 管理工具。
 
-`scripts/runtime_bundle.py` 对 allowlist 做排序、唯一性、普通文件和无符号链接校验。`bundle_digest` 只覆盖 allowlisted path、mode 与 bytes；普通测试或开发文档变化不会改变 runtime digest。`verify_runtime_bundle` 还要求目标树没有任何额外文件。
+`scripts/runtime_bundle.py` 对 allowlist 做排序、唯一性、普通文件和无符号链接校验。`bundle_digest` 只覆盖 allowlisted path、mode 与 bytes；普通测试或开发文档变化不会改变 runtime digest。`verify_runtime_bundle` 还要求目标树没有任何额外文件。runtime facade 在导入治理模块前禁用 Python bytecode 写入，避免执行过程向 current 或 retained previous bundle 注入 `__pycache__`。
 
 ## 本地门禁
 
@@ -49,7 +49,7 @@ python3 scripts/dev_deploy.py \
 1. 干净且 HEAD 精确匹配的 Git 根目录；
 2. 与 Manifest 完整版本一致、可构造的 allowlisted source bundle；
 3. 普通、非符号链接、owner/permission 安全且互不重叠的 source/stable/cache/transaction roots；
-4. 操作者从原生状态机械取得的 exact previous version；不按目录时间、版本语义或唯一候选推断。
+4. 操作者从原生状态机械取得的 exact previous version；不按目录时间、版本语义或唯一候选推断；被选中的 previous 必须在调用原生安装前通过精确 runtime bundle 校验。
 
 入口在同一 operation lock 内恢复精确绑定的未完成 transaction，然后：
 
@@ -57,7 +57,7 @@ python3 scripts/dev_deploy.py \
 2. stage 并验证精确 allowlisted bundle；
 3. 用同一 stable parent 内的 rename 原子激活 stable；
 4. 调用原生 `codex plugin add <plugin>@<marketplace>`；
-5. 恢复或复核 exact previous，验证 stable/target runtime digest 与 source digest 一致；
+5. 恢复或复核 exact previous，并再次验证其精确文件集合与原 digest；同时验证 stable/target runtime digest 与 source digest 一致；
 6. 精确保留 target 与可选 previous，只有在全部检查通过后删除更早 compatibility cache 和 transaction。
 
 原生命令失败、target 缺失或摘要不匹配、source/stable 变化、retention 失败都会恢复部署前 stable 与完整 cache 集合。进程在原子切换中断时，下次有写权限的执行只按 transaction manifest 绑定的 staging/backup/recovery path 恢复；存在多个 transaction 或孤立 switch path 时拒绝猜测。

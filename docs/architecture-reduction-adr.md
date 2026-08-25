@@ -144,6 +144,8 @@ strict 仍是协作协议，不是自动风险检测、权限或安全边界。
 
 删除全部 PostToolUse、Stop、SessionEnd，以及通信、followup 和 interrupt 的 PreToolUse。
 
+spawn matcher 与 router 只接受已确认的原生名称 `Agent`、`spawn_agent`、`collaboration.spawn_agent`、`collaborationspawn_agent`；不按 leaf 或后缀匹配第三方工具。未知未来名称按 unmanaged fail-open，只有取得平台真实证据后才扩展 allowlist。
+
 SessionStart 不得创建目录、lock 或空状态，不 cleanup、migrate、rebuild、自动关闭、自动重试、扫描其他 Session 或调用原生工具。SessionStart 未投递不影响 ledger correctness；显式只读 status 命令提供兜底。
 
 自动恢复只覆盖平台继续提供同一 exact session ID 的场景。新 Session identity 不触发跨 Session 扫描或模糊关联；该平台行为仍需真实验证。
@@ -160,9 +162,9 @@ SessionStart 不得创建目录、lock 或空状态，不 cleanup、migrate、re
 - 必要 assets
 - 最小发布材料
 
-tests、CI、improvement plans、validation reports、AGENTS、开发依赖、release preflight、stable sync、installer、installation checker 和 cache 管理工具不进入 runtime bundle。bundle digest 只覆盖 allowlist，开发文档或测试变化不再改变 runtime digest。
+tests、CI、improvement plans、validation reports、AGENTS、开发依赖、release preflight、stable sync、installer、installation checker 和 cache 管理工具不进入 runtime bundle。bundle digest 只覆盖 allowlist，开发文档或测试变化不再改变 runtime digest。runtime facade 必须在导入治理模块前禁写 Python bytecode，确保执行 current/previous 时不会在不可变 bundle 内生成额外文件。
 
-本机开发部署只暴露一个入口，内部完成 allowlisted bundle、staging、digest verification、atomic stable activation、Codex 原生安装、精确 previous compatibility bundle、失败回滚和最终检查。
+本机开发部署只暴露一个入口，内部完成 allowlisted bundle、staging、digest verification、atomic stable activation、Codex 原生安装、精确 previous compatibility bundle、失败回滚和最终检查。被选中的 retained previous 在原生安装前、恢复后与最终 retention 后都必须通过精确 bundle verifier；未被选择的脏 oldest 可以在成功事务末尾淘汰，不能因历史残留永久阻断安全 rollover。
 
 P13 的 exact previous、双版本、digest 和 rollback 原则，以及 P14 的 clean exact HEAD、staging、atomic activation 和 rollback 原则继续保留，但只属于开发测试部署工具，不是 runtime 产品能力。直接处理 Codex 内部 cache 的代码必须明确标记为本机开发测试专用。
 

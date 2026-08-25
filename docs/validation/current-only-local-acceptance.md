@@ -10,10 +10,10 @@
 - allowlisted runtime 与单一开发部署实现：`bc6a61ff0e5aff1fae7cc76cc99ab213607b886b`。
 - cache rollover 二次确认删除：`3a3a66ff8e014a3d56c4e6384704fcb200a2e65b`。
 - missing claim 精确分类修复：`308f28f3fe6a6a0d152f888e9dcdcea79b0f5f65`。
-- 当前 checkout 另含 MultiAgent V2 flattened spawn claim 修复，并已生成本次部署候选的 cachebuster。
-- 当前 manifest 候选版本：`0.4.0-rc.13+codex.20260825062527`。
+- 当前 working-tree 候选另含 Hook 原生工具精确 allowlist、runtime 禁写 bytecode、retained-previous 精确校验及其回归测试；用户已有的 `AGENTS.md` 修改保持原样，不属于本次实现。
+- 当前 manifest 候选版本：`0.4.0-rc.13+codex.20260825073554`。
 - 当前格式精确为 `state_format_version=9` / `state-v9`；TaskContract 为 v2。
-- 本记录只描述开发仓库证据；外部安装与真实平台证据单独记录。当前 V2 修复尚未运行 `dev_deploy.py --execute`。
+- 本记录只描述开发仓库证据；外部安装与真实平台证据单独记录。当前候选尚未提交，工作树同时保留用户已有的 `AGENTS.md` 修改，不满足 `dev_deploy.py --execute` 的 clean exact HEAD admission，也未执行部署。
 
 ## 产品承诺覆盖
 
@@ -25,16 +25,16 @@
 | crash gap | native return 后 confirm 前保持 claimed/unbound；无 retry/list/name/time/final 推断 | passed |
 | 最小 lifecycle | exact bound observation、terminal sender/status/time、interrupt 机械结果、parent close | passed |
 | 非持久事实 | wait 不持久化；normal call success/failed 零写入；unknown 仅最小 reconcile reason | passed |
-| Hook/恢复 | 仅 spawn Pre 与 read-only SessionStart；unmanaged inert fail-open；missing state 零写入 | passed |
+| Hook/恢复 | 仅四个已确认原生 spawn 名称的精确 Pre 与 read-only SessionStart；第三方/未知名称 inert fail-open；missing state 零写入 | passed |
 | 存储安全 | UTF-8 byte limit、owner/permission、symlink/nonregular、capacity、atomic replace、并发 | passed |
-| runtime bundle | 30 文件机器 allowlist；import closure；exact projection；额外文件、symlink、unsafe mode 拒绝 | passed |
-| 开发部署 | clean exact HEAD、dry-run 零写、exact previous、双版本 retention、digest、atomic activation、rollback/interruption recovery | passed |
+| runtime bundle | 30 文件机器 allowlist；import closure；入口导入前禁写 bytecode；exact projection；额外文件、symlink、unsafe mode 拒绝 | passed |
+| 开发部署 | clean exact HEAD、dry-run 零写、selected previous 三阶段精确校验、双版本 retention、digest、atomic activation、rollback/interruption recovery | passed |
 | 删除旧 authority | PreparedContractStore、agents index、Post receipt/index、attempt、pending action、tombstone、Group 与四个旧部署入口不存在 | passed |
 
 ## Runtime projection
 
 - allowlist：`.codex-plugin/runtime-bundle.json`，精确 30 files。
-- 验收 digest：`87a03ff2313cd1635e3730974b7870c4db9285981f70b9cb05ca0b7dc6223972`。
+- 验收 digest：`50e1e2b3b26fd8eec37c4cbe0227a6f796b24028dd328b90a5f0685f590d8fc4`。
 - 独立 temporary staging 的 `verify_runtime_bundle` 与 Plugin validator 均通过。
 - tests、CI、plans、validation、`AGENTS.md`、开发依赖、release preflight、`runtime_bundle.py`、`dev_deploy.py` 均不在 projection。
 - 修改被排除的开发文件不改变 bundle digest；目标树多一个文件即被 exact verifier 拒绝。
@@ -43,9 +43,9 @@
 
 | 命令 | exit | 摘要 |
 | --- | ---: | --- |
-| `python3 -m unittest discover -s tests -v` | 0 | Python 3.9.6，86 tests passed |
-| `python3.11 -m unittest discover -s tests -v` | 0 | Python 3.11.15，86 tests passed |
-| `python3.12 -m unittest discover -s tests -v` | 0 | Python 3.12.13，86 tests passed |
+| `python3 -m unittest discover -s tests -v` | 0 | Python 3.9.6，92 tests passed |
+| `python3.11 -m unittest discover -s tests -v` | 0 | Python 3.11.15，92 tests passed |
+| `python3.12 -m unittest discover -s tests -v` | 0 | Python 3.12.13，92 tests passed |
 | 三版本 `python -m py_compile scripts/*.py` | 0 | passed |
 | `python3 scripts/release_preflight.py --mode development` | 0 | `status=passed` |
 | repository Plugin validator | 0 | passed |
@@ -53,7 +53,7 @@
 | Skill validator | 0 | valid |
 | `git diff --check` | 0 | passed |
 
-`ruff` 与 `coverage` 不在 PATH；本次没有安装，也没有记为通过。测试数量从历史 325 缩到当前 86 是删除旧内部机制锁定测试的结果，不作为单独质量指标。
+`ruff` 与 `coverage` 不在 PATH；本次没有安装，也没有记为通过。测试数量从历史 325 缩到当前 92 是删除旧内部机制锁定测试的结果，不作为单独质量指标。
 
 ## 开发部署事务边界
 
@@ -62,6 +62,7 @@
 - empty/single/two cache admission、显式 previous identity，以及无需二次确认的 `A+B → B+C` 轮换；
 - target cache 预存在时在调用原生命令前拒绝；
 - successful target + exact previous retention，以及 A+B → B+C rollover；
+- selected previous 含额外 bytecode 时在原生命令前拒绝；脏 oldest 未被选择时仍可由成功 rollover 淘汰；
 - 原生命令失败、target digest 错误时恢复部署前 stable 和完整 cache set；
 - stable activation 后中断，以及两次 atomic rename 之间 stable 暂时缺失时的精确 transaction recovery。
 
@@ -72,6 +73,7 @@
 以下项目不由本地验收给出结论：
 
 - 实际 stable activation、Codex runtime cache selection 与 exact previous retention；
+- 已安装历史 previous 中现存的额外 `.pyc` 尚未清理；本地修复不会越权改写该缓存；
 - Hook trust、Codex registration、桌面 UI；其中 Hook trust 的独立平台证据见真实验证记录；
 - 真实 prepare → claim → native spawn → explicit confirm；
 - wait/list observation、terminal、interrupt、close、SessionStart 与 restart/compact。

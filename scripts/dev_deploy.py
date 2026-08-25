@@ -298,6 +298,12 @@ def _select_previous(
     return previous
 
 
+def _verify_previous_bundle(cache_parent: Path, previous: str | None) -> str | None:
+    if previous is None:
+        return None
+    return verify_runtime_bundle(cache_parent / previous)
+
+
 def _switch_paths(stable: Path, transaction_id: str) -> tuple[Path, Path, Path]:
     return (
         stable.parent / f"{STAGING_PREFIX}{transaction_id}",
@@ -537,6 +543,7 @@ def _base_report(
         "target_cache_digest": None,
         "previous_cache_restored": False,
         "retained_previous_version": None,
+        "retained_previous_bundle_digest": None,
         "removed_cache_entries": [],
         "recovered_interrupted_transaction": False,
         "codex_registration_checked": False,
@@ -590,7 +597,9 @@ def deploy(
             previous = _select_previous(
                 pre_caches, previous_version, expected_version,
             )
+            previous_digest = _verify_previous_bundle(cache, previous)
             report["retained_previous_version"] = previous
+            report["retained_previous_bundle_digest"] = previous_digest
             report["state"] = "dry_run_passed"
             return 0, report
 
@@ -606,7 +615,9 @@ def deploy(
             previous = _select_previous(
                 pre_caches, previous_version, expected_version,
             )
+            previous_digest = _verify_previous_bundle(cache, previous)
             report["retained_previous_version"] = previous
+            report["retained_previous_bundle_digest"] = previous_digest
             transaction_id = f"{TRANSACTION_PREFIX}{os.getpid()}-{uuid.uuid4().hex}"
             transaction = transactions / transaction_id
             staging, backup, recovery_path = _switch_paths(stable, transaction_id)
@@ -661,6 +672,14 @@ def deploy(
             report["previous_cache_restored"] = _restore_previous(
                 transaction, cache, previous, pre_caches
             )
+            try:
+                restored_previous_digest = _verify_previous_bundle(cache, previous)
+            except Exception:
+                report["failed_stage"] = "post_install_verification"
+                raise
+            if restored_previous_digest != previous_digest:
+                report["failed_stage"] = "post_install_verification"
+                raise RuntimeError("retained previous runtime bundle digest 不匹配")
             target = cache / expected_version
             if manifest_version(target) != expected_version:
                 raise RuntimeError("target cache Manifest version 不匹配")
@@ -693,6 +712,14 @@ def deploy(
                 if current_previous["digest"] != previous_fact["digest"]:
                     report["failed_stage"] = "cache_retention"
                     raise RuntimeError("retained previous cache digest 不匹配")
+                try:
+                    retained_previous_digest = _verify_previous_bundle(cache, previous)
+                except Exception:
+                    report["failed_stage"] = "cache_retention"
+                    raise
+                if retained_previous_digest != previous_digest:
+                    report["failed_stage"] = "cache_retention"
+                    raise RuntimeError("retained previous runtime bundle 不精确")
 
             _safe_remove_tree(backup, stable.parent, BACKUP_PREFIX, "stable backup")
             shutil.rmtree(transaction)

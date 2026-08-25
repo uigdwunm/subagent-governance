@@ -14,13 +14,25 @@ class PluginStructureTests(unittest.TestCase):
     def test_hook_surface_is_minimal(self):
         hooks = json.loads((ROOT / "hooks/hooks.json").read_text(encoding="utf-8"))["hooks"]
         self.assertEqual(set(hooks), {"PreToolUse", "SessionStart"})
-        self.assertEqual(hooks["PreToolUse"][0]["matcher"], "(^Agent$|.*spawn_agent$)")
+        self.assertEqual(
+            hooks["PreToolUse"][0]["matcher"],
+            r"^(?:Agent|spawn_agent|collaboration\.spawn_agent|collaborationspawn_agent)$",
+        )
         matcher = re.compile(hooks["PreToolUse"][0]["matcher"])
-        for native_name in ("spawn_agent", "collaboration.spawn_agent", "collaborationspawn_agent"):
+        for native_name in (
+            "Agent", "spawn_agent", "collaboration.spawn_agent",
+            "collaborationspawn_agent",
+        ):
             with self.subTest(native_name=native_name):
-                self.assertIsNotNone(matcher.search(native_name))
-        for removed in ("send_message", "followup_task", "interrupt_agent", "list_agents"):
-            self.assertIsNone(matcher.search("collaboration." + removed))
+                self.assertIsNotNone(matcher.fullmatch(native_name))
+        for unrelated in (
+            "thirdparty.spawn_agent", "vendor.collaboration.spawn_agent",
+            "spawn_agent_v2", "prefixspawn_agent", "collaboration.send_message",
+            "collaboration.followup_task", "collaboration.interrupt_agent",
+            "collaboration.list_agents",
+        ):
+            with self.subTest(unrelated=unrelated):
+                self.assertIsNone(matcher.fullmatch(unrelated))
 
     def test_hook_commands_use_thin_entrypoint(self):
         hooks = json.loads((ROOT / "hooks/hooks.json").read_text(encoding="utf-8"))["hooks"]
@@ -31,6 +43,17 @@ class PluginStructureTests(unittest.TestCase):
             for handler in group["hooks"]
         }
         self.assertEqual(commands, {'python3 "$PLUGIN_ROOT/scripts/subagent_governance.py"'})
+
+    def test_runtime_facade_disables_bytecode_before_runtime_imports(self):
+        facade = (ROOT / "scripts" / "subagent_governance.py").read_text(
+            encoding="utf-8"
+        )
+        disable = facade.index("sys.dont_write_bytecode = True")
+        first_runtime_import = min(
+            facade.index("from scripts."),
+            facade.index("from governance_cli"),
+        )
+        self.assertLess(disable, first_runtime_import)
 
     def test_current_schemas_are_v9_and_task_contract_v2(self):
         semantics = json.loads((ROOT / "schemas/governance-semantics.schema.json").read_text(encoding="utf-8"))

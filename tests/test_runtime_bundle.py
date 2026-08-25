@@ -6,6 +6,8 @@ from __future__ import annotations
 import ast
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -101,6 +103,33 @@ class RuntimeBundleTests(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertNotEqual(runtime_bundle.bundle_digest(target), digest)
+
+    def test_runtime_facade_execution_does_not_write_bytecode_into_bundle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            target = temporary / "bundle"
+            data_root = temporary / "data"
+            digest = runtime_bundle.stage_runtime_bundle(ROOT, target)
+            environment = dict(os.environ)
+            environment.pop("PYTHONDONTWRITEBYTECODE", None)
+            environment.pop("PYTHONPYCACHEPREFIX", None)
+            environment["SUBAGENT_GOVERNANCE_DATA"] = str(data_root)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(target / "scripts/subagent_governance.py"),
+                    "--status",
+                    "--session",
+                    "runtime-bytecode-invariance",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((target / "scripts/__pycache__").exists())
+            self.assertEqual(runtime_bundle.verify_runtime_bundle(target), digest)
 
     def test_allowlisted_python_imports_are_closed_over_runtime_modules(self):
         allowed = set(runtime_bundle.runtime_files(ROOT))

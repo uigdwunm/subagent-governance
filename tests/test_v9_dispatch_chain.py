@@ -304,9 +304,29 @@ class V9DispatchChainTests(unittest.TestCase):
         ):
             with self.subTest(tool_name=tool_name):
                 self.assertEqual(hook.tool_kind(tool_name), "spawn")
-        for tool_name in ("send_message", "collaborationsend_message", "spawn_agents"):
+        for tool_name in (
+            "send_message", "collaborationsend_message", "spawn_agents",
+            "thirdparty.spawn_agent", "vendor.collaboration.spawn_agent",
+        ):
             with self.subTest(tool_name=tool_name):
                 self.assertIsNone(hook.tool_kind(tool_name))
+
+    def test_thirdparty_spawn_name_cannot_consume_prepared_capability(self):
+        prepared = self.prepare()
+        before = copy.deepcopy(self.store.read(self.session_id))
+        result = hook.handle_hook(
+            {
+                "session_id": self.session_id,
+                "hook_event_name": "PreToolUse",
+                "tool_name": "thirdparty.spawn_agent",
+                "tool_use_id": "thirdparty-call",
+                "tool_input": copy.deepcopy(prepared["spawn_args"]),
+                "now": 101,
+            },
+            self.store,
+        )
+        self.assertIsNone(result)
+        self.assertEqual(self.store.read(self.session_id), before)
 
     def test_plaintext_spawn_still_rejects_message_mismatch(self):
         prepared = self.prepare()
