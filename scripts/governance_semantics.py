@@ -1,8 +1,4 @@
-"""Machine-readable governance semantics and derived constants.
-
-This module is intentionally data-oriented.  Runtime handlers import these
-values, while the schema remains the single source of truth for semantics.
-"""
+"""Machine-readable constants for the current-only state-v9 runtime."""
 
 from __future__ import annotations
 
@@ -11,10 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-SEMANTICS_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "schemas/governance-semantics.schema.json"
-)
+SEMANTICS_PATH = Path(__file__).resolve().parents[1] / "schemas/governance-semantics.schema.json"
 
 
 def _load_machine_semantics() -> dict[str, Any]:
@@ -33,156 +26,64 @@ MACHINE_SEMANTICS = _load_machine_semantics()
 SEMANTIC_DEFINITIONS = MACHINE_SEMANTICS["$defs"]
 SEMANTIC_RULES = MACHINE_SEMANTICS["x-semantics"]
 
+STATE_FORMAT_VERSION = int(SEMANTIC_RULES["state_format_version"])
+STATE_STORAGE_NAMESPACE = str(SEMANTIC_RULES["state_storage_namespace"])
+TASK_CONTRACT_WIRE_VERSION = int(SEMANTIC_RULES["task_contract_wire_version"])
+TASK_CONTRACT_FIELDS = tuple(SEMANTIC_RULES["task_contract_fields"])
+TASK_CONTRACT_REQUIRED_INPUT_FIELDS = tuple(
+    SEMANTIC_RULES["task_contract_required_input_fields"]
+)
+PROFILES = frozenset(SEMANTIC_RULES["profiles"])
+PHASES = frozenset(SEMANTIC_RULES["phases"])
+TASK_REF_LENGTHS = tuple(int(value) for value in SEMANTIC_RULES["task_ref_lengths"])
+PREPARED_EXPIRY_SECONDS = int(SEMANTIC_RULES["prepared_expiry_seconds"])
 
-def _semantic_values(name: str) -> tuple[str, ...]:
-    definition = SEMANTIC_DEFINITIONS.get(name)
-    values = definition.get("enum") if isinstance(definition, dict) else None
-    if not isinstance(values, list) or not all(
-        isinstance(value, str) for value in values
-    ):
-        raise RuntimeError(f"治理机器语义源中的枚举 {name} 无效")
-    return tuple(values)
-
-
-def _semantic_enum(name: str) -> frozenset[str]:
-    return frozenset(_semantic_values(name))
-
-
-REQUESTED_MODES = _semantic_enum("requested_mode")
-RESOLVED_MODES = _semantic_enum("resolved_mode")
-RESOLUTION_REASONS = _semantic_enum("resolution_reason")
-RISKS = _semantic_enum("risk")
-REASONING_EFFORTS = _semantic_enum("reasoning_effort")
-CONTEXT_STRATEGIES = _semantic_enum("context_strategy")
-OPERATION_TYPES = _semantic_enum("operation_type")
-DISPATCH_STATES = _semantic_enum("dispatch_state")
-OBSERVATION_SOURCES = _semantic_enum("observation_source")
-OBSERVED_STATES = _semantic_enum("observed_state")
-EXECUTION_STATUSES = _semantic_enum("execution_status")
-IDENTITY_STATUSES = _semantic_enum("identity_status")
-PLATFORM_OBSERVATIONS = _semantic_enum("platform_observation")
-PARENT_ACTIONS = _semantic_enum("parent_action")
-PARENT_DISPOSITIONS = _semantic_enum("parent_disposition")
-CALL_OBSERVATIONS = _semantic_enum("call_observation")
-LIFECYCLE_OPERATION_TYPES = _semantic_enum("lifecycle_operation_type")
-_DECISION_ACTION_ORDER = _semantic_values("decision_allowed_action")
-RETRY_LIMITS = dict(SEMANTIC_RULES["retry_limits"])
-RETENTION_SECONDS = dict(SEMANTIC_RULES["retention_seconds"])
-OPERATION_NATIVE_TOOLS = dict(SEMANTIC_RULES["operation_native_tools"])
-AUTO_RESOLUTION = dict(SEMANTIC_RULES["auto_resolution"])
-MODE_MINIMUMS = dict(SEMANTIC_RULES["mode_minimums"])
-CONTEXT_TURNS = dict(SEMANTIC_RULES["context_turns"])
-TASK_CONTRACT_OPTIONAL_FIELDS = tuple(
-    SEMANTIC_RULES["task_contract_optional_fields"]
-)
-DIAGNOSTIC_LIMITS = dict(SEMANTIC_RULES["diagnostic_limits"])
-GROUP_SEMANTICS = dict(SEMANTIC_RULES["group"])
-PLATFORM_OBSERVATION_ADAPTER = dict(
-    SEMANTIC_RULES["platform_observation_adapter"]
-)
-LIST_AGENTS_ACTIVE_STATUSES = frozenset(
-    PLATFORM_OBSERVATION_ADAPTER["active_statuses"]
-)
-LIST_AGENTS_ADVISORY_STATUSES = frozenset(
-    PLATFORM_OBSERVATION_ADAPTER["advisory_statuses"]
-)
-LIST_AGENTS_TERMINAL_STATUSES = frozenset(
-    PLATFORM_OBSERVATION_ADAPTER["terminal_statuses"]
-)
-LIST_AGENTS_ERROR_STATUSES = frozenset(
-    PLATFORM_OBSERVATION_ADAPTER["error_statuses"]
-)
-LIST_AGENTS_BOOLEAN_ERROR_FLAGS = tuple(
-    PLATFORM_OBSERVATION_ADAPTER["boolean_error_flags"]
-)
-LIST_AGENTS_EXPLICIT_ERROR_FIELD = str(
-    PLATFORM_OBSERVATION_ADAPTER["explicit_error_field"]
-)
-LIST_AGENTS_WRAPPER_STATUS_FIELDS = tuple(
-    PLATFORM_OBSERVATION_ADAPTER["wrapper_status_fields"]
-)
-LIST_AGENTS_WRAPPER_ERROR_STATUSES = frozenset(
-    PLATFORM_OBSERVATION_ADAPTER["wrapper_error_statuses"]
-)
-LIST_AGENTS_WRAPPER_STATUS_PARSE_POLICY = str(
-    PLATFORM_OBSERVATION_ADAPTER["wrapper_status_parse_policy"]
-)
-LIST_AGENTS_MALFORMED_WRAPPER_POLICY = str(
-    PLATFORM_OBSERVATION_ADAPTER["malformed_or_explicit_error"]
-)
-if LIST_AGENTS_WRAPPER_STATUS_PARSE_POLICY != "present_must_be_single_native_tag":
-    raise RuntimeError("unsupported list_agents wrapper status parse policy")
-if LIST_AGENTS_MALFORMED_WRAPPER_POLICY != "no_exact_bound_fact":
-    raise RuntimeError("unsupported malformed list_agents wrapper policy")
-PARENT_DISPOSITION_REASON_MAX_LENGTH = int(
-    SEMANTIC_RULES["parent_disposition_reason_max_length"]
-)
-TASK_NAME_DEFINITION = SEMANTIC_DEFINITIONS["task_name"]
-TASK_NAME_PATTERN = str(TASK_NAME_DEFINITION["pattern"])
-TASK_NAME_MAX_LENGTH = int(TASK_NAME_DEFINITION["maxLength"])
-TASK_REF_LENGTHS = tuple(
-    int(value) for value in TASK_NAME_DEFINITION["x-task-ref-lengths"]
-)
-TASK_NAME_RE = re.compile(TASK_NAME_PATTERN)
-
-MAX_HOOK_INPUT_BYTES = 2 * 1024 * 1024
+MAX_HOOK_INPUT_BYTES = int(SEMANTIC_RULES["max_hook_input_bytes"])
 MAX_PREPARED_BYTES = MAX_HOOK_INPUT_BYTES
-NEW_TASK_SOFT_LIMIT_BYTES = 3 * 1024 * 1024
-MAX_STATE_BYTES = 4 * 1024 * 1024
+NEW_TASK_SOFT_LIMIT_BYTES = int(SEMANTIC_RULES["new_task_soft_limit_bytes"])
+MAX_STATE_BYTES = int(SEMANTIC_RULES["max_state_bytes"])
+
+TASK_NAME_MAX_LENGTH = 64
+TASK_NAME_PATTERN = r"^sg_(standard|strict)_([a-z0-9]+(?:_[a-z0-9]+)*)_t_([a-f0-9]{12}|[a-f0-9]{20})$"
+TASK_NAME_RE = re.compile(TASK_NAME_PATTERN)
+REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max", "ultra"})
 MAX_CONTRACT_TEXT = int(SEMANTIC_DEFINITIONS["short_text"]["maxLength"])
+MAX_BUSINESS_TEXT = int(SEMANTIC_DEFINITIONS["nonempty_text"]["maxLength"])
+MAX_TASKS_PER_SESSION = int(
+    SEMANTIC_DEFINITIONS["session_ledger"]["properties"]["tasks"]["maxProperties"]
+)
 SESSION_SUMMARY_RECORD_LIMIT = 8
 SESSION_SUMMARY_CONTEXT_LIMIT = 1800
-SESSION_SUMMARY_FIELD_LIMIT = 96
-STOP_READ_ATTEMPTS = int(SEMANTIC_RULES["stop_read_attempts"])
-STOP_READ_RETRY_DELAY_SECONDS = 0.05
-DIAGNOSTIC_SESSION_LIMIT = int(DIAGNOSTIC_LIMITS["sessions"])
-DIAGNOSTIC_ATTEMPT_LIMIT = int(DIAGNOSTIC_LIMITS["attempts_per_session"])
-DIAGNOSTIC_GROUP_LIMIT = int(DIAGNOSTIC_LIMITS["groups_per_session"])
-DIAGNOSTIC_ISSUE_LIMIT = int(DIAGNOSTIC_LIMITS["issues"])
-DIAGNOSTIC_OUTPUT_BYTES = int(DIAGNOSTIC_LIMITS["output_bytes"])
-GROUP_MEMBER_LIMIT = int(GROUP_SEMANTICS["members_max_items"])
-GROUP_ID_MAX_LENGTH = int(GROUP_SEMANTICS["group_id_max_length"])
-GROUP_OBJECTIVE_MAX_LENGTH = int(GROUP_SEMANTICS["objective_summary_max_length"])
-STATE_FORMAT_VERSION = int(SEMANTIC_RULES["canonical_record"]["state_format_version"])
-STATE_STORAGE_NAMESPACE = f"state-v{STATE_FORMAT_VERSION}"
-REQUIRED_TASK_CONTAINER_FIELDS = frozenset({"managed", "work_item", "executions"})
-REQUIRED_WORK_ITEM_FIELDS = frozenset({"lifecycle", "current_attempt"})
-REQUIRED_EXECUTION_FIELDS = frozenset(
-    {
-        "task_ref",
-        "task_name",
-        "resolved_mode",
-        "contract_summary",
-        "contract_digest",
-        "dispatch_record",
-        "observation_record",
-        "closure_record",
-        "spawn_retry_count",
-        "recovery_count",
-        "updated_at",
-    }
+
+RECONCILE_CODES = frozenset(
+    SEMANTIC_DEFINITIONS["reconcile_fact"]["properties"]["code"]["enum"]
 )
-REQUIRED_DISPATCH_RECORD_FIELDS = frozenset(
-    {"dispatch_state", "tool_use_id", "dispatch_target"}
-)
-REQUIRED_OBSERVATION_RECORD_FIELDS = frozenset(
-    {"source", "observed_state", "observed_at", "terminal_status"}
-)
-REQUIRED_CLOSURE_RECORD_FIELDS = frozenset(
-    {"reason", "closed_at", "parent_action"}
-)
-REQUIRED_PENDING_ACTION_FIELDS = frozenset(
-    {
-        "target",
-        "attempt",
-        "task_ref",
-        "operation_type",
-        "phase",
-        "created_at",
-        "tool_use_id",
-        "claimed_at",
-    }
-)
-REQUIRED_LIFECYCLE_OPERATION_FIELDS = frozenset(
-    {"operation_type", "tool_use_id", "call_observation"}
-)
+
+__all__ = [
+    "MACHINE_SEMANTICS",
+    "MAX_BUSINESS_TEXT",
+    "MAX_CONTRACT_TEXT",
+    "MAX_HOOK_INPUT_BYTES",
+    "MAX_PREPARED_BYTES",
+    "MAX_STATE_BYTES",
+    "MAX_TASKS_PER_SESSION",
+    "NEW_TASK_SOFT_LIMIT_BYTES",
+    "PHASES",
+    "PREPARED_EXPIRY_SECONDS",
+    "PROFILES",
+    "REASONING_EFFORTS",
+    "RECONCILE_CODES",
+    "SEMANTIC_DEFINITIONS",
+    "SEMANTIC_RULES",
+    "SESSION_SUMMARY_CONTEXT_LIMIT",
+    "SESSION_SUMMARY_RECORD_LIMIT",
+    "STATE_FORMAT_VERSION",
+    "STATE_STORAGE_NAMESPACE",
+    "TASK_CONTRACT_FIELDS",
+    "TASK_CONTRACT_REQUIRED_INPUT_FIELDS",
+    "TASK_CONTRACT_WIRE_VERSION",
+    "TASK_NAME_MAX_LENGTH",
+    "TASK_NAME_PATTERN",
+    "TASK_NAME_RE",
+    "TASK_REF_LENGTHS",
+]

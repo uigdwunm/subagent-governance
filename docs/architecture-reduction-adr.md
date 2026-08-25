@@ -3,7 +3,7 @@
 - 状态：Accepted
 - 日期：2026-08-25
 - 适用范围：下一轮架构收口与验收
-- 实施状态：尚未实施；当前运行代码仍以 `docs/architecture.md` 为准
+- 实施状态：实施中；state-v9 / TaskContract v2 / prepare→claim→explicit confirm 第一纵向切片已落地，当前运行边界以 `docs/architecture.md` 为准
 
 ## 背景
 

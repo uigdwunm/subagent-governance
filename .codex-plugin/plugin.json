@@ -1,7 +1,7 @@
 {
   "name": "subagent-governance",
   "version": "0.4.0-rc.13+codex.20260825004015",
-  "description": "Codex-first lifecycle governance for native subagents",
+  "description": "Codex-first minimal lifecycle governance for native subagents",
   "author": {
     "name": "zhaolaiyuan"
   },
@@ -17,14 +17,14 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "\u5b50 Agent \u6cbb\u7406",
-    "shortDescription": "\u5206\u7ea7\u589e\u5f3a\u5b50 Agent \u7684\u6d3e\u53d1\u3001\u7b49\u5f85\u3001\u6062\u590d\u548c\u751f\u547d\u5468\u671f\u5173\u95ed",
-    "longDescription": "Codex-first lifecycle governance for native subagents, with task contracts, context handoff, deterministic dispatch identity, ordered waiting, bounded recovery, terminal-notification tracking, lifecycle closure, and read-only diagnostics.",
+    "shortDescription": "\u4ee5\u5355\u4e00 ledger \u7ba1\u7406\u539f\u751f\u5b50 Agent \u6d3e\u53d1\u4e0e exact target",
+    "longDescription": "Codex-first minimal lifecycle governance for native subagents, with TaskContract v2, one current-only Session ledger, atomic governed-spawn claim, explicit exact-target confirmation, and read-only recovery summaries.",
     "developerName": "zhaolaiyuan",
     "category": "Developer Tools",
     "capabilities": [
       "Hooks",
       "Skills"
     ],
-    "defaultPrompt": "\u4f7f\u7528 $subagent-governance \u4e3a\u5f53\u524d\u5b50 Agent \u4efb\u52a1\u9009\u62e9\u5408\u9002\u7684\u6cbb\u7406\u7b49\u7ea7\uff0c\u5e76\u751f\u6210\u53ef\u9a8c\u8bc1\u7684\u6d3e\u53d1\u5951\u7ea6\u3002"
+    "defaultPrompt": "\u4f7f\u7528 $subagent-governance \u4e3a\u5f53\u524d\u5b50 Agent \u751f\u6210 TaskContract v2\uff0c\u5e76\u6309\u539f\u751f\u8fd4\u56de\u786e\u8ba4 exact target\u3002"
   }
 }

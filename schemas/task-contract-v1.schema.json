@@ -1,5 +1,0 @@
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "subagent-governance/task-contract",
-  "$ref": "governance-semantics.schema.json#/$defs/task_contract"
-}

@@ -1,4 +1,4 @@
-"""TaskContract parsing, validation, canonical serialization, and digest."""
+"""TaskContract v2 normalization, validation, and separated digests."""
 
 from __future__ import annotations
 
@@ -11,196 +11,156 @@ from typing import Any
 
 try:
     from scripts.governance_context import validate_context_manifest
-    from scripts.governance_dispatch_identity import normalize_semantic_name
     from scripts.governance_semantics import (
-        AUTO_RESOLUTION, CONTEXT_STRATEGIES, CONTEXT_TURNS, MODE_MINIMUMS,
-        REASONING_EFFORTS, REQUESTED_MODES, RESOLUTION_REASONS, RESOLVED_MODES,
-        RISKS, SEMANTIC_DEFINITIONS, SEMANTIC_RULES, TASK_CONTRACT_OPTIONAL_FIELDS,
+        MAX_BUSINESS_TEXT, MAX_CONTRACT_TEXT, PROFILES, REASONING_EFFORTS,
+        TASK_CONTRACT_FIELDS,
     )
-    from scripts.governance_validation import required_fields, validate_text, validate_text_list
 except ModuleNotFoundError:
     from governance_context import validate_context_manifest
-    from governance_dispatch_identity import normalize_semantic_name
-    from governance_semantics import (
-        AUTO_RESOLUTION, CONTEXT_STRATEGIES, CONTEXT_TURNS, MODE_MINIMUMS,
-        REASONING_EFFORTS, REQUESTED_MODES, RESOLUTION_REASONS, RESOLVED_MODES,
-        RISKS, SEMANTIC_DEFINITIONS, SEMANTIC_RULES, TASK_CONTRACT_OPTIONAL_FIELDS,
-    )
-    from governance_validation import required_fields, validate_text, validate_text_list
-
-
-@dataclass(frozen=True)
-class TaskFeatures:
-    risk: str
-    read_only: bool
-    writes_files: bool
-    destructive: bool
-    production: bool
-    concurrent_write: bool
-
-    def to_record(self) -> dict[str, Any]:
-        return {
-            "risk": self.risk,
-            "read_only": self.read_only,
-            "writes_files": self.writes_files,
-            "destructive": self.destructive,
-            "production": self.production,
-            "concurrent_write": self.concurrent_write,
-        }
+    from governance_semantics import MAX_BUSINESS_TEXT, MAX_CONTRACT_TEXT, PROFILES, REASONING_EFFORTS, TASK_CONTRACT_FIELDS
 
 
 @dataclass(frozen=True)
 class TaskContract:
-    semantic_name: str
-    requested_mode: str
-    resolved_mode: str
-    resolution_reason: str
-    task_features: dict[str, Any] | None
+    profile: str
     objective: str
-    background: str
-    work_scope: list[str]
+    scope: list[str]
     forbidden_scope: list[str]
-    completion_conditions: list[str]
-    evidence_requirements: list[str]
-    relevant_files: list[str]
-    context_manifest: dict[str, Any]
-    current_state: str | None
-    model: str | None
-    reasoning_effort: str | None
-    context_strategy: str
-    context_turns: int | None
-    context_reason: str | None
+    completion: list[str]
+    evidence: list[str]
+    context: dict[str, Any]
+    spawn: dict[str, Any]
 
     def to_record(self) -> dict[str, Any]:
         return {
-            "semantic_name": self.semantic_name,
-            "requested_mode": self.requested_mode,
-            "resolved_mode": self.resolved_mode,
-            "resolution_reason": self.resolution_reason,
-            "task_features": self.task_features,
+            "profile": self.profile,
             "objective": self.objective,
-            "background": self.background,
-            "work_scope": list(self.work_scope),
+            "scope": list(self.scope),
             "forbidden_scope": list(self.forbidden_scope),
-            "completion_conditions": list(self.completion_conditions),
-            "evidence_requirements": list(self.evidence_requirements),
-            "relevant_files": list(self.relevant_files),
-            "context_manifest": copy.deepcopy(self.context_manifest),
-            "current_state": self.current_state,
-            "model": self.model,
-            "reasoning_effort": self.reasoning_effort,
-            "context_strategy": self.context_strategy,
-            "context_turns": self.context_turns,
-            "context_reason": self.context_reason,
+            "completion": list(self.completion),
+            "evidence": list(self.evidence),
+            "context": copy.deepcopy(self.context),
+            "spawn": copy.deepcopy(self.spawn),
         }
 
+    def business_record(self) -> dict[str, Any]:
+        value = self.to_record()
+        value.pop("spawn")
+        return value
 
-def validate_task_features(value: Any, *, required: bool) -> list[str]:
-    if value is None:
-        return ["缺少字段 task_features"] if required else []
-    if isinstance(value, TaskFeatures):
-        value = value.to_record()
-    if not isinstance(value, dict):
-        return ["字段 task_features 必须是对象或 null"]
-    fields = list(SEMANTIC_DEFINITIONS["task_features"]["required"])
-    errors = required_fields(value, fields)
-    if value.get("risk") not in RISKS:
-        errors.append("字段 task_features.risk 必须是 low、medium 或 high")
-    for field_name in fields[1:]:
-        if not isinstance(value.get(field_name), bool):
-            errors.append(f"字段 task_features.{field_name} 必须是布尔值")
-    if value.get("read_only") is True and value.get("writes_files") is True:
-        errors.append("task_features.read_only=true 与 writes_files=true 机械矛盾")
+
+def _text(value: Any, field: str, *, maximum: int) -> list[str]:
+    if not isinstance(value, str):
+        return [f"字段 {field} 必须是字符串"]
+    if not value.strip():
+        return [f"字段 {field} 不能为空"]
+    if value != value.strip():
+        return [f"字段 {field} 不能包含首尾空白"]
+    if len(value) > maximum:
+        return [f"字段 {field} 长度不能超过 {maximum}"]
+    return []
+
+
+def _text_list(value: Any, field: str, *, minimum: int = 0) -> list[str]:
+    if not isinstance(value, list):
+        return [f"字段 {field} 必须是数组"]
+    errors: list[str] = []
+    if len(value) < minimum:
+        errors.append(f"字段 {field} 至少需要 {minimum} 项")
+    if len(value) > 64:
+        errors.append(f"字段 {field} 不能超过 64 项")
+    for index, item in enumerate(value):
+        errors.extend(_text(item, f"{field}[{index}]", maximum=MAX_CONTRACT_TEXT))
     return errors
 
 
-def resolve_governance_mode(requested_mode: str, task_features: dict[str, Any] | TaskFeatures | None = None) -> tuple[str, str]:
-    if requested_mode not in REQUESTED_MODES:
-        raise ValueError("requested_mode 必须是 auto、light、standard 或 strict")
-    if requested_mode in RESOLVED_MODES:
-        return requested_mode, "explicit_request"
-    errors = validate_task_features(task_features, required=True)
-    if errors:
-        raise ValueError("；".join(errors))
-    features = task_features.to_record() if isinstance(task_features, TaskFeatures) else task_features
-    assert isinstance(features, dict)
-    if features.get("risk") in AUTO_RESOLUTION["strict_risks"] or any(features.get(field_name) is True for field_name in AUTO_RESOLUTION["strict_true_fields"]):
-        return "strict", "auto_strict"
-    if all(features.get(field_name) == expected for field_name, expected in AUTO_RESOLUTION["light_match"].items()):
-        return "light", "auto_light"
-    return "standard", "auto_standard"
+def _validate_paths(value: Any) -> list[str]:
+    errors = _text_list(value, "context.paths")
+    if not isinstance(value, list):
+        return errors
+    seen: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or _text(item, f"context.paths[{index}]", maximum=1000):
+            continue
+        parts = item.split("/")
+        if item.startswith("/") or "\\" in item or any(
+            part in {"", ".", ".."} for part in parts
+        ) or any(ord(character) < 32 for character in item):
+            errors.append(f"字段 context.paths[{index}] 必须是规范 POSIX 相对路径")
+        if item in seen:
+            errors.append(f"字段 context.paths[{index}] 不能重复")
+        seen.add(item)
+    return errors
 
 
 def validate_task_contract(value: Any) -> list[str]:
-    required = [field for field in SEMANTIC_RULES["task_contract_fields"] if field not in TASK_CONTRACT_OPTIONAL_FIELDS]
-    errors = required_fields(value, required)
+    if isinstance(value, TaskContract):
+        value = value.to_record()
     if not isinstance(value, dict):
-        return errors
-    unknown = sorted(set(value) - set(SEMANTIC_RULES["task_contract_fields"]))
+        return ["TaskContract v2 必须是对象"]
+    required = set(TASK_CONTRACT_FIELDS)
+    missing = sorted(required - set(value))
+    unknown = sorted(set(value) - required)
+    errors = [f"缺少字段 {field}" for field in missing]
     if unknown:
-        errors.append("TaskContract 包含未知字段 " + "、".join(unknown))
-    semantic_name = value.get("semantic_name")
-    semantic_definition = SEMANTIC_DEFINITIONS["semantic_name"]
-    errors.extend(validate_text(semantic_name, "semantic_name", maximum=int(semantic_definition["maxLength"])))
-    if isinstance(semantic_name, str) and not re.fullmatch(semantic_definition["pattern"], semantic_name):
-        errors.append("字段 semantic_name 只能使用小写字母、数字和单个下划线分隔")
-    requested_mode, resolved_mode, resolution_reason = value.get("requested_mode"), value.get("resolved_mode"), value.get("resolution_reason")
-    if requested_mode not in REQUESTED_MODES:
-        errors.append("字段 requested_mode 枚举无效")
-    if resolved_mode not in RESOLVED_MODES:
-        errors.append("字段 resolved_mode 枚举无效")
-    if resolution_reason not in RESOLUTION_REASONS:
-        errors.append("字段 resolution_reason 枚举无效")
-    features = value.get("task_features")
-    errors.extend(validate_task_features(features, required=True))
-    if requested_mode in RESOLVED_MODES:
-        if resolved_mode != requested_mode:
-            errors.append("显式 requested_mode 的 resolved_mode 必须与请求值相同")
-        if resolution_reason != "explicit_request":
-            errors.append("显式 requested_mode 的 resolution_reason 必须是 explicit_request")
-    elif requested_mode == "auto" and not validate_task_features(features, required=True):
-        try:
-            expected_mode, expected_reason = resolve_governance_mode("auto", features)
-        except ValueError:
-            pass
-        else:
-            if resolved_mode != expected_mode:
-                errors.append(f"auto 解析后的 resolved_mode 必须是 {expected_mode}")
-            if resolution_reason != expected_reason:
-                errors.append(f"auto 解析后的 resolution_reason 必须是 {expected_reason}")
-    business_maximum = int(SEMANTIC_DEFINITIONS["business_text"]["maxLength"])
-    errors.extend(validate_text(value.get("objective"), "objective", maximum=business_maximum))
-    errors.extend(validate_text(value.get("background"), "background", maximum=business_maximum))
-    errors.extend(validate_text_list(value.get("work_scope"), "work_scope", minimum=1))
-    mode_minimums = MODE_MINIMUMS.get(str(resolved_mode), {})
-    errors.extend(validate_text_list(value.get("forbidden_scope"), "forbidden_scope", minimum=int(mode_minimums.get("forbidden_scope", 0))))
-    errors.extend(validate_text_list(value.get("completion_conditions"), "completion_conditions", minimum=1))
-    errors.extend(validate_text_list(value.get("evidence_requirements"), "evidence_requirements", minimum=int(mode_minimums.get("evidence_requirements", 0))))
-    errors.extend(validate_text_list(value.get("relevant_files"), "relevant_files"))
-    errors.extend(validate_context_manifest(value.get("context_manifest")))
-    errors.extend(validate_text(value.get("current_state"), "current_state", maximum=business_maximum, nullable=True))
-    if "model" in value:
-        errors.extend(validate_text(value.get("model"), "model", maximum=int(SEMANTIC_DEFINITIONS["model"]["maxLength"]), nullable=True))
-    if "reasoning_effort" in value:
-        effort = value.get("reasoning_effort")
+        errors.append("TaskContract v2 unknown fields: " + "、".join(unknown))
+    if missing:
+        return errors
+
+    profile = value.get("profile")
+    if profile not in PROFILES:
+        errors.append("字段 profile 必须是 standard 或 strict")
+    errors.extend(_text(value.get("objective"), "objective", maximum=MAX_BUSINESS_TEXT))
+    errors.extend(_text_list(value.get("scope"), "scope", minimum=1))
+    errors.extend(_text_list(value.get("forbidden_scope"), "forbidden_scope"))
+    errors.extend(_text_list(value.get("completion"), "completion", minimum=1))
+    errors.extend(_text_list(value.get("evidence"), "evidence"))
+    if profile == "strict":
+        if not value.get("forbidden_scope"):
+            errors.append("strict profile 要求非空 forbidden_scope")
+        if not value.get("evidence"):
+            errors.append("strict profile 要求非空 evidence")
+
+    context = value.get("context")
+    if not isinstance(context, dict):
+        errors.append("字段 context 必须是对象")
+    else:
+        context_fields = {"summary", "paths", "verified"}
+        context_unknown = sorted(set(context) - context_fields)
+        context_missing = sorted(context_fields - set(context))
+        if context_unknown:
+            errors.append("context unknown fields: " + "、".join(context_unknown))
+        errors.extend(f"context 缺少字段 {field}" for field in context_missing)
+        summary = context.get("summary")
+        if not isinstance(summary, str) or len(summary) > MAX_BUSINESS_TEXT:
+            errors.append(f"字段 context.summary 必须是长度不超过 {MAX_BUSINESS_TEXT} 的字符串")
+        errors.extend(_validate_paths(context.get("paths")))
+        verified = context.get("verified")
+        if verified is not None:
+            verification_errors = validate_context_manifest(verified)
+            errors.extend(f"context.verified: {error}" for error in verification_errors)
+            if isinstance(verified, dict) and verified.get("mode") != "declared":
+                errors.append("context.verified 只接受 declared verified materials")
+
+    spawn = value.get("spawn")
+    if not isinstance(spawn, dict):
+        errors.append("字段 spawn 必须是对象")
+    else:
+        spawn_fields = {"fork_turns", "model", "reasoning_effort"}
+        spawn_unknown = sorted(set(spawn) - spawn_fields)
+        spawn_missing = sorted(spawn_fields - set(spawn))
+        if spawn_unknown:
+            errors.append("spawn unknown fields: " + "、".join(spawn_unknown))
+        errors.extend(f"spawn 缺少字段 {field}" for field in spawn_missing)
+        fork_turns = spawn.get("fork_turns")
+        if not isinstance(fork_turns, str) or re.fullmatch(r"(?:none|all|[1-9][0-9]*)", fork_turns) is None:
+            errors.append("字段 spawn.fork_turns 必须是 none、all 或正整数字符串")
+        model = spawn.get("model")
+        if model is not None:
+            errors.extend(_text(model, "spawn.model", maximum=MAX_CONTRACT_TEXT))
+        effort = spawn.get("reasoning_effort")
         if effort is not None and effort not in REASONING_EFFORTS:
-            errors.append("字段 reasoning_effort 枚举无效")
-    strategy, turns, reason = value.get("context_strategy"), value.get("context_turns"), value.get("context_reason")
-    if strategy not in CONTEXT_STRATEGIES:
-        errors.append("字段 context_strategy 枚举无效")
-    if strategy == "isolated":
-        if turns is not None:
-            errors.append("context_strategy=isolated 时 context_turns 必须是 null")
-        errors.extend(validate_text(reason, "context_reason", maximum=business_maximum, nullable=True))
-    elif strategy == "limited":
-        minimum, maximum = int(CONTEXT_TURNS["minimum"]), int(CONTEXT_TURNS["maximum"])
-        if isinstance(turns, bool) or not isinstance(turns, int) or not minimum <= turns <= maximum:
-            errors.append(f"context_strategy=limited 时 context_turns 必须是 {minimum} 至 {maximum} 的整数")
-        errors.extend(validate_text(reason, "context_reason", maximum=business_maximum))
-    elif strategy == "full":
-        if turns is not None:
-            errors.append("context_strategy=full 时 context_turns 必须是 null")
-        errors.extend(validate_text(reason, "context_reason", maximum=business_maximum))
+            errors.append("字段 spawn.reasoning_effort 枚举无效")
     return errors
 
 
@@ -210,36 +170,46 @@ def contract_from_input(value: Any) -> TaskContract:
     elif isinstance(value, dict):
         raw = copy.deepcopy(value)
     else:
-        raise ValueError("TaskContract 输入必须是对象")
-    unknown = sorted(set(raw) - set(SEMANTIC_RULES["task_contract_fields"]))
+        raise ValueError("TaskContract v2 输入必须是对象")
+    unknown = sorted(set(raw) - set(TASK_CONTRACT_FIELDS))
     if unknown:
-        raise ValueError("TaskContract 包含未知字段 " + "、".join(unknown))
-    raw["semantic_name"] = normalize_semantic_name(raw.get("semantic_name"))
-    features = raw.get("task_features")
-    if isinstance(features, TaskFeatures):
-        features = features.to_record()
-        raw["task_features"] = features
-    resolved_mode, resolution_reason = resolve_governance_mode(raw.get("requested_mode"), features)
-    if raw.get("resolved_mode") is not None and raw["resolved_mode"] != resolved_mode:
-        raise ValueError(f"resolved_mode 必须由生成器解析为 {resolved_mode}")
-    if raw.get("resolution_reason") is not None and raw["resolution_reason"] != resolution_reason:
-        raise ValueError(f"resolution_reason 必须由生成器解析为 {resolution_reason}")
-    raw["resolved_mode"], raw["resolution_reason"] = resolved_mode, resolution_reason
+        raise ValueError("TaskContract v2 unknown fields: " + "、".join(unknown))
+
+    raw.setdefault("profile", "standard")
+    raw.setdefault("forbidden_scope", [])
+    raw.setdefault("evidence", [])
+    raw.setdefault("context", {})
+    raw.setdefault("spawn", {})
+    if isinstance(raw["context"], dict):
+        raw["context"].setdefault("summary", "")
+        raw["context"].setdefault("paths", [])
+        raw["context"].setdefault("verified", None)
+    if isinstance(raw["spawn"], dict):
+        raw["spawn"].setdefault("fork_turns", "none")
+        raw["spawn"].setdefault("model", None)
+        raw["spawn"].setdefault("reasoning_effort", None)
+
     errors = validate_task_contract(raw)
     if errors:
         raise ValueError("；".join(errors))
-    return TaskContract(**{field: raw.get(field) for field in TaskContract.__dataclass_fields__})
+    return TaskContract(**{field: raw[field] for field in TASK_CONTRACT_FIELDS})
 
 
-def contract_summary(contract: TaskContract) -> dict[str, Any]:
-    return {"objective": contract.objective, "model": contract.model}
-
-
-def contract_digest(contract: TaskContract) -> str:
-    encoded = json.dumps(contract.to_record(), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+def _digest(value: dict[str, Any]) -> str:
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
-_validate_task_features = validate_task_features
-_contract_from_input = contract_from_input
-_contract_summary = contract_summary
+def contract_digest(contract: TaskContract) -> str:
+    return _digest(contract.business_record())
+
+
+def spawn_digest(contract: TaskContract) -> str:
+    return _digest(contract.spawn)
+
+
+def contract_summary(contract: TaskContract) -> dict[str, str]:
+    return {"profile": contract.profile, "objective": contract.objective}
+
+
+__all__ = ["TaskContract", "contract_digest", "contract_from_input", "contract_summary", "spawn_digest", "validate_task_contract"]

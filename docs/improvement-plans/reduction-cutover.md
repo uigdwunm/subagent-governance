@@ -1,6 +1,6 @@
 # Subagent Governance reduction cutover
 
-- 状态：Accepted plan，尚未实施
+- 状态：Accepted plan，实施中（第一纵向切片）
 - 日期：2026-08-25
 - 决策来源：`docs/architecture-reduction-adr.md`
 - 实施方式：新的 `codex/` 分支，按本计划顺序完成；不兼容或迁移现有运行状态

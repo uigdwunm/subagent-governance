@@ -1,1233 +1,253 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "subagent-governance/governance-semantics",
-  "title": "Subagent Governance machine semantics",
+  "$id": "https://github.com/uigdwunm/subagent-governance/schemas/governance-semantics.schema.json",
+  "title": "Subagent Governance current-only v9 semantics",
   "$defs": {
-    "requested_mode": {
-      "type": "string",
-      "enum": ["auto", "light", "standard", "strict"]
+    "nonempty_text": {"type": "string", "minLength": 1, "maxLength": 8192, "pattern": ".*\\S.*"},
+    "short_text": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": ".*\\S.*"},
+    "nullable_short_text": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/short_text"}]},
+    "timestamp": {"type": "integer", "minimum": 0},
+    "digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "task_ref": {"type": "string", "pattern": "^(?:[a-f0-9]{12}|[a-f0-9]{20})$"},
+    "profile": {"type": "string", "enum": ["standard", "strict"]},
+    "phase": {"type": "string", "enum": ["prepared", "claimed", "bound", "terminal", "closed", "reconcile"]},
+    "reasoning_effort": {"type": ["string", "null"], "enum": [null, "low", "medium", "high", "xhigh", "max", "ultra"]},
+    "fork_turns": {"type": "string", "pattern": "^(?:none|all|[1-9][0-9]*)$", "maxLength": 12},
+    "text_list": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/short_text"}},
+    "context_path_list": {
+      "type": "array", "maxItems": 64, "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 1000, "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)(?!.*//).+\\S$"}
     },
-    "resolved_mode": {
-      "type": "string",
-      "enum": ["light", "standard", "strict"]
-    },
-    "resolution_reason": {
-      "type": "string",
-      "enum": ["explicit_request", "auto_light", "auto_standard", "auto_strict"]
-    },
-    "risk": {
-      "type": "string",
-      "enum": ["low", "medium", "high"]
-    },
-    "reasoning_effort": {
-      "type": "string",
-      "enum": ["low", "medium", "high", "xhigh", "max", "ultra"]
-    },
-    "context_strategy": {
-      "type": "string",
-      "enum": ["isolated", "limited", "full"]
-    },
-    "context_turns": {
-      "type": ["integer", "null"],
-      "minimum": 1,
-      "maximum": 100
-    },
-    "operation_type": {
-      "type": "string",
-      "enum": ["normal_message", "platform_recovery", "business_resume"]
-    },
-    "dispatch_state": {
-      "type": "string",
-      "enum": ["prepared", "claimed", "acknowledged", "rejected", "indeterminate"]
-    },
-    "observation_source": {
-      "type": "string",
-      "enum": [
-        "list_agents", "terminal_notification", "session"
-      ]
-    },
-    "observed_state": {
-      "type": "string",
-      "enum": ["not_observed", "active", "terminal", "absent_at_check", "error", "unknown"]
-    },
-    "execution_status": {
-      "type": "string",
-      "enum": ["not_started", "running", "stopped", "interrupted"]
-    },
-    "spawn_observation": {
-      "type": "string",
-      "enum": ["success", "failed", "unknown"]
-    },
-    "identity_status": {
-      "type": "string",
-      "enum": ["unconfirmed", "confirmed"]
-    },
-    "platform_observation": {
-      "type": "string",
-      "enum": ["normal", "error", "unknown"]
-    },
-    "parent_action": {
-      "type": "string",
-      "enum": [
-        "wait",
-        "reconcile",
-        "retry_spawn",
-        "recover",
-        "decide_disposition",
-        "ask_user"
-      ]
-    },
-    "parent_disposition": {
-      "type": "string",
-      "enum": ["close_task"]
-    },
-    "call_observation": {
-      "type": "string",
-      "enum": ["success", "failed", "unknown"]
-    },
-    "pending_action_phase": {
-      "type": "string",
-      "enum": ["prepared", "claimed"]
-    },
-    "pending_operation_type": {
-      "type": "string",
-      "enum": [
-        "normal_message", "platform_recovery", "business_resume", "interrupt"
-      ]
-    },
-    "lifecycle_operation_type": {
-      "type": "string",
-      "enum": ["platform_recovery", "business_resume", "interrupt"]
-    },
-    "semantic_name": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 64,
-      "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*$"
-    },
-    "task_name": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 64,
-      "pattern": "^sg_(light|standard|strict)_([a-z0-9]+(?:_[a-z0-9]+)*)_t_([a-f0-9]{12}(?:[a-f0-9]{4}){0,5})$",
-      "x-task-ref-lengths": [12, 16, 20, 24, 28, 32]
-    },
-    "task_id": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128,
-      "pattern": "\\S"
-    },
-    "attempt": {
-      "type": "integer",
-      "minimum": 1
-    },
-    "business_text": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 20000,
-      "pattern": "\\S"
-    },
-    "nullable_business_text": {
-      "type": ["string", "null"],
-      "minLength": 1,
-      "maxLength": 20000,
-      "pattern": "\\S"
-    },
-    "short_text": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 600,
-      "pattern": "\\S"
-    },
-    "nullable_short_text": {
-      "type": ["string", "null"],
-      "minLength": 1,
-      "maxLength": 600,
-      "pattern": "\\S"
-    },
-    "model": {
-      "type": ["string", "null"],
-      "minLength": 1,
-      "maxLength": 128,
-      "pattern": "\\S"
-    },
-    "nullable_reasoning_effort": {
-      "anyOf": [
-        {"$ref": "#/$defs/reasoning_effort"},
-        {"type": "null"}
-      ]
-    },
-    "text_list": {
-      "type": "array",
-      "maxItems": 64,
-      "items": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 4000,
-        "pattern": "\\S"
-      }
-    },
-    "task_features": {
-      "type": "object",
-      "required": [
-        "risk",
-        "read_only",
-        "writes_files",
-        "destructive",
-        "production",
-        "concurrent_write"
-      ],
+    "verified_baseline": {
+      "type": "object", "required": ["kind", "revision"],
       "properties": {
-        "risk": {"$ref": "#/$defs/risk"},
-        "read_only": {"type": "boolean"},
-        "writes_files": {"type": "boolean"},
-        "destructive": {"type": "boolean"},
-        "production": {"type": "boolean"},
-        "concurrent_write": {"type": "boolean"}
+        "kind": {"type": "string", "enum": ["working_tree", "git_commit"]},
+        "revision": {"type": ["string", "null"], "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"}
       },
       "additionalProperties": false
     },
-    "context_manifest_mode": {
-      "type": "string",
-      "enum": ["none", "declared"]
-    },
-    "context_baseline_kind": {
-      "type": "string",
-      "enum": ["working_tree", "git_commit"]
-    },
-    "context_path_type": {
-      "type": "string",
-      "enum": ["file", "directory"]
-    },
-    "context_baseline": {
-      "oneOf": [
-        {
-          "type": "object",
-          "required": ["kind", "revision"],
-          "properties": {
-            "kind": {"const": "working_tree"},
-            "revision": {"type": "null"}
-          },
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "required": ["kind", "revision"],
-          "properties": {
-            "kind": {"const": "git_commit"},
-            "revision": {
-              "type": "string",
-              "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
-            }
-          },
-          "additionalProperties": false
-        }
-      ]
-    },
-    "context_required_path": {
-      "type": "object",
-      "required": ["path", "type"],
+    "verified_path_declaration": {
+      "type": "object", "required": ["path", "type"],
       "properties": {
-        "path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 1000,
-          "pattern": "\\S"
-        },
-        "type": {"$ref": "#/$defs/context_path_type"}
+        "path": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "type": {"type": "string", "enum": ["file", "directory"]}
       },
       "additionalProperties": false
     },
-    "context_manifest": {
+    "verified_context": {
+      "type": "object", "required": ["mode", "workspace_root", "baseline", "required_paths"],
+      "properties": {
+        "mode": {"const": "declared"},
+        "workspace_root": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "baseline": {"$ref": "#/$defs/verified_baseline"},
+        "required_paths": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/verified_path_declaration"}}
+      },
+      "additionalProperties": false
+    },
+    "contract_context_input": {
+      "type": "object",
+      "properties": {
+        "summary": {"type": "string", "maxLength": 8192},
+        "paths": {"$ref": "#/$defs/context_path_list"},
+        "verified": {"$ref": "#/$defs/verified_context"}
+      },
+      "additionalProperties": false
+    },
+    "contract_context": {
+      "type": "object", "required": ["summary", "paths", "verified"],
+      "properties": {
+        "summary": {"type": "string", "maxLength": 8192},
+        "paths": {"$ref": "#/$defs/context_path_list"},
+        "verified": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/verified_context"}]}
+      },
+      "additionalProperties": false
+    },
+    "spawn_config_input": {
+      "type": "object",
+      "properties": {
+        "fork_turns": {"$ref": "#/$defs/fork_turns"},
+        "model": {"$ref": "#/$defs/nullable_short_text"},
+        "reasoning_effort": {"$ref": "#/$defs/reasoning_effort"}
+      },
+      "additionalProperties": false
+    },
+    "spawn_config": {
+      "type": "object", "required": ["fork_turns", "model", "reasoning_effort"],
+      "properties": {
+        "fork_turns": {"$ref": "#/$defs/fork_turns"},
+        "model": {"$ref": "#/$defs/nullable_short_text"},
+        "reasoning_effort": {"$ref": "#/$defs/reasoning_effort"}
+      },
+      "additionalProperties": false
+    },
+    "task_contract_input": {
+      "type": "object", "required": ["objective", "scope", "completion"],
+      "properties": {
+        "profile": {"$ref": "#/$defs/profile"},
+        "objective": {"$ref": "#/$defs/nonempty_text"},
+        "scope": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/short_text"}},
+        "forbidden_scope": {"$ref": "#/$defs/text_list"},
+        "completion": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/short_text"}},
+        "evidence": {"$ref": "#/$defs/text_list"},
+        "context": {"$ref": "#/$defs/contract_context_input"},
+        "spawn": {"$ref": "#/$defs/spawn_config_input"}
+      },
+      "allOf": [{
+        "if": {"required": ["profile"], "properties": {"profile": {"const": "strict"}}},
+        "then": {
+          "required": ["forbidden_scope", "evidence"],
+          "properties": {
+            "forbidden_scope": {"type": "array", "minItems": 1},
+            "evidence": {"type": "array", "minItems": 1}
+          }
+        }
+      }],
+      "additionalProperties": false
+    },
+    "task_contract": {
+      "type": "object", "required": ["profile", "objective", "scope", "forbidden_scope", "completion", "evidence", "context", "spawn"],
+      "properties": {
+        "profile": {"$ref": "#/$defs/profile"},
+        "objective": {"$ref": "#/$defs/nonempty_text"},
+        "scope": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/short_text"}},
+        "forbidden_scope": {"$ref": "#/$defs/text_list"},
+        "completion": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/short_text"}},
+        "evidence": {"$ref": "#/$defs/text_list"},
+        "context": {"$ref": "#/$defs/contract_context"},
+        "spawn": {"$ref": "#/$defs/spawn_config"}
+      },
+      "allOf": [{
+        "if": {"properties": {"profile": {"const": "strict"}}},
+        "then": {
+          "properties": {
+            "forbidden_scope": {"type": "array", "minItems": 1},
+            "evidence": {"type": "array", "minItems": 1}
+          }
+        }
+      }],
+      "additionalProperties": false
+    },
+    "context_verification_path": {
       "oneOf": [
         {
-          "type": "object",
-          "required": ["mode"],
-          "properties": {
-            "mode": {"const": "none"}
-          },
+          "type": "object", "required": ["path", "type", "sha256"],
+          "properties": {"path": {"type": "string", "minLength": 1, "maxLength": 1000}, "type": {"const": "file"}, "sha256": {"$ref": "#/$defs/digest"}},
           "additionalProperties": false
         },
         {
-          "type": "object",
-          "required": ["mode", "workspace_root", "baseline", "required_paths"],
-          "properties": {
-            "mode": {"const": "declared"},
-            "workspace_root": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 4000,
-              "pattern": "\\S"
-            },
-            "baseline": {"$ref": "#/$defs/context_baseline"},
-            "required_paths": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 64,
-              "uniqueItems": true,
-              "items": {"$ref": "#/$defs/context_required_path"}
-            }
-          },
-          "allOf": [
-            {
-              "if": {
-                "properties": {
-                  "baseline": {
-                    "properties": {"kind": {"const": "working_tree"}}
-                  }
-                }
-              },
-              "then": {
-                "properties": {
-                  "required_paths": {
-                    "items": {
-                      "properties": {"type": {"const": "file"}}
-                    }
-                  }
-                }
-              }
-            }
-          ],
+          "type": "object", "required": ["path", "type", "object_id"],
+          "properties": {"path": {"type": "string", "minLength": 1, "maxLength": 1000}, "type": {"type": "string", "enum": ["file", "directory"]}, "object_id": {"type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"}},
           "additionalProperties": false
         }
-      ]
-    },
-    "work_item_lifecycle": {
-      "type": "string",
-      "enum": ["open", "tombstoned"]
-    },
-    "task_ref": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{12}(?:[a-f0-9]{4}){0,5}$"
-    },
-    "sha256": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
-    },
-    "timestamp": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "nullable_timestamp": {
-      "anyOf": [
-        {"$ref": "#/$defs/timestamp"},
-        {"type": "null"}
       ]
     },
     "context_verification": {
-      "oneOf": [
-        {
-          "type": "object",
-          "required": ["mode"],
-          "properties": {"mode": {"const": "none"}},
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "required": ["mode", "workspace_root", "baseline", "required_paths"],
-          "properties": {
-            "mode": {"const": "declared"},
-            "workspace_root": {"type": "string", "minLength": 1},
-            "baseline": {"$ref": "#/$defs/context_baseline"},
-            "required_paths": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "object"}}
-          },
-          "additionalProperties": false
-        }
-      ]
-    },
-    "task_contract": {
-      "type": "object",
-      "required": [
-        "semantic_name", "requested_mode", "resolved_mode", "resolution_reason",
-        "task_features", "objective", "background", "work_scope", "forbidden_scope",
-        "completion_conditions", "evidence_requirements", "relevant_files",
-        "context_manifest", "current_state", "model", "reasoning_effort",
-        "context_strategy", "context_turns", "context_reason"
-      ],
+      "type": "object", "required": ["mode", "workspace_root", "baseline", "required_paths"],
       "properties": {
-        "semantic_name": {"$ref": "#/$defs/semantic_name"},
-        "requested_mode": {"$ref": "#/$defs/requested_mode"},
-        "resolved_mode": {"$ref": "#/$defs/resolved_mode"},
-        "resolution_reason": {"$ref": "#/$defs/resolution_reason"},
-        "task_features": {"$ref": "#/$defs/task_features"},
-        "objective": {"$ref": "#/$defs/business_text"},
-        "background": {"$ref": "#/$defs/business_text"},
-        "work_scope": {"$ref": "#/$defs/text_list", "minItems": 1},
-        "forbidden_scope": {"$ref": "#/$defs/text_list"},
-        "completion_conditions": {"$ref": "#/$defs/text_list", "minItems": 1},
-        "evidence_requirements": {"$ref": "#/$defs/text_list"},
-        "relevant_files": {"$ref": "#/$defs/text_list"},
-        "context_manifest": {"$ref": "#/$defs/context_manifest"},
-        "current_state": {"$ref": "#/$defs/nullable_business_text"},
-        "model": {"$ref": "#/$defs/model"},
-        "reasoning_effort": {"$ref": "#/$defs/nullable_reasoning_effort"},
-        "context_strategy": {"$ref": "#/$defs/context_strategy"},
-        "context_turns": {"$ref": "#/$defs/context_turns"},
-        "context_reason": {"$ref": "#/$defs/nullable_business_text"}
-      },
-      "allOf": [
-        {"if": {"properties": {"requested_mode": {"const": "light"}}}, "then": {"properties": {"resolved_mode": {"const": "light"}, "resolution_reason": {"const": "explicit_request"}}}},
-        {"if": {"properties": {"requested_mode": {"const": "standard"}}}, "then": {"properties": {"resolved_mode": {"const": "standard"}, "resolution_reason": {"const": "explicit_request"}}}},
-        {"if": {"properties": {"requested_mode": {"const": "strict"}}}, "then": {"properties": {"resolved_mode": {"const": "strict"}, "resolution_reason": {"const": "explicit_request"}}}},
-        {"if": {"properties": {"resolved_mode": {"const": "standard"}}}, "then": {"properties": {"evidence_requirements": {"minItems": 1}}}},
-        {"if": {"properties": {"resolved_mode": {"const": "strict"}}}, "then": {"properties": {"forbidden_scope": {"minItems": 1}, "evidence_requirements": {"minItems": 1}}}},
-        {"if": {"properties": {"context_strategy": {"const": "isolated"}}}, "then": {"properties": {"context_turns": {"type": "null"}}}},
-        {"if": {"properties": {"context_strategy": {"const": "limited"}}}, "then": {"properties": {"context_turns": {"type": "integer", "minimum": 1, "maximum": 100}, "context_reason": {"type": "string", "minLength": 1}}}},
-        {"if": {"properties": {"context_strategy": {"const": "full"}}}, "then": {"properties": {"context_turns": {"type": "null"}, "context_reason": {"type": "string", "minLength": 1}}}}
-      ],
-      "additionalProperties": false
-    },
-    "initial_rollback_marker": {
-      "type": "object",
-      "required": ["status", "task_ref", "observed_at", "error"],
-      "properties": {
-        "status": {"const": "rollback_incomplete"},
-        "task_ref": {"$ref": "#/$defs/task_ref"},
-        "observed_at": {"$ref": "#/$defs/timestamp"},
-        "error": {"$ref": "#/$defs/short_text"}
+        "mode": {"const": "declared"},
+        "workspace_root": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "baseline": {"$ref": "#/$defs/verified_baseline"},
+        "required_paths": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/context_verification_path"}}
       },
       "additionalProperties": false
     },
-    "health_record": {
-      "type": "object",
-      "required": ["status"],
+    "expected_native_parameters": {
+      "type": "object", "required": ["task_name", "message", "fork_turns", "model", "reasoning_effort"],
       "properties": {
-        "status": {"type": "string", "enum": ["ok", "degraded", "unavailable"]},
-        "initial_preparation_rollback": {"$ref": "#/$defs/initial_rollback_marker"}
+        "task_name": {"type": "string", "minLength": 1, "maxLength": 64},
+        "message": {"type": "string", "minLength": 1, "maxLength": 65536},
+        "fork_turns": {"$ref": "#/$defs/fork_turns"},
+        "model": {"$ref": "#/$defs/nullable_short_text"},
+        "reasoning_effort": {"$ref": "#/$defs/reasoning_effort"}
       },
       "additionalProperties": false
     },
-    "group_id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "\\S"},
-    "group_member": {
-      "type": "object",
-      "required": ["task_id", "required"],
-      "properties": {"task_id": {"$ref": "#/$defs/task_id"}, "required": {"type": "boolean"}},
-      "additionalProperties": false
-    },
-    "group_record": {
-      "type": "object",
-      "required": ["group_id", "objective_summary", "members"],
+    "prepared_capability": {
+      "type": "object", "required": ["contract", "context_verification", "expected_native_parameters", "spawn_digest", "expires_at"],
       "properties": {
-        "group_id": {"$ref": "#/$defs/group_id"},
-        "objective_summary": {"$ref": "#/$defs/short_text"},
-        "members": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/group_member"}}
-      },
-      "additionalProperties": false
-    },
-    "work_item": {
-      "type": "object",
-      "required": [
-        "lifecycle",
-        "current_attempt"
-      ],
-      "properties": {
-        "objective_summary": false,
-        "lifecycle": {"$ref": "#/$defs/work_item_lifecycle"},
-        "current_attempt": {"$ref": "#/$defs/attempt"},
-        "created_at": false,
-        "updated_at": false,
-        "attempt_count": false,
-        "last_disposition": false,
-        "last_parent_disposition": false,
-        "action_required": false
-      },
-      "additionalProperties": false
-    },
-    "contract_summary": {
-      "type": "object",
-      "required": ["objective", "model"],
-      "properties": {
-        "objective": {"$ref": "#/$defs/short_text"},
-        "completion_conditions": false,
-        "model": {"$ref": "#/$defs/model"}
-      },
-      "additionalProperties": false
-    },
-    "dispatch_record": {
-      "type": "object",
-      "required": [
-        "dispatch_state", "tool_use_id", "dispatch_target"
-      ],
-      "properties": {
-        "dispatch_state": {"$ref": "#/$defs/dispatch_state"},
-        "tool_use_id": {"type": ["string", "null"], "minLength": 1},
-        "dispatch_target": {"type": ["string", "null"], "minLength": 1}
-      },
-      "additionalProperties": false
-    },
-    "observation_record": {
-      "type": "object",
-      "required": [
-        "source", "observed_state", "observed_at",
-        "terminal_status"
-      ],
-      "properties": {
-        "subject": false,
-        "source": {
-          "anyOf": [{"$ref": "#/$defs/observation_source"}, {"type": "null"}]
-        },
-        "observed_state": {"$ref": "#/$defs/observed_state"},
-        "observed_at": {"$ref": "#/$defs/nullable_timestamp"},
-        "terminal_status": {
-          "type": ["string", "null"],
-          "enum": [null, "completed", "stopped", "interrupted"]
-        }
-      },
-      "additionalProperties": false,
-      "allOf": [
-        {
-          "if": {"properties": {"observed_state": {"const": "terminal"}}},
-          "then": {"properties": {"terminal_status": {"type": "string"}}}
-        }
-      ]
-    },
-    "closure_record": {
-      "type": "object",
-      "required": [
-        "reason", "closed_at", "parent_action"
-      ],
-      "properties": {
-        "closure_state": false,
-        "reason": {"$ref": "#/$defs/nullable_short_text"},
-        "closed_at": {"$ref": "#/$defs/nullable_timestamp"},
-        "parent_action": {
-          "anyOf": [{"$ref": "#/$defs/parent_action"}, {"type": "null"}]
-        }
-      },
-      "additionalProperties": false,
-      "oneOf": [
-        {
-          "properties": {
-            "reason": {"type": "null"},
-            "closed_at": {"type": "null"}
-          }
-        },
-        {
-          "properties": {
-            "reason": {"$ref": "#/$defs/short_text"},
-            "closed_at": {"$ref": "#/$defs/timestamp"}
-          }
-        }
-      ]
-    },
-    "execution_record": {
-      "type": "object",
-      "required": [
-        "task_ref", "task_name",
-        "resolved_mode",
-        "contract_summary", "contract_digest",
-        "dispatch_record",
-        "observation_record", "closure_record",
-        "spawn_retry_count", "recovery_count",
-        "updated_at"
-      ],
-      "properties": {
-        "managed": false,
-        "task_id": false,
-        "attempt": false,
-        "task_ref": {"$ref": "#/$defs/task_ref"},
-        "task_name": {
-          "anyOf": [
-            {"$ref": "#/$defs/task_name"},
-            {"type": "null"}
-          ]
-        },
-        "resolved_mode": {"$ref": "#/$defs/resolved_mode"},
-        "contract_summary": {"$ref": "#/$defs/contract_summary"},
-        "contract_digest": {"$ref": "#/$defs/sha256"},
-        "dispatch_record": {"$ref": "#/$defs/dispatch_record"},
-        "observation_record": {"$ref": "#/$defs/observation_record"},
-        "closure_record": {"$ref": "#/$defs/closure_record"},
-        "execution_status": false,
-        "spawn_observation": false,
-        "identity_status": false,
-        "platform_observation": false,
-        "recovery_status": false,
-        "parent_action": false,
-        "spawn_retry_count": {"type": "integer", "minimum": 0, "maximum": 2},
-        "recovery_count": {"type": "integer", "minimum": 0, "maximum": 2},
-        "spawn_tool_use_id": false,
-        "spawn_claimed_at": false,
-        "spawn_post_observed_at": false,
-        "spawn_observed_agent_id": false,
-        "spawn_observed_canonical_path": false,
-        "spawn_result_credential_id": false,
-        "agent_id": false,
-        "canonical_task_path": false,
-        "pending_action": {"$ref": "#/$defs/pending_action"},
-        "post_receipt": {"$ref": "#/$defs/post_receipt"},
-        "last_lifecycle_operation": {"$ref": "#/$defs/lifecycle_operation"},
-        "parent_disposition_record": false,
-        "attempt_closed": false,
-        "attempt_close_reason": false,
-        "attempt_closed_at": false,
-        "created_at": false,
-        "updated_at": {"$ref": "#/$defs/timestamp"},
-        "activity_at": false,
-        "terminal_reconciliation_reason": false,
-        "terminal_reconciled_at": false,
-        "reconciliation_reason": false,
-        "reconciled_thread_id": false,
-        "reconciled_thread_status": false,
-        "spawn_close_reason": false,
-        "platform_checked_at": false,
-        "platform_observation_source": false,
-        "platform_observation_summary": false,
-        "platform_observation_target": false,
-        "start_observed_at": false,
-        "parent_disposition": false,
-        "parent_disposition_reason": false,
-        "parent_disposition_at": false,
-        "spawn_not_created": false,
-        "initial_preparation_rollback": {"$ref": "#/$defs/initial_rollback_marker"}
-      },
-      "additionalProperties": false
-    },
-    "post_receipt": {
-      "type": "object",
-      "required": [
-        "session_id", "task_id", "attempt", "task_ref", "target",
-        "expected_tool_use_id", "received_tool_use_id", "id_match",
-        "tool_family", "tool_name_classification", "operation_type", "response_shape",
-        "processing_result", "target_observation", "transition_state", "previous_parent_action", "recorded_at"
-      ],
-      "properties": {
-        "session_id": {"type": "string", "minLength": 1, "maxLength": 4000},
-        "task_id": {"$ref": "#/$defs/task_id"},
-        "attempt": {"$ref": "#/$defs/attempt"},
-        "task_ref": {"$ref": "#/$defs/task_ref"},
-        "target": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S"},
-        "expected_tool_use_id": {"type": "string", "minLength": 1, "maxLength": 1024},
-        "received_tool_use_id": {"type": "string", "minLength": 1, "maxLength": 1024},
-        "id_match": {"const": true},
-        "tool_family": {"type": "string", "enum": ["followup", "communication", "interrupt"]},
-        "tool_name_classification": {"type": "string", "enum": ["recognized", "unrecognized"]},
-        "operation_type": {"$ref": "#/$defs/pending_operation_type"},
-        "response_shape": {"type": "string", "enum": ["empty", "top_level_object", "non_object", "json_decode_failed", "explicit_error"]},
-        "processing_result": {"$ref": "#/$defs/call_observation"},
-        "target_observation": {"type": ["string", "null"], "enum": [null, "previously_running", "not_found", "stopped", "completed", "interrupted", "cancelled", "canceled"]},
-        "transition_state": {"type": "string", "enum": ["receipt_recorded", "transition_failed", "transition_applied"]},
-        "previous_parent_action": {"anyOf": [{"$ref": "#/$defs/parent_action"}, {"type": "null"}]},
-        "recorded_at": {"$ref": "#/$defs/timestamp"}
-      },
-      "additionalProperties": false
-    },
-    "claimed_post_index_record": {
-      "type": "object",
-      "required": ["index_format_version", "session_id", "tool_use_id", "task_id", "attempt", "task_ref", "operation_type", "claimed_at", "expires_at"],
-      "properties": {
-        "index_format_version": {"const": 1},
-        "session_id": {"type": "string", "minLength": 1, "maxLength": 4000},
-        "tool_use_id": {"type": "string", "minLength": 1, "maxLength": 1024},
-        "task_id": {"$ref": "#/$defs/task_id"},
-        "attempt": {"$ref": "#/$defs/attempt"},
-        "task_ref": {"$ref": "#/$defs/task_ref"},
-        "operation_type": {"$ref": "#/$defs/pending_operation_type"},
-        "claimed_at": {"$ref": "#/$defs/timestamp"},
+        "contract": {"$ref": "#/$defs/task_contract"},
+        "context_verification": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/context_verification"}]},
+        "expected_native_parameters": {"$ref": "#/$defs/expected_native_parameters"},
+        "spawn_digest": {"$ref": "#/$defs/digest"},
         "expires_at": {"$ref": "#/$defs/timestamp"}
       },
       "additionalProperties": false
     },
-    "pending_action": {
-      "type": "object",
-      "required": [
-        "target", "attempt", "task_ref", "operation_type", "phase",
-        "created_at", "tool_use_id", "claimed_at"
-      ],
-      "properties": {
-        "target": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S"},
-        "attempt": {"$ref": "#/$defs/attempt"},
-        "task_ref": {"$ref": "#/$defs/task_ref"},
-        "operation_type": {"$ref": "#/$defs/pending_operation_type"},
-        "phase": {"$ref": "#/$defs/pending_action_phase"},
-        "created_at": {"$ref": "#/$defs/timestamp"},
-        "expires_at": false,
-        "tool_use_id": {"type": ["string", "null"], "minLength": 1},
-        "claimed_at": {"$ref": "#/$defs/nullable_timestamp"},
-        "authorized_recovery": {"type": "boolean"},
-        "result_credential_id": false,
-        "resume_contract": {"$ref": "#/$defs/task_contract"},
-        "resume_contract_digest": {"$ref": "#/$defs/sha256"},
-        "resume_context_verification": {"$ref": "#/$defs/context_verification"},
-        "prepared_on_attempt": {"$ref": "#/$defs/attempt"},
-        "disposition": false
-      },
-      "additionalProperties": false,
-      "allOf": [
-        {
-          "if": {
-            "required": ["phase"],
-            "properties": {"phase": {"const": "claimed"}}
-          },
-          "then": {
-            "required": ["tool_use_id", "claimed_at"],
-            "properties": {
-              "tool_use_id": {"type": "string", "minLength": 1},
-              "claimed_at": {"$ref": "#/$defs/timestamp"}
-            }
-          }
-        },
-        {
-          "if": {
-            "required": ["operation_type"],
-            "properties": {"operation_type": {"const": "business_resume"}}
-          },
-          "then": {
-            "required": [
-              "resume_contract", "resume_contract_digest",
-              "resume_context_verification", "prepared_on_attempt"
-            ]
-          }
-        }
-      ]
+    "contract_summary": {
+      "type": "object", "required": ["profile", "objective"],
+      "properties": {"profile": {"$ref": "#/$defs/profile"}, "objective": {"$ref": "#/$defs/nonempty_text"}},
+      "additionalProperties": false
     },
-    "lifecycle_operation": {
-      "type": "object",
-      "required": [
-        "operation_type", "tool_use_id", "call_observation"
-      ],
+    "reconcile_fact": {
+      "type": "object", "required": ["code", "observed_at"],
       "properties": {
-        "operation_type": {"$ref": "#/$defs/lifecycle_operation_type"},
-        "target": false,
-        "tool_use_id": {"type": "string", "minLength": 1},
-        "call_observation": {"$ref": "#/$defs/call_observation"},
-        "target_observation": {"type": "string", "minLength": 1, "maxLength": 128}
+        "code": {"type": "string", "enum": ["dispatch_target_conflict", "dispatch_identity_mismatch", "dispatch_result_unknown", "delivery_unknown", "platform_observation_unknown", "interrupt_unknown"]},
+        "observed_at": {"$ref": "#/$defs/timestamp"}
       },
       "additionalProperties": false
     },
-    "tombstone_record": {
-      "type": "object",
-      "required": ["task_ref", "dispatch_target", "close_reason", "closed_at"],
+    "terminal_fact": {
+      "type": "object", "required": ["source", "status", "observed_at"],
       "properties": {
-        "task_ref": {"$ref": "#/$defs/task_ref"},
-        "dispatch_target": {"type": ["string", "null"], "minLength": 1},
-        "close_reason": {"$ref": "#/$defs/short_text"},
-        "closed_at": {"$ref": "#/$defs/timestamp"}
+        "source": {"type": "string", "enum": ["platform", "notification", "interrupt"]},
+        "status": {"type": "string", "enum": ["completed", "failed", "stopped", "interrupted", "inactive"]},
+        "observed_at": {"$ref": "#/$defs/timestamp"}
       },
       "additionalProperties": false
     },
-    "agent_identity_mapping": {
-      "type": "object",
-      "required": ["task_id", "attempt"],
-      "properties": {
-        "task_id": {"$ref": "#/$defs/task_id"},
-        "attempt": {"$ref": "#/$defs/attempt"}
-      },
+    "prepared_task": {
+      "type": "object", "required": ["task_ref", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "prepared"],
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "phase": {"const": "prepared"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "prepared": {"$ref": "#/$defs/prepared_capability"}},
       "additionalProperties": false
     },
-    "prepared_native_parameters": {
-      "type": "object",
-      "required": ["task_name", "fork_turns", "model", "reasoning_effort"],
-      "properties": {
-        "task_name": {"$ref": "#/$defs/task_name"},
-        "fork_turns": {"type": "string", "minLength": 1},
-        "model": {"$ref": "#/$defs/model"},
-        "reasoning_effort": {"$ref": "#/$defs/nullable_reasoning_effort"}
-      },
+    "claimed_task": {
+      "type": "object", "required": ["task_ref", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "prepared", "claimed_tool_use_id", "claimed_at"],
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "phase": {"const": "claimed"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "prepared": {"$ref": "#/$defs/prepared_capability"}, "claimed_tool_use_id": {"$ref": "#/$defs/short_text"}, "claimed_at": {"$ref": "#/$defs/timestamp"}},
       "additionalProperties": false
     },
-    "prepared_contract": {
-      "type": "object",
-      "required": [
-        "session_id", "task_id", "attempt", "task_ref", "task_name", "resolved_mode",
-        "contract", "contract_digest", "context_verification", "native_parameters",
-        "created_at", "consumed", "tool_use_id", "claimed_at", "post_observed_at",
-        "spawn_retry_count", "dispatch_operation"
-      ],
-      "properties": {
-        "session_id": {"type": "string", "minLength": 1},
-        "task_id": {"$ref": "#/$defs/task_id"},
-        "attempt": {"$ref": "#/$defs/attempt"},
-        "task_ref": {"$ref": "#/$defs/task_ref"},
-        "task_name": {"$ref": "#/$defs/task_name"},
-        "resolved_mode": {"$ref": "#/$defs/resolved_mode"},
-        "contract": {"$ref": "#/$defs/task_contract"},
-        "contract_digest": {"$ref": "#/$defs/sha256"},
-        "context_verification": {"$ref": "#/$defs/context_verification"},
-        "native_parameters": {"$ref": "#/$defs/prepared_native_parameters"},
-        "created_at": {"$ref": "#/$defs/timestamp"},
-        "consumed": {"type": "boolean"},
-        "tool_use_id": {"type": ["string", "null"], "minLength": 1},
-        "claimed_at": {"$ref": "#/$defs/nullable_timestamp"},
-        "post_observed_at": {"$ref": "#/$defs/nullable_timestamp"},
-        "spawn_retry_count": {"type": "integer", "minimum": 0, "maximum": 2},
-        "dispatch_operation": {"type": "string", "enum": ["initial_spawn", "spawn_retry"]}
-      },
-      "allOf": [
-        {"if": {"properties": {"consumed": {"const": true}}}, "then": {"properties": {"tool_use_id": {"type": "string", "minLength": 1}, "claimed_at": {"$ref": "#/$defs/timestamp"}}}},
-        {"if": {"properties": {"dispatch_operation": {"const": "initial_spawn"}}}, "then": {"properties": {"attempt": {"const": 1}, "spawn_retry_count": {"const": 0}}}},
-        {"if": {"properties": {"dispatch_operation": {"const": "spawn_retry"}}}, "then": {"properties": {"spawn_retry_count": {"minimum": 1}}}}
-      ],
+    "bound_task": {
+      "type": "object", "required": ["task_ref", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "target", "bound_at"],
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "phase": {"const": "bound"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}},
       "additionalProperties": false
     },
-    "canonical_task_container": {
-      "type": "object",
-      "required": ["managed", "work_item", "executions"],
-      "properties": {
-        "managed": {"const": true},
-        "work_item": {"$ref": "#/$defs/work_item"},
-        "executions": {
-          "type": "object",
-          "minProperties": 1,
-          "patternProperties": {
-            "^[1-9][0-9]*$": {"$ref": "#/$defs/execution_record"}
-          },
-          "additionalProperties": false
-        },
-        "result_credentials": false
-      },
+    "terminal_task": {
+      "type": "object", "required": ["task_ref", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "target", "bound_at", "terminal_fact"],
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "phase": {"const": "terminal"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}},
       "additionalProperties": false
     },
-    "canonical_state": {
-      "type": "object",
-      "required": [
-        "state_format_version", "session_id", "tasks", "agents", "health",
-        "tombstones", "groups"
-      ],
-      "properties": {
-        "state_format_version": {"const": 8},
-        "session_id": {"type": "string", "minLength": 1},
-        "tasks": {
-          "type": "object",
-          "propertyNames": {"$ref": "#/$defs/task_id"},
-          "additionalProperties": {"$ref": "#/$defs/canonical_task_container"}
-        },
-        "agents": {
-          "type": "object",
-          "additionalProperties": {"$ref": "#/$defs/agent_identity_mapping"}
-        },
-        "health": {"$ref": "#/$defs/health_record"},
-        "tombstones": {
-          "type": "object",
-          "additionalProperties": {"$ref": "#/$defs/tombstone_record"}
-        },
-        "groups": {
-          "type": "object",
-          "propertyNames": {"$ref": "#/$defs/group_id"},
-          "additionalProperties": {"$ref": "#/$defs/group_record"}
-        }
-      },
+    "closed_task": {
+      "type": "object", "required": ["task_ref", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "close_reason", "closed_at"],
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "phase": {"const": "closed"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}, "close_reason": {"$ref": "#/$defs/short_text"}, "closed_at": {"$ref": "#/$defs/timestamp"}},
       "additionalProperties": false
     },
-    "decision_allowed_action": {
-      "type": "string",
-      "enum": [
-        "wait",
-        "reconcile",
-        "retry_spawn",
-        "close_task",
-        "resume_business",
-        "inspect_tombstone"
-      ]
-    },
-    "decision_target": {
-      "type": "object",
-      "required": ["dispatch_target"],
-      "properties": {
-        "dispatch_target": {"type": "string", "minLength": 1}
-      },
+    "reconcile_task": {
+      "type": "object", "required": ["task_ref", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "reconcile"],
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "phase": {"const": "reconcile"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}, "reconcile": {"$ref": "#/$defs/reconcile_fact"}},
       "additionalProperties": false
     },
-    "decision_dispatch_observation": {
-      "type": "object",
-      "required": ["state", "post_observed", "target_bound"],
+    "task_record": {"oneOf": [{"$ref": "#/$defs/prepared_task"}, {"$ref": "#/$defs/claimed_task"}, {"$ref": "#/$defs/bound_task"}, {"$ref": "#/$defs/terminal_task"}, {"$ref": "#/$defs/closed_task"}, {"$ref": "#/$defs/reconcile_task"}]},
+    "session_ledger": {
+      "type": "object", "required": ["state_format_version", "session_id", "tasks"],
       "properties": {
-        "state": {"$ref": "#/$defs/dispatch_state"},
-        "post_observed": {"type": "boolean"},
-        "target_bound": {"type": "boolean"}
-      },
-      "additionalProperties": false
-    },
-    "decision_lifecycle_observation": {
-      "type": "object",
-      "required": ["operation_type", "call_observation"],
-      "properties": {
-        "operation_type": {"$ref": "#/$defs/lifecycle_operation_type"},
-        "call_observation": {"$ref": "#/$defs/call_observation"},
-        "target_observation": {"type": "string", "minLength": 1, "maxLength": 128}
-      },
-      "additionalProperties": false
-    },
-    "decision_post_receipt": {
-      "type": "object",
-      "required": ["recorded_at", "id_match", "tool_family", "tool_name_classification", "operation_type", "response_shape", "processing_result", "target_observation", "transition_state", "previous_parent_action"],
-      "properties": {
-        "recorded_at": {"$ref": "#/$defs/timestamp"},
-        "id_match": {"type": "boolean"},
-        "tool_family": {"type": "string", "enum": ["followup", "communication", "interrupt"]},
-        "tool_name_classification": {"type": "string", "enum": ["recognized", "unrecognized"]},
-        "operation_type": {"$ref": "#/$defs/pending_operation_type"},
-        "response_shape": {"type": "string", "enum": ["empty", "top_level_object", "non_object", "json_decode_failed", "explicit_error"]},
-        "processing_result": {"$ref": "#/$defs/call_observation"},
-        "target_observation": {"type": ["string", "null"], "enum": [null, "previously_running", "not_found", "stopped", "completed", "interrupted", "cancelled", "canceled"]},
-        "transition_state": {"type": "string", "enum": ["receipt_recorded", "transition_failed", "transition_applied"]}
-        ,"previous_parent_action": {"anyOf": [{"$ref": "#/$defs/parent_action"}, {"type": "null"}]}
-      },
-      "additionalProperties": false
-    },
-    "decision_candidate_timestamps": {
-      "type": "object",
-      "properties": {
-        "activity_at": {"$ref": "#/$defs/timestamp"},
-        "platform_checked_at": {"$ref": "#/$defs/timestamp"},
-        "attempt_closed_at": {"$ref": "#/$defs/timestamp"}
-      },
-      "additionalProperties": false
-    },
-    "decision_execution_candidate": {
-      "type": "object",
-      "required": [
-        "attempt", "role", "dispatch", "target", "identity", "execution", "platform",
-        "notification", "last_lifecycle_observation", "post_receipt", "action_required", "timestamps"
-      ],
-      "properties": {
-        "attempt": {"anyOf": [{"$ref": "#/$defs/attempt"}, {"type": "null"}]},
-        "role": {
-          "type": "string",
-          "enum": ["current", "prior", "tombstoned"]
-        },
-        "dispatch": {"$ref": "#/$defs/decision_dispatch_observation"},
-        "target": {
-          "anyOf": [{"$ref": "#/$defs/decision_target"}, {"type": "null"}]
-        },
-        "identity": {
-          "type": "string",
-          "enum": ["confirmed", "unconfirmed", "unknown"]
-        },
-        "execution": {
-          "type": "string",
-          "enum": ["not_started", "running", "stopped", "interrupted", "unknown"]
-        },
-        "platform": {
-          "type": "string",
-          "enum": ["normal", "error", "unknown", "not_checked"]
-        },
-        "notification": {"$ref": "#/$defs/decision_candidate_notification"},
-        "last_lifecycle_observation": {
-          "anyOf": [
-            {"$ref": "#/$defs/decision_lifecycle_observation"},
-            {"type": "null"}
-          ]
-        },
-        "post_receipt": {"anyOf": [{"$ref": "#/$defs/decision_post_receipt"}, {"type": "null"}]},
-        "action_required": {"type": "boolean"},
-        "timestamps": {"$ref": "#/$defs/decision_candidate_timestamps"}
-      },
-      "additionalProperties": false
-    },
-    "decision_candidate_notification": {
-      "type": "object",
-      "required": ["observed", "source", "terminal_status"],
-      "properties": {
-        "observed": {"type": "boolean"},
-        "source": {
-          "anyOf": [{"$ref": "#/$defs/observation_source"}, {"type": "null"}]
-        },
-        "terminal_status": {
-          "type": ["string", "null"],
-          "enum": [null, "completed", "stopped", "interrupted"]
-        }
-      },
-      "additionalProperties": false
-    },
-    "decision_terminal_notification": {
-      "type": "object",
-      "required": ["state", "attempt", "source", "terminal_status"],
-      "properties": {
-        "state": {
-          "type": "string",
-          "enum": ["pending", "observed", "unknown"]
-        },
-        "attempt": {"anyOf": [{"$ref": "#/$defs/attempt"}, {"type": "null"}]},
-        "source": {
-          "anyOf": [{"$ref": "#/$defs/observation_source"}, {"type": "null"}]
-        },
-        "terminal_status": {
-          "type": ["string", "null"],
-          "enum": [null, "completed", "stopped", "interrupted"]
-        }
-      },
-      "additionalProperties": false
-    },
-    "work_item_decision_snapshot": {
-      "type": "object",
-      "required": [
-        "task_id", "objective_summary", "current_attempt", "lifecycle",
-        "action_required", "recent_activity", "execution_candidates",
-        "terminal_notification", "allowed_actions"
-      ],
-      "properties": {
-        "task_id": {"$ref": "#/$defs/task_id"},
-        "objective_summary": {"$ref": "#/$defs/nullable_short_text"},
-        "current_attempt": {"anyOf": [{"$ref": "#/$defs/attempt"}, {"type": "null"}]},
-        "lifecycle": {"type": "string", "enum": ["open", "tombstoned", "indeterminate"]},
-        "action_required": {"type": "boolean"},
-        "recent_activity": {"type": "boolean"},
-        "execution_candidates": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/decision_execution_candidate"}
-        },
-        "terminal_notification": {"$ref": "#/$defs/decision_terminal_notification"},
-        "allowed_actions": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/decision_allowed_action"}
-        }
+        "state_format_version": {"const": 9},
+        "session_id": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "tasks": {"type": "object", "maxProperties": 512, "propertyNames": {"type": "string", "minLength": 1, "maxLength": 256}, "additionalProperties": {"$ref": "#/$defs/task_record"}}
       },
       "additionalProperties": false
     }
   },
   "x-semantics": {
-    "task_contract_fields": [
-      "semantic_name",
-      "requested_mode",
-      "resolved_mode",
-      "resolution_reason",
-      "task_features",
-      "objective",
-      "background",
-      "work_scope",
-      "forbidden_scope",
-      "completion_conditions",
-      "evidence_requirements",
-      "relevant_files",
-      "context_manifest",
-      "current_state",
-      "model",
-      "reasoning_effort",
-      "context_strategy",
-      "context_turns",
-      "context_reason"
-    ],
-    "task_contract_optional_fields": [],
-    "terminal_notification_channel": {
-      "record_entrypoint": "record_terminal_notification_stdin_only",
-      "authority": "parent_with_current_native_child_notification",
-      "sender_binding": "exact_task_attempt_dispatch_target",
-      "scope": ["task_id", "attempt", "sender_target", "terminal_status"],
-      "idempotency": "same_exact_terminal_observation",
-      "conflict_policy": "preserve_first_terminal_observation_and_reconcile",
-      "scans_notification_body": false,
-      "persists_notification_body": false
-    },
-    "platform_observation_adapter": {
-      "source": "post_tool_use_list_agents",
-      "accepted_response_types": ["object", "json_string"],
-      "response_container": "top_level_agents_only",
-      "query_binding": "exact_canonical_path_prefix",
-      "nonempty_binding": "path_prefix_equals_agent_name_equals_unique_dispatch_target",
-      "native_status_shapes": ["string", "single_tag_object"],
-      "active_statuses": ["running"],
-      "advisory_statuses": ["pending_init"],
-      "terminal_statuses": ["completed", "stopped", "interrupted"],
-      "error_statuses": ["errored", "error", "failed"],
-      "boolean_error_flags": ["isError", "is_error"],
-      "explicit_error_field": "error",
-      "wrapper_status_fields": ["status", "state"],
-      "wrapper_error_statuses": ["errored", "error", "failed", "failure"],
-      "wrapper_status_parse_policy": "present_must_be_single_native_tag",
-      "malformed_or_explicit_error": "no_exact_bound_fact",
-      "unbound_warning_reasons": [
-        "missing_exact_path_prefix",
-        "response_shape_unrecognized",
-        "response_reported_error",
-        "ambiguous_target_binding"
-      ],
-      "unbound_warning_persists_fact": false,
-      "canonical_route_rejection_reasons": [
-        "current_identity_ambiguous",
-        "active_index_provenance_mismatch",
-        "closed_provenance_only",
-        "unmanaged_target"
-      ],
-      "canonical_route_rejection_persists_observation": false,
-      "empty_response": "absent_at_check_only",
-      "recursive_content_scan": false,
-      "transcript_summary_final_history_scan": false,
-      "unknown_or_malformed": "no_exact_bound_fact"
-    },
-    "post_tool_receipt": {
-      "post_matcher": "catch_all_testing_only",
-      "unrelated_post_behavior": "inert_without_state_store_or_output",
-      "association": "claimed_pending_tool_use_id_only",
-      "claimed_id_index": "private_current_namespace_exact_session_and_tool_use_id",
-      "claimed_id_index_capacity": 512,
-      "claimed_id_index_expiry_seconds": 1200,
-      "tool_name_classification_codes": ["recognized", "unrecognized"],
-      "per_attempt_retention": "latest_only",
-      "response_shape_codes": ["empty", "top_level_object", "non_object", "json_decode_failed", "explicit_error"],
-      "processing_result_codes": ["success", "failed", "unknown"],
-      "transition_state_codes": ["receipt_recorded", "transition_failed", "transition_applied"],
-      "forbidden_payload_fields": ["message", "contract", "response_values", "child_final", "transcript", "summary"],
-      "write_order": "receipt_persisted_before_reentrant_lifecycle_transition",
-      "write_failure": "fail_open_with_bounded_degraded_reason",
-      "transition_failure": "retain_receipt_claimed_pending_and_reconcile",
-      "duplicate_after_transition": "inert",
-      "operation_type_source": "claimed_pending_only"
-    },
-    "late_event_routing": {
-      "execution_identity": ["task_key", "execution_key", "dispatch_target"],
-      "active_target_mapping_is_authoritative_for_retained_events": false,
-      "terminal_notification_route": "parent_records_exact_sender_target_without_business_payload",
-      "mapping_or_payload_conflict": "unassociated_without_other_attempt_mutation"
-    },
-    "hook_capability_contract": {
-      "contract_path": "schemas/codex-hook-events-v1.contract.json",
-      "source_url": "https://learn.chatgpt.com/docs/hooks",
-      "checked_date": "2026-08-14",
-      "subagent_session_scope": "parent_session",
-      "transcript_correctness_authority": "none",
-      "unknown_subagent_extensions": "ignore_fail_open",
-      "unreliable_parent_stop_state": "advisory_fail_open",
-      "active_freshness_authority": "disabled",
-      "positive_parent_stop_gate": "none",
-      "parent_stop_behavior": "advisory_continue"
-    },
-    "target_lifecycle_admission": {
-      "authority": "canonical_execution_target_provenance",
-      "active_index_role": "repairable_current_lookup_only",
-      "reliable_closed_fact": "attempt_closed=true",
-      "unique_open_retained_candidate": "repair_active_index_inside_state_lock_then_managed",
-      "multiple_open_retained_candidates": "reconcile_fail_closed",
-      "live_index_provenance_conflict": "reconcile_fail_closed",
-      "closed_provenance": "reject_without_reactivation",
-      "no_canonical_provenance": "unmanaged_pass_through",
-      "generator_and_pretool_share_classifier": true,
-      "governed_operation_without_pending": "deny",
-      "pending_owner_must_equal_admission_candidate": true,
-      "business_resume_source_field": "prepared_on_attempt",
-      "resume_delivery_failed_pending_owner": "active_admission_candidate",
-      "stale_pending_claim": "deny_and_preserve_for_reconcile_or_expiry",
-      "normal_message_store_unavailable": "warn_fail_open",
-      "explicit_interrupt_store_unavailable": "warn_fail_open",
-      "implicit_current_attempt_selection": false
-    },
-    "parent_disposition_reason_max_length": 600,
-    "retry_limits": {
-      "spawn": 2,
-      "recovery": 2
-    },
-    "operation_native_tools": {
-      "normal_message": "send_message",
-      "platform_recovery": "followup_task",
-      "business_resume": "followup_task",
-      "interrupt": "interrupt_agent"
-    },
-    "context_turns": {
-      "minimum": 1,
-      "maximum": 100
-    },
-    "auto_resolution": {
-      "strict_risks": ["high"],
-      "strict_true_fields": [
-        "destructive",
-        "production",
-        "concurrent_write"
-      ],
-      "light_match": {
-        "risk": "low",
-        "read_only": true,
-        "writes_files": false
-      }
-    },
-    "mode_minimums": {
-      "light": {"forbidden_scope": 0, "evidence_requirements": 0},
-      "standard": {"forbidden_scope": 0, "evidence_requirements": 1},
-      "strict": {"forbidden_scope": 1, "evidence_requirements": 1}
-    },
-    "retention_seconds": {
-      "prepared_unclaimed": 300,
-      "claimed_reconcile": 1200,
-      "recent_activity": 43200,
-      "tombstone": 604800
-    },
-    "spawn_admission": {
-      "required_work_item_lifecycle": "open",
-      "source_execution_must_be_unclosed": true,
-      "checked_at_preparation_and_claim": true,
-      "claim_persist_then_error_requires_exact_preclaim_restore": true,
-      "claim_restore_requires_exact_postclaim_task_snapshot": true,
-      "claim_pre_callback_failure_requires_exact_preclaim_state_for_reuse": true,
-      "initial_task_binding_source": "deterministic_prepared_contract_rebuild",
-      "initial_task_snapshot_is_duplicated": false,
-      "initial_task_delete_requires_exact_full_post_state": true,
-      "initial_task_delete_precedes_prepared_contract_delete": true,
-      "initial_divergence_retains_task_and_prepared_contract": true,
-      "initial_rollback_incomplete_is_degraded_and_action_required_when_persistable": true,
-      "initial_rollback_marker_cas_predicate": "exact_observed_task_only",
-      "initial_rollback_health_status_order": ["ok", "degraded", "unavailable"],
-      "initial_rollback_health_updates_block_task_marker": false,
-      "initial_rollback_health_marker_replace": "absent_or_existing_observed_at_lte_new",
-      "initial_rollback_invalid_health_facts_are_preserved": true,
-      "initial_task_absent_allows_orphan_prepared_cleanup": true,
-      "claim_rechecks": [
-        "work_item_lifecycle",
-        "source_execution"
-      ],
-      "unclaimed_expiry_seconds": 300,
-      "unsafe_rollback_is_degraded": true
-    },
-    "wait_timeout_ms": 1200000,
-    "stop_read_attempts": 3,
-    "derived_views": {
-      "action_required": {
-        "authority": "canonical_action_required_candidate",
-        "persisted_on_work_item": false,
-        "work_item_aggregation": "any_canonical_candidate",
-        "includes_all_executions": true,
-        "uses_recent_activity_window": false,
-        "primary_rule": "unclosed_parent_action_or_authoritative_call_running_identity",
-        "closed_candidates_are_action_required": false
-      },
-      "recent_activity": {
-        "includes_all_executions": true,
-        "uses_recent_activity_window": true,
-        "authoritative_lifecycle_state": false
-      }
-    },
-    "diagnostic_limits": {
-      "sessions": 128,
-      "attempts_per_session": 256,
-      "groups_per_session": 64,
-      "issues": 256,
-      "output_bytes": 2097152
-    },
-    "work_item_decision_snapshot": {
-      "primary_unit": "work_item",
-      "canonical_sources": ["work_item", "executions"],
-      "canonical_executions_only": true,
-      "read_only": true,
-      "capacity_truncates_complete_work_items": true
-    },
-    "group": {
-      "fields": [
-        "group_id",
-        "objective_summary",
-        "members"
-      ],
-      "member_fields": ["task_id", "required"],
-      "members_max_items": 128,
-      "group_id_max_length": 128,
-      "objective_summary_max_length": 600,
-      "summary_ready_requires_nonempty_required": true,
-      "optional_members_affect_required_aggregates": false,
-      "persists_derived_status": false,
-      "decision_source": "work_item_decision_snapshot",
-      "generates_aggregate_result": false,
-      "schedules_or_cancels_members": false
-    },
-    "canonical_record": {
-      "state_format_version": 8,
-      "task_key": "task_id",
-      "work_item_field": "work_item",
-      "executions_field": "executions",
-      "execution_key": "attempt",
-      "root_fields": ["managed", "work_item", "executions"],
-      "execution_plane_fields": [
-        "dispatch_record", "observation_record", "closure_record"
-      ],
-      "unknown_version_behavior": "reject_without_rewrite"
-    }
+    "state_format_version": 9,
+    "state_storage_namespace": "state-v9",
+    "task_contract_wire_version": 2,
+    "task_contract_fields": ["profile", "objective", "scope", "forbidden_scope", "completion", "evidence", "context", "spawn"],
+    "task_contract_required_input_fields": ["objective", "scope", "completion"],
+    "profiles": ["standard", "strict"],
+    "phases": ["prepared", "claimed", "bound", "terminal", "closed", "reconcile"],
+    "task_ref_lengths": [12, 20],
+    "prepared_expiry_seconds": 300,
+    "max_hook_input_bytes": 2097152,
+    "new_task_soft_limit_bytes": 3145728,
+    "max_state_bytes": 4194304
   }
 }

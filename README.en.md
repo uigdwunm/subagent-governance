@@ -1,97 +1,74 @@
 # Subagent Governance
 
-[简体中文](README.md) | English
+Subagent Governance is a Codex-first lifecycle layer for native subagents. Native Agent tools remain the execution channel; the plugin is not a second orchestrator, permission system, sandbox, or platform trust boundary.
 
-A Codex-first lifecycle governance plugin for native subagents. It keeps the native `spawn_agent`, messaging, waiting, recovery, and interrupt tools while adding explicit task contracts, deterministic dispatch admission, terminal-notification tracking, lifecycle closure, and read-only diagnostics.
+The first reduction slice now provides:
 
-It does not introduce a second orchestrator, define a business-result JSON format, persist result bodies, or replace the parent agent's judgment.
+- strict current-only `state_format_version=9` in `state-v9`;
+- one exact-Session ledger and one native Agent lifecycle per task;
+- TaskContract v2 with `standard|strict` profiles;
+- `prepare-dispatch → governed spawn Pre claim → explicit exact-target confirm`;
+- first-bind-wins, idempotent same-target replay, and reconcile on conflicts;
+- inert unmanaged spawn before StateStore construction;
+- lock-free, zero-write SessionStart/status/diagnose reads.
 
-The contract does not scan or score natural-language content. Every input direction must be present, with `[]` or `null` used explicitly where allowed. Required workspace materials are declared through `context_manifest`; only declared paths, baselines, types, and digests are checked. A `working_tree` baseline accepts file declarations only; directory dependencies use Git tree object IDs under a `git_commit` baseline.
+PreparedContractStore, the agents index, PostToolUse receipts/indexes, attempts, pending actions, tombstones, Groups, business resume, and complex retry/recovery state machines are no longer runtime authorities.
 
-For handoffs outside native `spawn_agent`, pipe the manifest to `python3 scripts/subagent_governance.py --verify-context-manifest` before dispatch. This read-only preflight returns verification facts without creating governance state and cannot hard-intercept `create_thread`.
+This slice does not yet expose persistent platform-observation, terminal-notification, interrupt-result, or parent-close APIs. Wait calls are not persisted, and normal message bodies/history are not stored. See the [reduction ADR](docs/architecture-reduction-adr.md) and [cutover plan](docs/improvement-plans/reduction-cutover.md).
 
-StateStore accepts only strict `state_format_version=8` in the `state-v8` namespace. Root, task, execution, pending, health, tombstone, agent, and group records have closed field sets; missing or mismatched versions, `managed=false`, and unknown persisted fields are rejected without reading, migrating, or deleting legacy `state-v1`, `state-v6`, or `state-v7` data.
+## TaskContract v2
 
-When an initial PreparedContract has been missing for more than five minutes and canonical state still proves the dispatch was never claimed, targeted, observed, or started, SessionStart/SessionEnd closes that unstarted work item into a seven-day tombstone. This does not synthesize completion or a terminal notification; claimed, unknown, concurrently changed, or possibly created Agents remain open for reconciliation.
+```json
+{
+  "profile": "standard",
+  "objective": "Implement one current objective",
+  "scope": ["allowed scope"],
+  "forbidden_scope": [],
+  "completion": ["verifiable completion condition"],
+  "evidence": [],
+  "context": {"summary": "necessary background", "paths": ["scripts/example.py"]},
+  "spawn": {"fork_turns": "none", "model": null, "reasoning_effort": null}
+}
+```
 
-## Capabilities
+`objective`, non-empty `scope`, and non-empty `completion` are required; other fields have mechanical defaults. Strict requires non-empty forbidden scope and evidence. The business digest excludes spawn config. Ordinary paths are location hints; hash/tree verification requires explicit `context.verified` opt-in.
 
-- `light`, `standard`, `strict`, and structured `auto` governance modes
-- Required explicit objectives, task features, scope, completion conditions, model, reasoning effort, and context strategy
-- A `context_manifest` that declares no material dependencies or verifies required paths against a working tree or exact Git commit, then rechecks them before the native call
-- PreparedContract-based dispatch identity and bounded retries
-- Ordered waiting, exact-target platform observations, and limited recovery
-- Explicit normal messaging, platform recovery, business resume, and interrupt reconciliation
-- Three canonical execution planes: dispatch, observation, and closure
-- Minimal terminal-notification facts bound to the exact native sender
-- Lifecycle-only parent disposition: `close_task`
-- Read-only diagnostics and lightweight required-member groups
+## Dispatch
 
-## Install
+```bash
+python3 scripts/subagent_governance.py --prepare-dispatch --session '<exact-session-id>' < contract.json
+```
+
+Pass the returned `spawn_args` unchanged to the current native `spawn_agent`. Then copy the exact target mechanically exposed by that current native return and confirm it:
+
+```bash
+python3 scripts/subagent_governance.py --confirm-dispatch --session '<exact-session-id>' <<'JSON'
+{"task_id":"<prepare task_id>","task_ref":"<prepare task_ref>","target":"<native exact target>"}
+JSON
+```
+
+Never bind identity from a list, task name, timing, summary, transcript, or child final. A crash after the native return but before confirmation leaves the task `claimed/unbound` and does not trigger automatic retry.
+
+## Installation
 
 ```bash
 codex plugin marketplace add uigdwunm/subagent-governance --ref main
 codex plugin add subagent-governance@subagent-governance
 ```
 
-Start a new Codex task after installation, review the plugin hooks with `/hooks`, then test an explicit `$subagent-governance` dispatch.
+Invoke `$subagent-governance` and inspect registration with `/hooks`. The same Codex CLI commands apply in Windows PowerShell.
 
-## Terminal notifications
-
-Subagents report their actual result, evidence, and remaining work through the native final reply. The parent can record only the minimal lifecycle observation:
+## Development checks
 
 ```bash
-python3 scripts/subagent_governance.py --record-terminal-notification --session <session_id>
-```
-
-```json
-{
-  "sender_target": "/root/<exact-native-agent-target>",
-  "task_id": "<task_id>",
-  "attempt": 1,
-  "terminal_status": "completed"
-}
-```
-
-The runtime requires an exact dispatch-target and task/attempt match. Identical notifications are idempotent; conflicting terminal statuses preserve the first fact and require reconciliation. Notification bodies are neither scanned nor stored.
-
-The parent reads the native reply and decides whether to continue or close. `--parent-disposition` supports only `close_task`.
-
-## Privacy and boundaries
-
-- The core runtime does not initiate network access and has no telemetry.
-- Local state contains bounded task metadata, identity mappings, lifecycle facts, notification observations, and tombstones.
-- Local governance data uses only the current state format. Other formats are not read, transformed, or rewritten.
-- An upgrade may retain exactly one previous immutable plugin cache so tasks started before a Codex restart keep their original file paths. The next upgrade removes the older cache; the current plugin never loads old-version state or logic from it.
-- The plugin does not register `SubagentStart` or `SubagentStop`; neither event participates in state maintenance or notification handling.
-- Exact `list_agents` terminal observations wait for the native notification; they do not synthesize completion.
-- Parent Stop remains advisory and fail-open.
-
-## Diagnostics
-
-```bash
-python3 scripts/subagent_governance.py --diagnose --data-root /path/to/governance-data
-python3 scripts/subagent_governance.py --diagnose --data-root /path/to/governance-data --session <session_id>
-```
-
-Diagnostics are read-only: they do not create locks, repair state, or write back observations.
-
-## Development
-
-```bash
-python3 -m pip install -r requirements-dev.txt
 python3 -m unittest discover -s tests -v
-python3 -m compileall -q scripts
-ruff check scripts tests
-coverage run -m unittest discover -s tests -v
-coverage report
+python3 -m py_compile scripts/*.py
 python3 scripts/release_preflight.py --mode development
 python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
 python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/subagent-governance
+git diff --check
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and the [current architecture](docs/architecture.md).
+The core runtime does not proactively access the network. Installation, publishing, stable-source, Marketplace, Registry, runtime-cache, and Hook-trust writes require separate authorization.
 
-## License
-
-MIT. See [LICENSE](LICENSE).
+Licensed under [MIT](LICENSE). See [SECURITY.md](SECURITY.md) and [CONTRIBUTING.md](CONTRIBUTING.md).

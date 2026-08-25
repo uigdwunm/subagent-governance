@@ -1,8 +1,4 @@
-"""Exception hierarchy shared by governance runtime components."""
-
-from __future__ import annotations
-
-from typing import Any
+"""Exception hierarchy for the current state-v9 runtime."""
 
 
 class StateStoreError(RuntimeError):
@@ -10,103 +6,35 @@ class StateStoreError(RuntimeError):
 
 
 class StateValidationError(StateStoreError):
-    """The existing state or requested write is structurally unsafe."""
+    """Persisted state or a requested write is structurally unsafe."""
 
 
 class StateCapacityError(StateStoreError):
-    """The requested state exceeds a configured admission boundary."""
+    """A state read or write exceeded its bounded capacity."""
 
 
 class StateConflictError(StateStoreError):
-    """A compare-and-set predicate did not match the locked state."""
+    """A locked transition did not match the current canonical facts."""
 
 
 class StateWriteError(StateStoreError):
-    """The state could not be atomically written and verified."""
-
-
-def _state_store_exception_category(exc: Exception, *, during_read: bool) -> str:
-    if isinstance(exc, StateConflictError):
-        return "conflict"
-    if isinstance(exc, (StateWriteError, OSError)):
-        return "unavailable"
-    cause = exc.__cause__
-    while cause is not None:
-        if isinstance(cause, OSError):
-            return "unavailable"
-        cause = cause.__cause__
-    if during_read and isinstance(exc, StateStoreError):
-        return "unavailable"
-    return "unsafe"
-
-
-class PreparedContractError(RuntimeError):
-    """Base class for PreparedContract persistence and validation failures."""
-
-
-class PreparedContractValidationError(PreparedContractError):
-    """A PreparedContract is missing required mechanical facts or is unsafe."""
-
-
-class PreparedContractConflictError(PreparedContractError):
-    """A PreparedContract compare-and-set predicate did not match."""
-
-
-class PreparedContractWriteError(PreparedContractError):
-    """A PreparedContract could not be atomically written and verified."""
+    """An atomic write or its readback verification failed."""
 
 
 class DispatchPreparationError(RuntimeError):
-    """The deterministic dispatch package could not pass both hard gates."""
+    """TaskContract v2 could not be prepared in the single ledger."""
 
 
 class ContextVerificationError(RuntimeError):
-    """Declared context dependencies are invalid, unavailable, or changed."""
-
-
-class CommunicationPreparationError(RuntimeError):
-    """A communication or interrupt package could not pass mechanical gates."""
-
-
-class ReconciliationError(RuntimeError):
-    """A parent-supplied lifecycle reconciliation is incomplete or unsafe."""
-
-
-class NotificationObservationError(RuntimeError):
-    """A parent-observed native terminal notification is invalid or conflicts."""
-
-
-class ParentDispositionError(RuntimeError):
-    """A parent disposition request failed mechanical validation."""
-
-
-class ParentDispositionConflict(ParentDispositionError):
-    """A parent disposition conflicts with the current persisted task facts."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        interrupt_targets: list[str] | None = None,
-        current_attempt: int | None = None,
-    ):
-        super().__init__(message)
-        self.interrupt_targets = list(interrupt_targets or [])
-        self.current_attempt = current_attempt
-
-
-class GroupValidationError(RuntimeError):
-    """A lightweight group request or persisted group is mechanically invalid."""
-
-
-class GroupNotFoundError(GroupValidationError):
-    """The requested lightweight group does not exist in the Session."""
+    """Explicit verified context is invalid, unavailable, or changed."""
 
 
 class DiagnosticReadError(RuntimeError):
-    """A read-only diagnostic target could not be normalized."""
+    """A read-only exact Session ledger could not be interpreted."""
 
-    def __init__(self, code: str, message: str, *, context: dict[str, Any] | None = None):
-        super().__init__(message)
-        self.code = code
-        self.context = dict(context or {})
+
+__all__ = [
+    "ContextVerificationError", "DiagnosticReadError", "DispatchPreparationError",
+    "StateCapacityError", "StateConflictError", "StateStoreError",
+    "StateValidationError", "StateWriteError",
+]

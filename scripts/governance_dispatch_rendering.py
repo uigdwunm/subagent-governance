@@ -1,4 +1,4 @@
-"""Pure rendering of verified contract context into dispatch-facing output."""
+"""Pure rendering for TaskContract v2 and native spawn parameters."""
 
 from __future__ import annotations
 
@@ -6,94 +6,70 @@ from typing import Any
 
 try:
     from scripts.governance_contracts import TaskContract
-    from scripts.governance_errors import ContextVerificationError
 except ModuleNotFoundError:
     from governance_contracts import TaskContract
-    from governance_errors import ContextVerificationError
 
 
-def context_projection(contract: TaskContract) -> tuple[str, str]:
-    if contract.context_strategy == "isolated":
-        return "none", "否"
-    if contract.context_strategy == "limited":
-        assert contract.context_turns is not None
-        return str(contract.context_turns), f"否（仅继承最近 {contract.context_turns} 轮）"
-    return "all", "是"
-
-
-def render_list(values: list[str]) -> str:
+def _list(values: list[str]) -> str:
     return "- 无" if not values else "\n".join(f"- {value}" for value in values)
 
 
-def render_verified_context(verification: dict[str, Any]) -> str:
-    if verification.get("mode") == "none":
-        return "- 无"
-    baseline = verification.get("baseline")
-    if not isinstance(baseline, dict):
-        raise ContextVerificationError("context verification 缺少 baseline")
-    baseline_line = (
-        f"- 基线：git_commit {baseline.get('revision')}"
-        if baseline.get("kind") == "git_commit"
-        else "- 基线：working_tree（prepare 与 spawn 双重校验）"
+def render_dispatch_prompt(contract: TaskContract, verification: dict[str, Any] | None) -> str:
+    verified = "无"
+    if verification is not None:
+        verified = f"{verification['workspace_root']}（{len(verification['required_paths'])} 项已验证材料）"
+    return "\n".join(
+        [
+            f"【治理 profile】{contract.profile}",
+            "【唯一当前目标】", contract.objective, "",
+            "【上下文摘要】", contract.context["summary"] or "无", "",
+            "【工作范围】", _list(contract.scope), "",
+            "【禁止范围】", _list(contract.forbidden_scope), "",
+            "【定位路径】", _list(contract.context["paths"]), "",
+            "【已验证材料】", verified, "",
+            "【完成条件】", _list(contract.completion), "",
+            "【验收证据】", _list(contract.evidence), "",
+            "【终态义务】",
+            "完成、阻塞、失败或需要决策时，向父 Agent 发送明确终态通知。",
+            "不要从 task name、时间、list_agents、summary、transcript 或 child final 推断治理身份。",
+        ]
     )
-    lines = [f"- 工作区：{verification.get('workspace_root')}", baseline_line]
-    paths = verification.get("required_paths")
-    if not isinstance(paths, list):
-        raise ContextVerificationError("context verification 缺少 required_paths")
-    lines.extend(f"- {item['path']}（{item['type']}，已验证）" for item in paths if isinstance(item, dict))
-    return "\n".join(lines)
 
 
-def render_dispatch_prompt(contract: TaskContract, context_verification: dict[str, Any]) -> str:
-    current_state = contract.current_state or "无额外未落盘状态"
-    context_reason = contract.context_reason or "默认隔离；任务背景已写入本首句"
-    return "\n".join([
-        f"【治理等级】{contract.resolved_mode}", "【唯一当前目标】", contract.objective, "",
-        "【背景】", contract.background, "", "【工作范围】", render_list(contract.work_scope), "",
-        "【禁止范围】", render_list(contract.forbidden_scope), "", "【相关文件】",
-        render_list(contract.relevant_files), "", "【必需上下文】",
-        render_verified_context(context_verification), "", "【当前状态】", current_state, "",
-        "【上下文策略】", f"{contract.context_strategy}：{context_reason}", "", "【完成条件】",
-        render_list(contract.completion_conditions), "", "【验收证据】",
-        render_list(contract.evidence_requirements), "", "【恢复与终态义务】",
-        "完成、阻塞、失败或需要决策时，向父 Agent发送明确终态通知；不要只回复收到、明白或开始执行。",
-        "平台或调用结果未知时如实报告，不得自行重派、伪造成功或覆盖其他 attempt。", "",
-    ])
+def render_dispatch_user_message(contract: TaskContract, verification: dict[str, Any] | None) -> str:
+    model = contract.spawn["model"] or "继承父 Agent"
+    effort = contract.spawn["reasoning_effort"] or "继承父 Agent"
+    return "\n".join(
+        [
+            "【子 Agent 派发】",
+            f"目标：{contract.objective}",
+            f"治理 profile：{contract.profile}",
+            f"模型：{model}",
+            f"推理强度：{effort}",
+            f"fork_turns：{contract.spawn['fork_turns']}",
+            "范围：" + "；".join(contract.scope),
+            "完成条件：" + "；".join(contract.completion),
+            "已验证上下文：" + ("无" if verification is None else f"{len(verification['required_paths'])} 项"),
+            "原生 spawn 返回后必须立即 confirm exact target；confirm 前中断保持 claimed/unbound。",
+        ]
+    )
 
 
-def render_dispatch_user_message(contract: TaskContract, context_verification: dict[str, Any]) -> str:
-    _native_context, context_display = context_projection(contract)
-    model_display = contract.model or "继承主 Agent（未显式覆盖）"
-    effort_display = contract.reasoning_effort or "继承主 Agent 当前强度（未显式覆盖）"
-    mode_line = f"治理等级：{contract.resolved_mode}"
-    if contract.requested_mode == "auto":
-        mode_line = f"请求治理方式：auto；实际治理等级：{contract.resolved_mode}；解析原因：{contract.resolution_reason}"
-    return "\n".join((
-        "【子 Agent 派发】", f"目标：{contract.objective}", mode_line,
-        f"模型：{model_display}", f"强度：{effort_display}",
-        f"是否继承主线程全部上下文：{context_display}",
-        "必需上下文：" + ("明确无材料依赖" if context_verification.get("mode") == "none" else f"已验证 {len(context_verification.get('required_paths', []))} 项"),
-        "工作范围：" + "；".join(contract.work_scope),
-        "完成条件：" + "；".join(contract.completion_conditions),
-        "回传要求：完成、阻塞或需要决策时，向父 Agent发送明确终态通知",
-    ))
-
-
-def spawn_args(contract: TaskContract, task_name: str, context_verification: dict[str, Any]) -> dict[str, Any]:
-    fork_turns, _context_display = context_projection(contract)
-    result: dict[str, Any] = {
+def expected_native_parameters(
+    contract: TaskContract, task_name: str, verification: dict[str, Any] | None
+) -> dict[str, Any]:
+    return {
         "task_name": task_name,
-        "message": render_dispatch_prompt(contract, context_verification),
-        "fork_turns": fork_turns,
+        "message": render_dispatch_prompt(contract, verification),
+        "fork_turns": contract.spawn["fork_turns"],
+        "model": contract.spawn["model"],
+        "reasoning_effort": contract.spawn["reasoning_effort"],
     }
-    if contract.model is not None:
-        result["model"] = contract.model
-    if contract.reasoning_effort is not None:
-        result["reasoning_effort"] = contract.reasoning_effort
-    return result
 
 
-_context_projection = context_projection
-_render_list = render_list
-_render_verified_context = render_verified_context
-_spawn_args = spawn_args
+def spawn_args(contract: TaskContract, task_name: str, verification: dict[str, Any] | None) -> dict[str, Any]:
+    expected = expected_native_parameters(contract, task_name, verification)
+    return {key: value for key, value in expected.items() if value is not None}
+
+
+__all__ = ["expected_native_parameters", "render_dispatch_prompt", "render_dispatch_user_message", "spawn_args"]

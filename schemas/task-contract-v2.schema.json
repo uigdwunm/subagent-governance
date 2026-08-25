@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/uigdwunm/subagent-governance/schemas/task-contract-v2.schema.json",
+  "title": "Subagent Governance TaskContract v2 input",
+  "$ref": "governance-semantics.schema.json#/$defs/task_contract_input"
+}

@@ -1,4 +1,6 @@
-# P9 current-only 本地综合验收
+# P9 current-only 本地综合验收（历史 v6/v8 基线）
+
+> 本报告是减法收口前的历史验收证据，不代表当前 state-v9 第一切片的测试结论。
 
 日期：2026-08-24  
 结论：`passed`（精确提交的独立仓库内验收；未安装、未发布、非 release-ready，真实平台仍为 `not_checked`）

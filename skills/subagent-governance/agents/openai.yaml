@@ -1,4 +1,4 @@
 interface:
   display_name: "子 Agent 治理"
-  short_description: "分级增强 Codex 子 Agent 的派发、执行、验收和诊断"
-  default_prompt: "使用 $subagent-governance 为当前子 Agent 任务选择合适的治理等级，并生成可验证的派发契约。"
+  short_description: "用最小持久生命周期治理 Codex 原生子 Agent"
+  default_prompt: "使用 $subagent-governance 为当前子 Agent 生成 TaskContract v2，并按原生返回确认 exact target。"

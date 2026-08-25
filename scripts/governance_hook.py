@@ -1,261 +1,128 @@
-"""Thin Hook transport router for governance domains.
+"""Minimal Hook router: governed spawn Pre claim and read-only SessionStart."""
 
-The router classifies an external payload, constructs storage only once a
-governance fact is required, and maps domain results to Hook JSON.  It owns no
-persisted-state transition and never interprets raw platform responses.
-"""
 from __future__ import annotations
 
 import copy
-import time
 from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.governance_context import verify_context_manifest
-    from scripts.governance_contracts import contract_from_input
-    from scripts.governance_dispatch import claim_spawn, observe_spawn_post_tool
+    from scripts.governance_dispatch import claim_spawn
     from scripts.governance_dispatch_identity import parse_task_name
-    from scripts.governance_lifecycle import (
-        _claim_pending_action, claimed_post_index_lookup, observe_agent_status_post_tool,
-        observe_lifecycle_post_tool,
-    )
-    from scripts.governance_platform import adapt_list_agents_response_result, adapt_spawn_response
-    from scripts.governance_prepared_store import PreparedContractStore, prepared_root_for_store
-    from scripts.governance_semantics import RETENTION_SECONDS
-    from scripts.governance_sessions import session_end, session_start, stop_advisory
-    from scripts.governance_state_store import StateStore, UnavailableStateStore
+    from scripts.governance_semantics import SESSION_SUMMARY_CONTEXT_LIMIT
+    from scripts.governance_state_store import StateStore, read_ledger_readonly
+    from scripts.governance_store_support import data_root_path
 except ModuleNotFoundError:
-    from governance_context import verify_context_manifest
-    from governance_contracts import contract_from_input
-    from governance_dispatch import claim_spawn, observe_spawn_post_tool
+    from governance_dispatch import claim_spawn
     from governance_dispatch_identity import parse_task_name
-    from governance_lifecycle import _claim_pending_action, claimed_post_index_lookup, observe_agent_status_post_tool, observe_lifecycle_post_tool
-    from governance_platform import adapt_list_agents_response_result, adapt_spawn_response
-    from governance_prepared_store import PreparedContractStore, prepared_root_for_store
-    from governance_semantics import RETENTION_SECONDS
-    from governance_sessions import session_end, session_start, stop_advisory
-    from governance_state_store import StateStore, UnavailableStateStore
+    from governance_semantics import SESSION_SUMMARY_CONTEXT_LIMIT
+    from governance_state_store import StateStore, read_ledger_readonly
+    from governance_store_support import data_root_path
 
 
 def tool_kind(tool_name: str) -> str | None:
-    if tool_name == "Agent" or tool_name.endswith("spawn_agent"):
-        return "spawn"
-    if tool_name.endswith("followup_task"):
-        return "followup"
-    if tool_name.endswith("send_message") and not tool_name.endswith("send_message_to_thread"):
-        return "communication"
-    if tool_name.endswith("interrupt_agent"):
-        return "interrupt"
-    if tool_name.endswith("list_agents"):
-        return "agent_status"
-    return None
-
-
-def _deny(reason: str) -> dict[str, Any]:
-    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}
+    leaf = tool_name.rsplit(".", 1)[-1]
+    return "spawn" if leaf in {"Agent", "spawn_agent"} else None
 
 
 def _allow(updated_input: dict[str, Any], context: str | None = None) -> dict[str, Any]:
-    output: dict[str, Any] = {"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": updated_input}
+    value: dict[str, Any] = {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "updatedInput": updated_input,
+    }
     if context:
-        output["additionalContext"] = context
-    return {"hookSpecificOutput": output}
+        value["additionalContext"] = context[:SESSION_SUMMARY_CONTEXT_LIMIT]
+    return {"hookSpecificOutput": value}
 
 
-def _continue(message: str | None = None) -> dict[str, Any]:
-    result: dict[str, Any] = {"continue": True}
-    if message:
-        result["systemMessage"] = message[:1800]
-    return result
-
-
-def _merge_warnings(*values: Any) -> str | None:
-    """Preserve every bounded domain warning while avoiding duplicate UI text."""
-    messages: list[str] = []
-    for value in values:
-        if not isinstance(value, str):
-            continue
-        message = value.strip()
-        if message and message not in messages:
-            messages.append(message)
-    return "；".join(messages) or None
-
-
-def _session_id(payload: dict[str, Any]) -> str:
-    return str(payload.get("session_id") or "unknown")
-
-
-def _store_or_unavailable() -> StateStore | UnavailableStateStore:
-    try:
-        return StateStore()
-    except Exception as exc:
-        return UnavailableStateStore(exc)
-
-
-def _hook_lifecycle_result(value: dict[str, Any]) -> dict[str, Any]:
-    if value.get("decision") == "allow":
-        updated = value.get("updated_input")
-        return _allow(updated if isinstance(updated, dict) else {}, value.get("context"))
-    return _deny(str(value.get("reason") or "受治理 lifecycle 操作被拒绝"))
-
-
-def _handle_governed_spawn(payload: dict[str, Any], store: Any, task_name: str, parsed: tuple[str, str, str]) -> dict[str, Any]:
-    tool_input = payload.get("tool_input")
-    assert isinstance(tool_input, dict)
-    if isinstance(store, UnavailableStateStore):
-        return _deny("子 Agent 派发被阻止：PreparedContract 硬门禁不可用。")
-    mode, _semantic_name, task_ref = parsed
-    session_id = _session_id(payload)
-    try:
-        prepared_store = PreparedContractStore(prepared_root_for_store(store))
-        prepared = prepared_store.read(session_id, task_ref)
-        if prepared.get("consumed") is True:
-            return _deny("子 Agent 派发被阻止：PreparedContract 已被消费，不能重复调用原生 spawn。")
-        now = int(time.time())
-        if prepared.get("created_at", 0) <= now - int(RETENTION_SECONDS["prepared_unclaimed"]):
-            return _deny("子 Agent 派发被阻止：PreparedContract 已超过5分钟，请重新生成派发。")
-        expected = prepared["native_parameters"]
-        mismatches = [name for name in ("fork_turns", "model", "reasoning_effort") if tool_input.get(name) != expected.get(name)]
-        if prepared.get("task_name") != task_name or prepared.get("resolved_mode") != mode:
-            mismatches.append("task_name/resolved_mode")
-        if mismatches:
-            return _deny("子 Agent 派发被阻止：原生可观察参数与 PreparedContract 不一致：" + "、".join(mismatches))
-        contract = contract_from_input(prepared["contract"])
-        if verify_context_manifest(contract.context_manifest) != prepared.get("context_verification"):
-            return _deny("子 Agent 派发被阻止：必需上下文在 prepare 与 spawn 之间发生变化，请重新生成派发。")
-        tool_use_id = str(payload.get("tool_use_id") or "")
-        if not tool_use_id:
-            return _deny("子 Agent 派发被阻止：缺少 tool_use_id，无法单次消费 PreparedContract。")
-        claim_spawn(session_id, task_ref, tool_use_id, now, prepared, store, prepared_store)
-    except Exception as exc:
-        return _deny(f"子 Agent 派发被阻止：PreparedContract 硬门禁失败：{exc}")
-    return _allow(copy.deepcopy(tool_input), f"Subagent Governance 已消费 task_ref={task_ref} 的派发凭证并完成发送前双门禁。")
+def _deny(reason: str) -> dict[str, Any]:
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason[:SESSION_SUMMARY_CONTEXT_LIMIT],
+        }
+    }
 
 
 def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | None:
-    kind = tool_kind(str(payload.get("tool_name") or ""))
-    if kind is None:
+    if tool_kind(str(payload.get("tool_name") or "")) != "spawn":
         return None
     tool_input = payload.get("tool_input")
-    if kind == "spawn":
-        # This classification happens before any persistence construction.
-        if not isinstance(tool_input, dict):
-            return _deny("子 Agent 派发被阻止：spawn_agent 参数不是对象。")
-        task_name = tool_input.get("task_name") if isinstance(tool_input.get("task_name"), str) else ""
-        if not task_name.startswith("sg_"):
-            return _allow(copy.deepcopy(tool_input), "Subagent Governance：无治理前缀，本次原生 spawn 按 unmanaged 放行；不创建治理状态。")
-        parsed = parse_task_name(task_name)
-        if parsed is None:
-            return _deny("子 Agent 派发被阻止：governed task_name 必须符合 sg_<resolved_mode>_<semantic_name>_t_<task_ref>，总长度不超过64字符。")
-        return _handle_governed_spawn(payload, state_store if state_store is not None else _store_or_unavailable(), task_name, parsed)
-    if kind not in {"communication", "followup", "interrupt"}:
+    if not isinstance(tool_input, dict):
         return None
-    store = state_store if state_store is not None else _store_or_unavailable()
+    task_name = tool_input.get("task_name")
+    if not isinstance(task_name, str) or not task_name.startswith("sg_"):
+        return None
+    parsed = parse_task_name(task_name)
+    if parsed is None:
+        return _deny("governed task_name 无效；必须由 prepare-dispatch 生成")
+    _profile, _semantic_name, task_ref = parsed
+    session_id = payload.get("session_id")
+    if not isinstance(session_id, str) or not session_id.strip():
+        return _deny("governed spawn 缺少 exact session_id")
+    tool_use_id = payload.get("tool_use_id")
+    if not isinstance(tool_use_id, str) or not tool_use_id.strip():
+        return _deny("governed spawn 缺少 tool_use_id，无法原子 claim")
     try:
-        return _hook_lifecycle_result(_claim_pending_action(payload, store, interrupt=kind == "interrupt"))
-    except Exception as exc:
-        # Parsed PreToolUse errors are a deny unless the domain's explicit
-        # normal/interrupt unavailable policy already returned allow.
-        return _deny(f"受治理 lifecycle 操作处理失败：{exc}")
-
-
-def _post(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | None:
-    kind = tool_kind(str(payload.get("tool_name") or ""))
-    if kind is None:
-        # The catch-all first reads only the bounded claimed-ID index.  A miss
-        # remains completely inert: no StateStore construction, output, or
-        # state write.  A hit is only an admission hint and is rechecked by the
-        # lifecycle domain against canonical claimed pending state.
-        if claimed_post_index_lookup(payload, state_store) is None:
-            return None
-        store = state_store if state_store is not None else _store_or_unavailable()
-        return _post_result(
-            observe_lifecycle_post_tool(
-                payload, store, _session_id(payload),
-                tool_name_classification="unrecognized",
-            )
+        store = state_store or StateStore()
+        outcome = claim_spawn(
+            session_id,
+            task_ref,
+            tool_use_id,
+            tool_input,
+            state_store=store,
+            now=payload.get("now"),
         )
-    session_id = _session_id(payload)
-    try:
-        if kind == "spawn":
-            store = state_store if state_store is not None else _store_or_unavailable()
-            if isinstance(store, UnavailableStateStore):
-                return _continue("Subagent Governance 无法记录派发生命周期，原生调用已发生，已降级放行。")
-            prepared_store = PreparedContractStore(prepared_root_for_store(store))
-            tool_use_id = str(payload.get("tool_use_id") or "")
-            prepared = prepared_store.find_claimed(session_id, tool_use_id) if tool_use_id else None
-            if prepared is None:
-                return None
-            try:
-                warning = observe_spawn_post_tool(
-                    session_id, prepared, adapt_spawn_response(payload.get("tool_response")).to_record(),
-                    int(payload.get("now") or time.time()), store, prepared_store,
-                )
-            except Exception as exc:
-                warning = f"Subagent Governance PostToolUse 记录失败，原生调用已发生，已降级放行：{exc}"
-            combined = _merge_warnings(warning, getattr(store, "last_warning", None))
-            return _continue(combined) if combined else None
-        if kind == "agent_status":
-            store = state_store if state_store is not None else _store_or_unavailable()
-            adaptation = adapt_list_agents_response_result(
-                payload.get("tool_input"), payload.get("tool_response")
-            )
-            if adaptation.observation is None:
-                reason = adaptation.rejection_reason or "response_shape_unrecognized"
-                return _continue(
-                    "Subagent Governance：list_agents observation 未绑定"
-                    f"（{reason}），未写入 canonical observation；原生只读调用结果保持可用。"
-                )
-            return _post_result(
-                observe_agent_status_post_tool(
-                    payload, store, session_id, adaptation.observation
-                )
-            )
-        if kind in {"communication", "followup", "interrupt"}:
-            store = state_store if state_store is not None else _store_or_unavailable()
-            return _post_result(
-                observe_lifecycle_post_tool(
-                    payload, store, session_id, tool_name_classification="recognized"
-                )
-            )
     except Exception as exc:
-        return _continue(f"Subagent Governance PostToolUse 记录失败，原生调用已发生，已降级放行：{exc}")
-    return None
+        return _deny(f"governed spawn claim 失败：{exc}")
+    return _allow(
+        copy.deepcopy(tool_input),
+        f"Subagent Governance 已在 state-v9 单一 ledger 原子 claim task_ref={task_ref}（{outcome['result']}）。原生返回后立即 confirm exact target。",
+    )
 
 
-def _session_result(event: str, value: dict[str, Any]) -> dict[str, Any]:
-    result = _continue(value.get("system_message"))
-    if event == "SessionStart" and value.get("additional_context"):
-        return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": str(value["additional_context"])[:1800]}}
-    return result
-
-
-def _post_result(value: dict[str, Any] | None) -> dict[str, Any] | None:
-    """PostToolUse has already executed; never turn a record error into deny."""
-    if value is None:
+def _session_start(payload: dict[str, Any]) -> dict[str, Any] | None:
+    session_id = payload.get("session_id")
+    if not isinstance(session_id, str) or not session_id.strip():
         return None
-    return _continue(str(value.get("systemMessage") or "Subagent Governance PostToolUse 记录失败，已降级放行。"))
+    root = data_root_path(Path(__file__)) / "sessions"
+    try:
+        state = read_ledger_readonly(root, session_id)
+    except Exception:
+        return None
+    if state is None:
+        return None
+    open_tasks = [
+        (task_id, task)
+        for task_id, task in sorted(state["tasks"].items())
+        if task.get("phase") != "closed"
+    ]
+    if not open_tasks:
+        return None
+    lines = ["Subagent Governance state-v9 exact Session 未关闭任务："]
+    for task_id, task in open_tasks[:8]:
+        target = f" target={task['target']}" if task.get("target") else ""
+        lines.append(
+            f"- task_id={task_id} task_ref={task['task_ref']} phase={task['phase']}{target}"
+        )
+    lines.append("使用 status --session <exact-session-id> 获取只读详情；不得自动重派或推断 identity。")
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": "\n".join(lines)[:SESSION_SUMMARY_CONTEXT_LIMIT],
+        }
+    }
 
 
 def handle_hook(payload: dict[str, Any], state_store: Any | None = None) -> dict[str, Any] | None:
-    """Route an already-parsed external payload; unknown events are inert."""
     event = payload.get("hook_event_name")
     if event == "PreToolUse":
         return _pre(payload, state_store)
-    if event == "PostToolUse":
-        return _post(payload, state_store)
-    if event not in {"Stop", "SessionStart", "SessionEnd"}:
-        return None
-    store = state_store if state_store is not None else _store_or_unavailable()
-    try:
-        if event == "Stop":
-            return _session_result(event, stop_advisory(payload, store))
-        if event == "SessionStart":
-            return _session_result(event, session_start(payload, store))
-        return _session_result(event, session_end(payload, store))
-    except Exception as exc:
-        return _continue(f"Subagent Governance {event} 处理失败，已降级放行：{exc}")
+    if event == "SessionStart":
+        return _session_start(payload)
+    return None
 
 
 __all__ = ["handle_hook", "tool_kind"]

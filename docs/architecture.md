@@ -1,99 +1,109 @@
 # 当前架构
 
-Subagent Governance 是 Codex 原生子 Agent 的本地生命周期治理层。它不创建第二套调度平台，不替代 Codex 权限、Hook trust、沙箱或父 Agent 的业务判断。
+Subagent Governance 是 Codex 原生子 Agent 的本地生命周期治理层。它继续使用原生 Agent 工具，不替代平台调度、权限、Hook trust、沙箱或父 Agent 的业务判断。
 
-## 设计边界
+当前实现处于 [减法收口 cutover](improvement-plans/reduction-cutover.md) 的第一纵向切片：state-v9 单一 Session ledger、TaskContract v2、prepare、governed spawn Pre claim 和父 Agent explicit exact-target confirm 已落地。最小 observation/terminal/interrupt/close 生命周期将在下一切片实现；当前代码不保留旧机制作为兼容 fallback。
 
-- 原生 `spawn_agent`、`send_message`、`followup_task`、`wait_agent`、`list_agents` 和 `interrupt_agent` 仍是执行通道。
-- 插件只维护可机械验证的派发、身份、平台观察、通知和关闭事实。
-- 子 Agent 的原生最终回复是业务结果通道；插件不扫描或保存正文。
-- 平台终态只证明 worker 状态，不替代原生终态通知。
-- 父 Agent 直接判断业务质量，然后显式关闭生命周期。
+## TaskContract v2
 
-## TaskContract 与上下文
+模型输入只有：
 
-所有治理等级使用同一 TaskContract，明确目标、背景、范围、禁止事项、完成条件、证据要求、任务特征、模型、推理强度和上下文策略。
+```text
+profile
+objective
+scope
+forbidden_scope
+completion
+evidence
+context(summary, paths, optional verified)
+spawn(fork_turns, model, reasoning_effort)
+```
 
-`context_manifest` 必须选择：
+- objective、非空 scope 和非空 completion 必填；其余字段有机械默认值。
+- profile 只有 standard 与 strict；strict 要求非空 forbidden scope 和 evidence。
+- 普通 context paths 是定位提示。`context.verified` 是显式 opt-in 的 declared working-tree/Git material verification；prepare 和 claim 各验证一次。
+- semantic name、task ref 和 task name 由 runtime 派生。
+- business contract digest 排除 spawn config；spawn config 使用独立 digest。
 
-- `none`：没有工作区材料依赖。
-- `declared`：列出绝对工作区根、工作树或 Git commit 基线，以及全部必需路径。
+## state-v9 单一 ledger
 
-declared manifest 在 prepare 和原生调用 claim 前分别验证。插件只读取声明路径，不扫描工作区推断依赖。
+每个 exact Session 只有一份 JSON ledger，根字段精确为：
 
-## 派发
+```text
+state_format_version
+session_id
+tasks
+```
 
-`prepare_dispatch` 先验证 TaskContract 和 context manifest，再原子保存 PreparedContract 和初始 StateStore task。PreToolUse 根据确定性 task ref 认领 PreparedContract，并绑定原生 `tool_use_id`。
+一个 task 对应一个原生 Agent lifecycle，没有 attempt。phase 只有：
 
-明确 failed 且可靠证明 Agent 未创建时，允许有界 spawn retry。unknown observation 不允许复用同一 attempt。
+```text
+prepared | claimed | bound | terminal | closed | reconcile
+```
 
-## 当前状态模型
+prepared capability 位于 task record 内，和 lifecycle state 共享同一 lock 与原子写边界。当前持久状态没有 PreparedContractStore、agents index、Post receipt/index、pending action、tombstone 或 Group。
 
-每个 Session 使用一份 JSON 状态和一份稳定 lock。每个 managed task 包含：
+StateStore 只接受严格 `state_format_version=9`，默认 namespace 为 `state-v9`。v8 及更早状态不读取、不迁移、不修复、不写回、不删除。
 
-- `managed`
-- `work_item`
-- `executions`
+## 派发与 identity
 
-每个 execution 只包含三个 canonical plane：
+```text
+prepare-dispatch
+→ prepared
+→ governed spawn PreToolUse atomic claim
+→ claimed/unbound
+→ native spawn_agent
+→ parent confirms exact target from that current native return
+→ bound
+```
 
-- `dispatch_record`：派发准备、claim 和原生响应关联。
-- `observation_record`：精确 target 的平台观察或终态通知。
-- `closure_record`：等待、对账、父处置或关闭事实。
+identity 的唯一权威是父 Agent 对当前原生 spawn 返回 exact target 的显式 `confirm-dispatch`：
 
-StateStore 只接受严格的 `state_format_version=8`，默认数据命名空间为 `state-v8`。缺少版本、其他版本、`managed=false`、非 canonical record 或未知持久化字段都会以结构错误拒绝；旧 `state-v1`、`state-v6` 或 `state-v7` 不读取、不迁移、不修复、不写回或删除。
+- first bind wins；
+- 相同 target 重放幂等；
+- 不同 target 或 task/ref 不匹配进入 reconcile；
+- `list_agents`、task name、时间、summary、transcript 和 child final 不能建立或修复 identity；
+- native return 后、confirm 前中断时保持 `claimed/unbound`，不自动重派。
 
-未知根级扩展字段可以原样保留，但不能改变 canonical execution 语义。
+明确 failed 且可靠证明 Agent 未创建时可用 `record-dispatch-result` 关闭该 task；unknown 进入 reconcile。success 必须携带 exact target 走 confirm。
 
-## 身份与生命周期
+## Hook 与只读恢复
 
-`agents[target]` 是活动索引，execution 的 `dispatch_record.dispatch_target` 是身份来源。唯一未关闭的精确 execution 可以修复活动索引；多个候选或索引冲突必须对账。已关闭的精确 target 不会重新按 unmanaged 放行。
+Hook manifest 当前只注册：
 
-通信操作分为：
+- native spawn 的 PreToolUse matcher；unmanaged task name 在 StateStore 构造前 inert fail-open，governed spawn 验证 exact prepared facts 并原子 claim；
+- best-effort read-only SessionStart，只读取当前 exact Session 的未关闭摘要。
 
-- `normal_message`
-- `platform_recovery`
-- `business_resume`
-- `interrupt`
+不存在 PostToolUse、Stop、SessionEnd 或 communication/followup/interrupt PreToolUse。
 
-每次操作使用 prepared/claimed pending action 和 `tool_use_id` 对账。业务继续创建新 attempt；普通消息不改变生命周期；恢复预算有界；unknown 保持 reconcile。
+SessionStart、`status` 和 `diagnose` 使用无锁只读 reader；缺失目录时不创建目录、lock、临时文件或空状态，不 cleanup、rebuild、migrate、reconcile、自动关闭、自动重试、扫描其他 Session 或读取业务正文。
 
-## 终态通知与父处置
+## 安全存储边界
 
-父 Agent 收到原生 child notification 后，记录精确 sender、task、attempt 和 terminal status。通知重放幂等，冲突状态进入 reconcile。
+v9 继续复用现有安全 storage primitives：
 
-通知到达后，execution 等待父处置。当前父处置只有 `close_task`：关闭可靠非运行 attempts，并返回仍需主动中断的精确 targets。
+- UTF-8 byte-bounded stdin；
+- owner、permission、symlink 和 non-regular 检查；
+- 稳定 lock、临时文件 fsync、原子 replace 和写后回读；
+- new-task soft limit 与 hard capacity limit；
+- corruption/current-format mismatch 原地保留，不自动修复。
 
-## Session、Group 与诊断
+## 当前非能力
 
-- SessionStart 对账未完成的 prepared/claimed 操作，并输出 work-item 摘要。
-- Stop 只给 advisory，固定 fail-open。
-- SessionEnd 只在没有 action-required 且没有保留期 tombstone 时删除 Session JSON。
-- Group 只聚合 required member 的生命周期就绪信号，不调度、不取消、不生成业务结论。
-- diagnose 使用无锁只读路径，不创建目录、锁、临时文件或状态写入。
+本切片尚未开放 exact platform observation、terminal notification、interrupt result 和 parent close 的持久写 API。wait 不持久化；普通消息不保存正文或调用历史。business resume、managed followup、多 attempt、复杂 recovery/retry budget 和 Group 不属于首版。
 
-## 文件结构
+## 文件所有权
 
-- `schemas/governance-semantics.schema.json`：机器语义与状态枚举。
-- `schemas/task-contract-v1.schema.json`：TaskContract wire contract。
-- `schemas/codex-hook-events-v1.contract.json`：当前 Hook 字段能力边界。
-- `scripts/subagent_governance.py`：唯一可执行入口与显式公共 API。
-- `scripts/governance_semantics.py`：机器语义加载与常量。
-- `scripts/governance_contracts.py`：TaskContract 和任务特征值对象。
-- `scripts/governance_state.py`：当前状态模型与结构验证。
-- `scripts/governance_storage.py`：私有文件、锁和原子写入。
-- `scripts/governance_errors.py`：运行时错误分类。
-- `scripts/governance_platform.py`：无状态原生响应规范化；不扫描嵌套字符串或 transcript。
-- `scripts/governance_hook.py`：Hook 事件/工具路由、lazy store 和 allow/deny/fail-open 映射。
-- `scripts/governance_protocol.py`：PreparedContract 派发组合服务。
-- `scripts/governance_cli.py`：直接依赖领域所有者的命令行传输层。
-- `skills/subagent-governance/SKILL.md`：Agent 可执行协议。
-- `skills/subagent-governance/references/runtime-boundaries.md`：运行边界摘要。
+- `schemas/governance-semantics.schema.json`：state-v9、TaskContract v2 和 phase-specific closed Schema。
+- `schemas/task-contract-v2.schema.json`：TaskContract v2 模型输入 wire schema。
+- `scripts/governance_contracts.py`：v2 normalization 与 business/spawn digest。
+- `scripts/governance_state.py`：strict v9 runtime validator。
+- `scripts/governance_state_store.py`：单 ledger 安全存储和无锁只读 reader。
+- `scripts/governance_protocol.py`：prepare composition。
+- `scripts/governance_dispatch.py`：claim/confirm/dispatch-result transitions。
+- `scripts/governance_diagnostics.py`：status/diagnose 的无锁只读 projection。
+- `scripts/governance_hook.py`：spawn Pre 与 read-only SessionStart router。
+- `scripts/governance_cli.py`：薄 CLI transport。
+- `scripts/subagent_governance.py`：稳定 executable facade。
 
-## 安装与发布
-
-开发工作树与非 Git 稳定测试源之间由 `sync_stable_plugin.py` 进行显式事务化同步。source root、stable root 和 transaction parent 必须两两独立，不能相同或互为父子目录；否则 stable rename 会移动 lock/manifest 或使 source 变脏。工具只接受调用时干净且等于 `--expected-head` 的 Git worktree，并只复制 `git ls-files -z` 所列 tracked 普通文件到 stable parent 同级 staging，因此 `.git`、未跟踪/ignored 文件和 `__pycache__` 都不能部署。staging 的 Manifest version 和 tree digest 验证、source HEAD/status 二次验证完成后，旧稳定源才会 rename 为同级 backup 并激活新目录；失败会按记录的摘要回滚，异常中断由唯一可绑定的 transaction manifest 恢复。同步、安装和未完成事务恢复共享 `<transaction-parent>/.install.lock`，但 stable sync backup、install transaction snapshot 与 retained previous cache 分别保护稳定源切换、安装回滚和上一代会话兼容，不能互相替代。
-
-运行环境恰好有一个由稳定源 Manifest 确定的 current 插件缓存，并允许零或一个 retained previous compatibility cache。`reinstall_plugin.py` 不从多 cache 目录名推测 current：有 cache 时必须由操作者传入 `codex plugin list` 证实的 `--previous-version`。它在调用原生命令前绑定脚本所在稳定测试源的完整 tree digest，并在 OS lock 和同一文件系统内快照完整安装前 cache 集合及摘要；原生命令成功返回后会优先从快照恢复或复核精确 previous 路径和 digest，再验证目标。目标是安全普通目录、Manifest 完整版本匹配且 target tree digest 精确等于已绑定的 stable digest；previous 只需与自己的快照 digest 一致。成功后精确保留 target 与安装前 current，并删除更早 cache；已有 compatibility cache 的下一次更新必须显式确认旧会话已重启或关闭。失败、目标无效或收敛失败时验证摘要后恢复安装前完整集合。双版本保留只覆盖原生命令返回后的恢复窗口，不让旧会话热加载新版本。安装锁由操作系统持有，进程退出后自动释放。
-
-发布、安装、Marketplace、运行缓存和 Hook trust 的写入都需要单独授权。
+开发仓库仍是唯一修改源。安装、发布、stable source、Marketplace、Registry、runtime cache 和 Hook trust 写入需要另行明确授权。
