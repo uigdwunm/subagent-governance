@@ -1,6 +1,6 @@
 {
   "name": "subagent-governance",
-  "version": "0.4.0-rc.13+codex.20260824133045",
+  "version": "0.4.0-rc.13+codex.20260825004015",
   "description": "Codex-first lifecycle governance for native subagents",
   "author": {
     "name": "zhaolaiyuan"
