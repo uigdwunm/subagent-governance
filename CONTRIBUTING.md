@@ -36,7 +36,7 @@ On Windows, use `py -3` in place of `python3` where appropriate.
 ## Implementation expectations
 
 - Add a minimal reliable regression test before fixing runtime bugs.
-- Keep persisted state and installation layout current-only; reject non-current data without migration or rewrite.
+- Keep persisted governance state current-only and reject non-current data without migration or rewrite. The installation layout may retain exactly one previous immutable plugin cache so tasks that predate a Codex restart keep their original file paths; this retention must not introduce old-version logic into the current plugin.
 - Keep protocol, Skill, Hook, Schema, and runtime semantics aligned.
 - Treat unknown platform responses as unknown; do not silently convert them to success or failure.
 - Preserve terminal notification observation and explicit parent lifecycle disposition as separate stages; do not add business-result persistence or acceptance state.

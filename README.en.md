@@ -62,6 +62,7 @@ The parent reads the native reply and decides whether to continue or close. `--p
 - The core runtime does not initiate network access and has no telemetry.
 - Local state contains bounded task metadata, identity mappings, lifecycle facts, notification observations, and tombstones.
 - Local governance data uses only the current state format. Other formats are not read, transformed, or rewritten.
+- An upgrade may retain exactly one previous immutable plugin cache so tasks started before a Codex restart keep their original file paths. The next upgrade removes the older cache; the current plugin never loads old-version state or logic from it.
 - The plugin does not register `SubagentStart` or `SubagentStop`; neither event participates in state maintenance or notification handling.
 - Exact `list_agents` terminal observations wait for the native notification; they do not synthesize completion.
 - Parent Stop remains advisory and fail-open.
