@@ -10,6 +10,7 @@ VALIDATION_DOCUMENTS = {
 
 
 CURRENT_DOCUMENTS = {
+    "docs/architecture-reduction-adr.md",
     "docs/architecture.md",
     "docs/context-completeness-contract.md",
     "docs/interruption-reconciliation.md",
