@@ -38,7 +38,7 @@ wait 不持久化；普通消息不保存正文或调用历史；terminal notifi
 }
 ```
 
-`objective`、非空 `scope` 和非空 `completion` 必填，其他字段可省略。strict 要求非空 forbidden scope 和 evidence。business digest 排除 spawn config。普通 paths 只是定位提示；需要 hash/tree verification 时显式使用 `context.verified`。
+`objective`、非空 `scope` 和非空 `completion` 必填，其他字段可省略。strict 要求非空 forbidden scope 和 evidence。business digest 排除 spawn config。普通 paths 只是定位提示；需要 hash/tree verification 时显式使用 `context.verified`。`working_tree` baseline 只接受逐文件 SHA-256；目录依赖必须使用 `git_commit` tree object ID。
 
 ## 派发
 

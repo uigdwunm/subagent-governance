@@ -36,7 +36,7 @@ Wait calls are not persisted, normal message bodies/history are not stored, and 
 }
 ```
 
-`objective`, non-empty `scope`, and non-empty `completion` are required; other fields have mechanical defaults. Strict requires non-empty forbidden scope and evidence. The business digest excludes spawn config. Ordinary paths are location hints; hash/tree verification requires explicit `context.verified` opt-in.
+`objective`, non-empty `scope`, and non-empty `completion` are required; other fields have mechanical defaults. Strict requires non-empty forbidden scope and evidence. The business digest excludes spawn config. Ordinary paths are location hints; hash/tree verification requires explicit `context.verified` opt-in. A `working_tree` baseline accepts per-file SHA-256 declarations only; directory dependencies require a `git_commit` tree object ID.
 
 ## Dispatch
 
