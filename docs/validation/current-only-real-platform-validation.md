@@ -1,34 +1,33 @@
 # state-v9 独立重启后真实平台验证
 
 日期：2026-08-25  
-结论：`failed`（V2 的 parent explicit exact-target confirm 进入 `reconcile`；依 correctness failure 停止）
+结论：`failed`（修复部署并重启后的独立复验中，V2 仍未形成 Pre claim；exact confirm 正确分类为 `dispatch_claim_missing`，依 correctness failure 停止）
 
 ## 基线、加载与独立状态
 
-- 开发 checkout 为 `87f03570eafd6a1cd435f2bb92dfeb560e2a94e2`，工作树在开始验证时干净；期望且实际加载版本均为 `0.4.0-rc.13+codex.20260825035757`。实际 Skill 从该版本 runtime cache 读取。
-- exact session identity 为 `01a03722-0244-7c32-82e7-0a2f52b52d3b`。验证使用 `gpt-5.6-terra` / `high`；受治理 child 使用 `fork_turns=none`。
-- `codex plugin list` 显示 installed/enabled，仅作为安装可见性证据。失败后的只读 `hooks/list` 已独立确认当前 PreToolUse handler 为 `modified`：`currentHash=sha256:307fb66cae3e00fbcec4eb69f5227cb5f993a8583698df6bc6829330f9465081`，保存的 `trusted_hash=sha256:d2eedfe914bd63b8e1ebc1c872ee51f1a6ee221b4fa62a062dec61e602c95aff`。Codex registration 与桌面 UI 仍为 `not_checked`；不以 installed/enabled 或路径存在替代。
-- 原验证任务没有修改 runtime、schema、Skill、stable source、runtime cache、Marketplace、Registry 或 Hook trust；仅产生验证所需的当前 exact-session v9 ledger 状态。
+- 开发 checkout 为 `af0935b1214b483b8152be7053f83438d8fa5817`，开始时工作树干净，且包含修复提交 `308f28f3fe6a6a0d152f888e9dcdcea79b0f5f65`。`codex plugin list` 的 installed/enabled 版本与实际已加载 Skill cache 均为 `0.4.0-rc.13+codex.20260825045151`；stable 与 current runtime projection digest 均为 `d67d3a11975df6f8287ea3e374f33a914c6638d48e3c5c56b40f6f2b65789dcb`，并只保留一个 previous cache `0.4.0-rc.13+codex.20260825035757`。
+- exact session identity 为 `01a03783-0fa1-7613-ab2a-2e05d331ea00`。当前可用读取接口不公开父任务模型/推理参数，故不把它记为已机械确认；受治理 child 的原生 spawn 参数明确为 `gpt-5.6-terra` / `high` 与 `fork_turns=none`。
+- `codex plugin list` 只作为安装可见性证据。部署前的 app-server 回读曾报告当前 PreToolUse hash `sha256:307fb66cae3e00fbcec4eb69f5227cb5f993a8583698df6bc6829330f9465081` 和 SessionStart hash `sha256:26915f4009c66b621d5a67739e8b7300d3bd462017bd31b72411317cf638cf45` 为 trusted；本任务没有可用的只读 Hook-trust API，故本轮 trust 是 `not_checked`，不以历史记录、installed/enabled 或文件存在替代。Codex registration 与桌面 UI 同为 `not_checked`。
+- 本任务没有安装、部署、修改 stable source、runtime cache、Marketplace、Registry 或 Hook trust；只产生该 exact session 的 v9 ledger 状态与本报告的文档更新。
 
 ## V1–V7 结果
 
 | 场景 | 状态 | 最小有界证据 |
 | --- | --- | --- |
-| V1 unmanaged spawn、fail-open、零治理状态 | `passed` | 原生 spawn 机械返回 exact target，child 给出独立终态；前后 status/diagnose 都显示本 session 为 `state_format_version=9` 且 `tasks=[]`。child final 不作为 identity authority。 |
-| V2 prepare → governed Pre gate → native spawn → explicit confirm | `failed` | 当前 runtime prepare 后，本次 native spawn 的 exact target 被原样立即提交 `confirm-dispatch`；返回 `reconcile`。task id/ref 与 exact target 机械一致；代码分支复核证明旧 `dispatch_identity_mismatch` 实际由 confirm 时 phase 不是 `claimed` 触发。结合当前 Pre handler 的 `modified` trust 状态，原记录中的 Pre 阶段不能证明 durable claim 已写入 exact ledger。不以 child final、task name、时间或 list 补绑。 |
+| V1 unmanaged spawn、fail-open、零治理状态 | `passed` | 原生 spawn 机械返回 exact target；child 给出独立终态。前后 status 都为 `state_format_version=9` 且 `tasks=[]`，证明本次 unmanaged 调用未创建 governance state；child final 不作为 identity authority。 |
+| V2 prepare → governed Pre gate → native spawn → explicit confirm | `failed` | prepare 后把本次 native `spawn_agent` 返回的 exact target 立即原样提交 `confirm-dispatch`；首次返回 `reconcile`，只读 status/diagnose 为 `phase=reconcile`、`reconcile_reason=dispatch_claim_missing`、`target=null`。这证明修复后的 prepared/unclaimed 分类已生效，但 Pre durable claim 仍未形成，不能达到 bound。未使用 list、时间、名称、task name、child final、transcript 或 summary 补绑；same-target replay亦保持 `reconcile`，没有绕过 first-bind-wins。 |
 | V3 wait 与 exact bound-target observation | `not_checked` | V2 correctness failure 后停止；没有未绑定 target 的 observation。 |
 | V4 normal message、terminal notification、minimal interrupt、parent close | `not_checked` | V2 correctness failure 后停止；未以 child terminal 构造 managed terminal fact。 |
 | V5 exact-session SessionStart/status | `not_checked` | 仅执行了 CLI 的 exact-session 只读 status/diagnose；没有可归因于本次任务的 SessionStart 实际事件证据。 |
 | V6 restart / compact | `not_checked` | V2 correctness failure 后停止。 |
-| V7 Hook trust、Codex registration、桌面 UI、exact session identity | `failed_partial` | 当前 Pre handler 的 trust status 已只读确认为 `modified`；Codex registration 与桌面 UI 仍为 `not_checked`。exact session identity 已记录为 `01a03722-0244-7c32-82e7-0a2f52b52d3b`，不作为其他状态的替代证据。 |
+| V7 Hook trust、Codex registration、桌面 UI、exact session identity | `not_checked_partial` | Hook trust、Codex registration、桌面 UI 均未在本轮以独立实际接口验证。exact session identity 已机械记录为 `01a03783-0fa1-7613-ab2a-2e05d331ea00`，但不作为其他三项的替代证据。 |
 
 ## 验证命令与后续边界
 
-- 只读基线：`git status --porcelain=v1`、`git rev-parse HEAD`、`codex plugin list`、当前 runtime 的 `--status` / `--diagnose`。
-- 实际 V2 动作：当前 runtime 的 `--prepare-dispatch`、原生 `spawn_agent`、随后同一 task/ref 与该次 exact target 的 `--confirm-dispatch`；终态只读 `--diagnose`。
-- 开发仓库最小复现使用同一 task id/ref 和 exact target 形状，证明：`claimed` fact 存在时 exact confirm 正常绑定；只有 `prepared` fact 时旧实现错误分类为 `dispatch_identity_mismatch`。本地修复改为 `dispatch_claim_missing` reconcile/no-bind，没有放宽 identity，也没有恢复推断或自动恢复机制。
-- 用户随后明确授权部署与 Hook trust。部署前通过 Codex app-server `hooks/list` 取得当前最小 Hook 的 exact key/hash，并按 Codex TUI 使用的 `config/batchWrite` 语义写入后回读：PreToolUse `sha256:307fb66cae3e00fbcec4eb69f5227cb5f993a8583698df6bc6829330f9465081` 与 SessionStart `sha256:26915f4009c66b621d5a67739e8b7300d3bd462017bd31b72411317cf638cf45` 均为 `trusted`。这只证明两个当前 Hook 的信任状态；Codex registration 与桌面 UI 仍为 `not_checked`。
-- 修复部署完成后当前任务必须停止并等待重启；新的独立任务从 V1/V2 重新取证。V2 修复后的真实行为及 V3–V7 仍未验证。
+- 只读基线：`git status --porcelain=v1`、`git rev-parse HEAD`、`codex plugin list`、stable/current/previous runtime projection digest、current runtime 的 exact-session `--status` / `--diagnose`。
+- 实际 V1 动作：unmanaged 原生 `spawn_agent`、原生 wait 与前后 exact-session status；不准备 contract，也不写治理状态。
+- 实际 V2 动作：当前 runtime 的 `--prepare-dispatch`、原生 `spawn_agent`、随后同一 task/ref 与该次机械返回 target 的 `--confirm-dispatch`，再作同一输入的 replay；终态仅运行 exact-session `--status` / `--diagnose`。
+- 因 V2 correctness failure，未调用 wait observation、normal message、terminal notification、interrupt、close、SessionStart probe、restart/compact，亦未自动 retry native spawn；下一步必须回到开发仓库诊断 Pre claim 未落盘的原因，完成本地门禁、重新获得部署授权并再建独立新任务。
 
 ---
 
