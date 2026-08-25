@@ -8,6 +8,8 @@
 - 决策基线：`dc99228`；部署边界补充：`5bc2b1b`。
 - state-v9 dispatch：`3729ec3`；最小 lifecycle：`a6fcaa4`。
 - allowlisted runtime 与单一开发部署实现：`bc6a61ff0e5aff1fae7cc76cc99ab213607b886b`。
+- cache rollover 二次确认删除：`3a3a66ff8e014a3d56c4e6384704fcb200a2e65b`。
+- 当前部署候选版本：`0.4.0-rc.13+codex.20260825035757`。
 - 当前格式精确为 `state_format_version=9` / `state-v9`；TaskContract 为 v2。
 - 实现和验收只修改开发仓库。未读取或写入 stable source、Marketplace、Registry、runtime cache、Hook trust 或全局 `AGENTS.md`；未运行 `dev_deploy.py --execute`。
 
@@ -30,7 +32,7 @@
 ## Runtime projection
 
 - allowlist：`.codex-plugin/runtime-bundle.json`，精确 30 files。
-- 验收 digest：`854f9386baa6c84cb7aa6aebcb8df9db90031862eddc5224a0fd72f79c7455ce`。
+- 验收 digest：`b450a0b899ebef807b0a2f052011872a6e610b38f2c0f5bdc17e8445902752de`。
 - 独立 temporary staging 的 `verify_runtime_bundle` 与 Plugin validator 均通过。
 - tests、CI、plans、validation、`AGENTS.md`、开发依赖、release preflight、`runtime_bundle.py`、`dev_deploy.py` 均不在 projection。
 - 修改被排除的开发文件不改变 bundle digest；目标树多一个文件即被 exact verifier 拒绝。
