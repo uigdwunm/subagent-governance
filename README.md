@@ -1,105 +1,158 @@
 # Subagent Governance
 
-Subagent Governance 是 Codex-first 的原生子 Agent 生命周期治理插件。它保留 `spawn_agent`、`wait_agent`、`send_message`、`list_agents` 和 `interrupt_agent` 作为执行通道，不引入第二套编排平台，也不替代权限、沙箱、Hook trust 或父 Agent 的业务判断。
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-当前减法收口已完成派发与最小生命周期两个纵向切片：
+[![CI](https://github.com/uigdwunm/subagent-governance/actions/workflows/ci.yml/badge.svg)](https://github.com/uigdwunm/subagent-governance/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Status: release candidate](https://img.shields.io/badge/status-release%20candidate-F59E0B)](#release-status)
 
-- `state_format_version=9` / `state-v9` current-only namespace；
-- 单一 exact-Session ledger，一个 task 对应一个原生 Agent lifecycle；
-- TaskContract v2（`standard|strict`）；
-- `prepare-dispatch → governed spawn Pre claim → explicit exact-target confirm`；
-- first-bind-wins、相同 confirm 幂等、冲突 reconcile；
-- exact platform observation、terminal notification、interrupt result 和 parent close；
-- 普通消息 success/failed 零写入，unknown 只保留 reconcile reason；
-- closed task 固定保留 64 条，并仅由后续 ledger 写操作惰性裁剪；
-- unmanaged spawn 在状态构造前 inert fail-open；
-- SessionStart 无锁、零写入地注入当前 Hook 权威 exact session ID 与已安装 CLI entrypoint，并 best-effort 展示状态摘要；status/diagnose 同样只读。
+**Reliable lifecycle governance for native Codex subagents.**
 
-旧 PreparedContractStore、agents index、PostToolUse receipt/index、attempt、pending action、tombstone、Group、business resume 和复杂 retry/recovery 状态机不再属于 runtime。
+Make dispatch, exact-target binding, waiting, interruption, and completion explicit and diagnosable—without replacing native `spawn_agent`.
 
-Codex runtime 由 `.codex-plugin/runtime-bundle.json` 的机器 allowlist 精确构造，只含 Manifest、Hook、Skill/references、核心 scripts、Schema 与最小 README/license；tests、plans、validation、`AGENTS.md`、开发依赖和部署工具不进入 bundle。`scripts/dev_deploy.py` 是开发仓库唯一部署入口，默认零写入 dry-run，实际 stable/cache/Codex 写入仍需另行明确授权。
+Subagent Governance is a local Codex plugin for developers who use native subagents but do not want identity, lifecycle state, or terminal decisions to depend on task names, timing, transcripts, or guesses. It adds a small, auditable protocol around the native Agent tools while keeping those tools as the only execution channel.
 
-## 当前实现边界
+## Release status
 
-wait 不持久化；普通消息不保存正文或调用历史；terminal notification 不保存正文。business resume、managed followup、多 attempt、复杂 recovery/retry budget 和 Group 不属于首版。完整目标架构与顺序见 [ADR](docs/architecture-reduction-adr.md) 和 [cutover plan](docs/improvement-plans/reduction-cutover.md)。
+The current release candidate is `v0.4.0-rc.15`. Its Marketplace entry is pinned to the same immutable tag, so installations remain reproducible while including the lifecycle and identity fixes added after `v0.4.0-rc.14`.
 
-## TaskContract v2
+## Why use it?
 
-```json
-{
-  "profile": "standard",
-  "objective": "实现唯一当前目标",
-  "scope": ["允许范围"],
-  "forbidden_scope": [],
-  "completion": ["可验证完成条件"],
-  "evidence": [],
-  "context": {"summary": "必要背景", "paths": ["scripts/example.py"]},
-  "spawn": {"fork_turns": "none", "model": null, "reasoning_effort": null}
-}
-```
+Native subagents are useful, but lifecycle coordination becomes fragile when a parent Agent has to infer which child was created, whether a dispatch was claimed, whether a terminal event is authoritative, or whether an unknown platform result is safe to retry.
 
-`objective`、非空 `scope` 和非空 `completion` 必填，其他字段可省略。strict 要求非空 forbidden scope 和 evidence。business digest 排除 spawn config。普通 paths 只是定位提示；需要 hash/tree verification 时显式使用 `context.verified`。`working_tree` baseline 只接受逐文件 SHA-256；目录依赖必须使用 `git_commit` tree object ID。
+Subagent Governance makes those decisions explicit:
 
-## 派发
+| Problem | Governance behavior |
+| --- | --- |
+| Agent identity inferred from a name, list, or final response | Bind only the exact target returned by the current native spawn |
+| Duplicate or conflicting target confirmation | Preserve the first bind; replay idempotently; reconcile conflicts |
+| Parent and child disagree about completion | Record exact observations and terminal facts before parent close |
+| A message, interrupt, or platform response is unknown | Preserve `unknown`; never silently turn it into success or failure |
+| Governance is unavailable for an ordinary native spawn | Keep unmanaged `spawn_agent` fail-open and inert |
 
-当前任务的 `<exact-session-id>` 和 `<authoritative-cli-entrypoint>` 只取自同一次 SessionStart Hook 注入的权威值。所有命令必须使用该已安装 entrypoint；当前工作区的相对脚本可能落到隔离的开发数据根，禁止替代。`<codex_delegation><source_thread_id>` 是来源任务，不是当前 session ID；任一权威值缺失时必须在 prepare 前停止，不得用父任务、列表、其他 ID 或路径猜测。
+## What it provides
 
-```bash
-python3 "<authoritative-cli-entrypoint>" \
-  --prepare-dispatch \
-  --session '<exact-session-id>' < contract.json
-```
+- **Exact identity** — a governed task binds only to the exact target mechanically returned by its current native spawn.
+- **Explicit lifecycle** — `prepare → claim → bind → terminal → close`, with bounded reconcile states for conflicting or unknown facts.
+- **TaskContract v2** — one current objective, allowed scope, completion conditions, evidence, context, and explicit spawn configuration.
+- **Optional verified context** — declared working-tree files or Git objects can be checked at prepare and claim time.
+- **Minimal local state** — one current Session ledger, no prompt archive, no terminal body persistence, and bounded closed-task retention.
+- **Read-only recovery views** — SessionStart summaries, `status`, and `diagnose` do not create or repair state.
 
-将返回的 `spawn_args` 原样交给当前原生 `spawn_agent`。读取这次原生返回机械暴露的 exact target 后立即确认：
-
-```bash
-python3 "<authoritative-cli-entrypoint>" \
-  --confirm-dispatch \
-  --session '<exact-session-id>' <<'JSON'
-{"task_id":"<prepare task_id>","task_ref":"<prepare task_ref>","target":"<native exact target>"}
-JSON
-```
-
-禁止用 list、task name、时间、summary、transcript 或 child final 补绑 identity。原生返回后 confirm 前崩溃时，task 保持 `claimed/unbound`，不自动重派。
-
-当前 Codex MultiAgent V2 在本地 PreToolUse 前加密 `message`，并可能以 flattened `collaborationspawn_agent` 暴露工具名。插件只对已确认的 `Agent`、`spawn_agent`、`collaboration.spawn_agent`、`collaborationspawn_agent` 精确匹配；第三方同后缀工具和未知未来名称按 unmanaged fail-open。V2 以派生 task name/ref 和可见 spawn config claim prepared capability；opaque message 不会被回写，插件也不宣称能在该边界验证明文正文。V1 明文路径仍执行完整参数比较。
-
-明确证明 Agent 未创建时可提交 `record-dispatch-result=failed`；unknown 进入 reconcile。success 必须通过 confirm 携带 exact target。
-
-## 最小生命周期
-
-bound 后可使用以下 stdin JSON 命令；除 close 外均要求 exact task/ref/target（terminal 使用 `sender`）：
+## Quick tour
 
 ```text
---record-platform-observation  status=running|completed|stopped|interrupted|error|unknown
---record-call-result           result=success|failed|unknown
---record-terminal-notification status=completed|stopped|interrupted
---record-interrupt-result      result=failed|inactive|unknown
---close-task                   reason=<bounded parent reason>
+TaskContract v2
+      │
+      ▼
+prepare ──► native spawn claim ──► exact-target confirm
+                                         │
+                                         ▼
+                         wait / message / interrupt
+                                         │
+                                         ▼
+                              terminal fact ──► close
 ```
 
-平台 terminal observation 或 terminal notification 建立 `terminal`；interrupt `inactive` 建立 terminal fact；unknown 进入 `reconcile`。普通消息 success/failed 只校验 exact identity，不写 ledger。close 不调用原生 interrupt，也不保存业务正文。
+Ask Codex to use the bundled Skill:
 
-## 安装
+```text
+Use $subagent-governance to delegate this task to a native Codex
+subagent, wait for its terminal notification, and close the governed task.
+```
+
+The Skill generates the contract, explains the dispatch to the user, passes the generated arguments to native `spawn_agent`, confirms the exact returned target, and records only the lifecycle facts needed for later decisions.
+
+## Installation
+
+After the `v0.4.0-rc.15` tag is published from the verified release commit, install the Marketplace and plugin with:
 
 ```bash
 codex plugin marketplace add uigdwunm/subagent-governance --ref main
 codex plugin add subagent-governance@subagent-governance
 ```
 
-在 Codex 中使用 `$subagent-governance`，并通过 `/hooks` 检查 Hook。Windows PowerShell 使用相同的 Codex CLI 命令。
+Restart Codex, open a new session, invoke `$subagent-governance`, and review the bundled Hooks before trusting them. Codex officially supports browsing and installing plugins from supported ChatGPT/Codex surfaces; Codex CLI exposes the plugin browser through `/plugins`.
 
-## 开发验证
+For repository development and validation, see [CONTRIBUTING.md](CONTRIBUTING.md). Development validation is not permission to modify an installed plugin, Marketplace, Hook trust, or runtime cache.
 
-```bash
-python3 -m unittest discover -s tests -v
-python3 -m py_compile scripts/*.py
-python3 scripts/release_preflight.py --mode development
-python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py .
-python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/subagent-governance
-git diff --check
+## TaskContract v2
+
+```json
+{
+  "profile": "standard",
+  "objective": "Implement one current objective",
+  "scope": ["allowed scope"],
+  "forbidden_scope": [],
+  "completion": ["verifiable completion condition"],
+  "evidence": [],
+  "context": {
+    "summary": "necessary background",
+    "paths": ["scripts/example.py"]
+  },
+  "spawn": {
+    "fork_turns": "none",
+    "model": null,
+    "reasoning_effort": null
+  }
+}
 ```
 
-核心运行时不主动联网；只有显式 verified Git context 会调用本地 Git。安装、发布、stable source、Marketplace、Registry、runtime cache 和 Hook trust 写入需要独立授权。
+`objective`, non-empty `scope`, and non-empty `completion` are required. The `strict` profile also requires explicit forbidden scope and evidence. Ordinary `context.paths` are location hints; material verification is opt-in through `context.verified`.
 
-许可证：[MIT](LICENSE)。安全报告见 [SECURITY.md](SECURITY.md)，贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+## How it works
+
+Each exact Codex Session has one `state-v9` ledger. One governed task represents one native Agent lifecycle and moves through these phases:
+
+```text
+prepared | claimed | bound | terminal | closed | reconcile
+```
+
+The current Session identity and governance CLI entrypoint come only from the same SessionStart Hook injection. The parent sends the generated spawn arguments unchanged, reads the exact target from that native return, and immediately confirms it. A name, nearby timestamp, `list_agents`, transcript, summary, or child final cannot establish identity.
+
+After binding, the parent can record exact platform observations, normal-call results, terminal notifications, interrupt results, and an explicit close decision. Same-fact replay is idempotent. Conflicting or unknown facts remain visible instead of triggering an automatic retry or guessed terminal state.
+
+For the full state machine and storage boundaries, see [Architecture](docs/architecture.md), the [reduction ADR](docs/architecture-reduction-adr.md), and [runtime boundaries](skills/subagent-governance/references/runtime-boundaries.md).
+
+## Safety and privacy
+
+- The core runtime does not initiate network requests and contains no telemetry.
+- It does not persist complete task prompts, message bodies, terminal notification bodies, business results, transcripts, or child finals.
+- State writes use bounded input, file locking, atomic replacement, permission checks, and readback validation.
+- Unmanaged native spawns remain fail-open if the governance layer is unavailable.
+- The runtime bundle is built from a machine-readable allowlist and excludes tests, plans, deployment tooling, and development-only files.
+
+Subagent Governance is **not** a sandbox, permission system, remote control plane, Hook trust authority, or security boundary between processes running as the same OS user. Codex remains responsible for approvals, sandboxing, tool authorization, Hook delivery, and model behavior. See [SECURITY.md](SECURITY.md).
+
+## Current boundaries
+
+- Wait calls are not persisted.
+- There is no managed business resume, managed follow-up, multi-attempt retry system, Group abstraction, or automatic cross-Session recovery.
+- A crash after native spawn but before exact-target confirmation remains `claimed/unbound`; the plugin does not guess identity or automatically respawn.
+- An unknown message, interrupt, or platform response remains unknown and may require parent reconciliation.
+- Codex MultiAgent V2 exposes an opaque message at the local PreToolUse boundary, so the plugin binds the derived task reference and visible spawn configuration rather than claiming plaintext-message attestation.
+
+## Verification
+
+The current development line includes:
+
+- 96 automated tests for protocol, state, concurrency, lifecycle, storage safety, packaging, and deployment transactions;
+- CI on Ubuntu, macOS, and Windows with Python 3.11 and 3.12;
+- plugin, Skill, archive, schema, compilation, lint, and release-preflight gates;
+- real Codex acceptance covering governed dispatch, exact-target binding, active wait wake-up, concurrent governed Agents, strict verified context, message handling, interruption, terminal notification, close, and read-only diagnostics.
+
+Local tests cannot prove every platform failure mode. Real acceptance evidence and explicit unverified boundaries are recorded in [platform validation](docs/platform-validation.md) and [current real-platform validation](docs/validation/current-only-real-platform-validation.md).
+
+## Project documentation
+
+- [Architecture](docs/architecture.md)
+- [Context completeness contract](docs/context-completeness-contract.md)
+- [Interruption and reconciliation](docs/interruption-reconciliation.md)
+- [Platform validation](docs/platform-validation.md)
+- [Release process](docs/release-process.md)
+- [Contributing](CONTRIBUTING.md)
+
+## License
+
+[MIT](LICENSE)

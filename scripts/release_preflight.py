@@ -27,7 +27,7 @@ SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 REQUIRED_PUBLIC_FILES = (
     Path("LICENSE"),
     Path("README.md"),
-    Path("README.en.md"),
+    Path("README.zh-CN.md"),
     Path("CONTRIBUTING.md"),
     Path("SECURITY.md"),
     Path("hooks/hooks.json"),
