@@ -13,7 +13,7 @@ Subagent Governance 是 Codex-first 的原生子 Agent 生命周期治理插件�
 - 普通消息 success/failed 零写入，unknown 只保留 reconcile reason；
 - closed task 固定保留 64 条，并仅由后续 ledger 写操作惰性裁剪；
 - unmanaged spawn 在状态构造前 inert fail-open；
-- SessionStart 无锁、零写入地注入当前 Hook 权威 exact session ID，并 best-effort 展示状态摘要；status/diagnose 同样只读。
+- SessionStart 无锁、零写入地注入当前 Hook 权威 exact session ID 与已安装 CLI entrypoint，并 best-effort 展示状态摘要；status/diagnose 同样只读。
 
 旧 PreparedContractStore、agents index、PostToolUse receipt/index、attempt、pending action、tombstone、Group、business resume 和复杂 retry/recovery 状态机不再属于 runtime。
 
@@ -42,10 +42,10 @@ wait 不持久化；普通消息不保存正文或调用历史；terminal notifi
 
 ## 派发
 
-当前任务的 `<exact-session-id>` 只取自 SessionStart Hook 注入的权威值。`<codex_delegation><source_thread_id>` 是来源任务，不是当前 session ID；没有机械可见的 SessionStart 权威值时必须在 prepare 前停止，不得用父任务、列表或其他 ID 猜测。
+当前任务的 `<exact-session-id>` 和 `<authoritative-cli-entrypoint>` 只取自同一次 SessionStart Hook 注入的权威值。所有命令必须使用该已安装 entrypoint；当前工作区的相对脚本可能落到隔离的开发数据根，禁止替代。`<codex_delegation><source_thread_id>` 是来源任务，不是当前 session ID；任一权威值缺失时必须在 prepare 前停止，不得用父任务、列表、其他 ID 或路径猜测。
 
 ```bash
-python3 scripts/subagent_governance.py \
+python3 "<authoritative-cli-entrypoint>" \
   --prepare-dispatch \
   --session '<exact-session-id>' < contract.json
 ```
@@ -53,7 +53,7 @@ python3 scripts/subagent_governance.py \
 将返回的 `spawn_args` 原样交给当前原生 `spawn_agent`。读取这次原生返回机械暴露的 exact target 后立即确认：
 
 ```bash
-python3 scripts/subagent_governance.py \
+python3 "<authoritative-cli-entrypoint>" \
   --confirm-dispatch \
   --session '<exact-session-id>' <<'JSON'
 {"task_id":"<prepare task_id>","task_ref":"<prepare task_ref>","target":"<native exact target>"}

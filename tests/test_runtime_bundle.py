@@ -131,6 +131,78 @@ class RuntimeBundleTests(unittest.TestCase):
             self.assertFalse((target / "scripts/__pycache__").exists())
             self.assertEqual(runtime_bundle.verify_runtime_bundle(target), digest)
 
+    def test_session_start_authoritative_installed_cli_prepares_for_same_hook_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            target = (
+                temporary
+                / "plugins/cache/personal/subagent-governance/v-test"
+            )
+            target.parent.mkdir(parents=True)
+            runtime_bundle.stage_runtime_bundle(ROOT, target)
+            entrypoint = target / "scripts/subagent_governance.py"
+            environment = dict(os.environ)
+            environment.pop("SUBAGENT_GOVERNANCE_DATA", None)
+            environment.pop("PLUGIN_DATA", None)
+            session_id = "installed-authority-session"
+
+            def run(arguments, payload):
+                return subprocess.run(
+                    [sys.executable, str(entrypoint), *arguments],
+                    input=json.dumps(payload, ensure_ascii=False),
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    env=environment,
+                )
+
+            started = run(
+                [],
+                {"hook_event_name": "SessionStart", "session_id": session_id},
+            )
+            self.assertEqual(started.returncode, 0, started.stderr)
+            start_context = json.loads(started.stdout)["hookSpecificOutput"][
+                "additionalContext"
+            ]
+            self.assertIn(
+                json.dumps(str(entrypoint.resolve()), ensure_ascii=False),
+                start_context,
+            )
+
+            prepared = run(
+                ["--prepare-dispatch", "--session", session_id],
+                {
+                    "objective": "Read the installed plugin manifest",
+                    "scope": [".codex-plugin/plugin.json"],
+                    "completion": ["Report name and version"],
+                    "spawn": {"fork_turns": "none"},
+                },
+            )
+            self.assertEqual(prepared.returncode, 0, prepared.stderr)
+            prepared_value = json.loads(prepared.stdout)
+            spawn_args = prepared_value["spawn_args"]
+            spawn_args["message"] = "gAAAAABinstalled-authority-opaque-message"
+
+            claimed = run(
+                [],
+                {
+                    "hook_event_name": "PreToolUse",
+                    "session_id": session_id,
+                    "tool_name": "collaboration.spawn_agent",
+                    "tool_use_id": "installed-authority-native-call",
+                    "tool_input": spawn_args,
+                },
+            )
+            self.assertEqual(claimed.returncode, 0, claimed.stderr)
+            claim_output = json.loads(claimed.stdout)["hookSpecificOutput"]
+            self.assertEqual(claim_output["permissionDecision"], "allow")
+
+            current = run(["--status", "--session", session_id], {})
+            self.assertEqual(current.returncode, 0, current.stderr)
+            task = json.loads(current.stdout)["tasks"][0]
+            self.assertEqual(task["task_ref"], prepared_value["task_ref"])
+            self.assertEqual(task["phase"], "claimed")
+
     def test_allowlisted_python_imports_are_closed_over_runtime_modules(self):
         allowed = set(runtime_bundle.runtime_files(ROOT))
         for relative in sorted(path for path in allowed if path.endswith(".py")):

@@ -106,9 +106,11 @@ def _session_start(payload: dict[str, Any]) -> dict[str, Any] | None:
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id.strip():
         return None
+    cli_entrypoint = str(Path(__file__).resolve().with_name("subagent_governance.py"))
     lines = [
         f"Subagent Governance 当前 Hook 权威 exact session_id（JSON）：{json.dumps(session_id, ensure_ascii=False)}",
-        "所有治理命令的 --session 必须逐字使用上方值。",
+        f"当前 Hook 权威 governance CLI entrypoint（JSON）：{json.dumps(cli_entrypoint, ensure_ascii=False)}",
+        "所有治理命令必须用上方 entrypoint，且 --session 必须逐字使用上方 session_id。",
         "<codex_delegation><source_thread_id> 仅表示来源任务，不是当前 session_id；不得用父任务、任务列表或其他 ID 替代。",
     ]
     root = data_root_path(Path(__file__)) / "sessions"

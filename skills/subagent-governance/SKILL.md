@@ -55,15 +55,17 @@ profile 与状态边界见 [references/governance-profiles.md](references/govern
 ## Exact Session identity
 
 - 当前任务的 exact session ID 只取自 SessionStart Hook 注入的 `当前 Hook 权威 exact session_id（JSON）`，治理命令的 `--session` 必须逐字使用该值。
+- 治理 CLI 只取自同一次 SessionStart 注入的 `当前 Hook 权威 governance CLI entrypoint（JSON）`。把 JSON 字符串解码后的路径作为 Python 的单个脚本参数；所有 prepare、confirm、status、diagnose 和 lifecycle 命令都必须使用它。
+- 不得调用当前工作区的相对 `scripts/subagent_governance.py`、其他版本 cache 或自行猜测的安装路径；它们可能解析到与真实 Hook 不同的数据根。
 - `<codex_delegation><source_thread_id>` 仅表示来源任务，不是当前任务的 session ID。父任务 ID、任务列表结果和其他可见 ID 也不能替代。
-- 如果当前上下文没有机械可见的 SessionStart 权威值，在 prepare 或原生 spawn 前停止并报告 identity 缺失；不得猜测、跨 Session 扫描或先用其他 ID 尝试。
+- 如果当前上下文缺少任一 SessionStart 权威值，在 prepare 或原生 spawn 前停止并报告 authority 缺失；不得猜测、跨 Session 扫描或先用其他 ID/路径尝试。
 
 ## Governed 派发
 
 1. 用 TaskContract v2 通过标准输入调用：
 
    ```bash
-   python3 scripts/subagent_governance.py --prepare-dispatch --session <exact-session-id>
+   python3 "<authoritative-cli-entrypoint>" --prepare-dispatch --session <exact-session-id>
    ```
 
 2. 向用户展示返回的 `user_message`。把 `spawn_args` 原样传给当前原生 `spawn_agent`；不要重写 message、task name、model、effort 或 `fork_turns`。
@@ -73,7 +75,7 @@ profile 与状态边界见 [references/governance-profiles.md](references/govern
 5. 立即提交 exact target：
 
    ```bash
-   python3 scripts/subagent_governance.py --confirm-dispatch --session <exact-session-id>
+   python3 "<authoritative-cli-entrypoint>" --confirm-dispatch --session <exact-session-id>
    ```
 
    stdin 精确为：
@@ -96,7 +98,7 @@ spawn 返回后、confirm 前如果父任务中断，记录保持 `claimed/unbou
 - 对 exact target 得到规范化平台观察后，提交：
 
   ```bash
-  python3 scripts/subagent_governance.py --record-platform-observation --session <exact-session-id>
+  python3 "<authoritative-cli-entrypoint>" --record-platform-observation --session <exact-session-id>
   ```
 
   stdin 精确为 `{"task_id":"...","task_ref":"...","target":"...","status":"running|completed|stopped|interrupted|error|unknown"}`。unknown 只进入 reconcile，不自动重查或猜 terminal。
@@ -112,6 +114,6 @@ spawn 返回后、confirm 前如果父任务中断，记录保持 `claimed/unbou
 
 ## 只读恢复与状态
 
-`--status --session <exact-session-id>` 和 `--diagnose --session <exact-session-id>` 只读 exact Session；缺失目录时不创建目录、lock 或空状态。SessionStart 始终注入当前 Hook 提供的权威 exact session ID；状态摘要仍是 best-effort、无锁只读，不 cleanup、rebuild、reconcile、自动关闭、自动调用工具或扫描其他 Session。
+`--status --session <exact-session-id>` 和 `--diagnose --session <exact-session-id>` 只读 exact Session；缺失目录时不创建目录、lock 或空状态。SessionStart 始终注入当前 Hook 提供的权威 exact session ID 与 CLI entrypoint；后者保证 CLI 与真实 Hook 使用同一安装版本和插件数据根。状态摘要仍是 best-effort、无锁只读，不 cleanup、rebuild、reconcile、自动关闭、自动调用工具或扫描其他 Session。
 
 只在平台继续提供同一 exact Session identity 时显示未关闭摘要。新 Session 不跨目录扫描或猜测旧任务。

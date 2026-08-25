@@ -576,6 +576,9 @@ class V9DispatchChainTests(unittest.TestCase):
 
     def test_session_start_exposes_exact_identity_readonly_even_without_state(self):
         prepared = self.prepare()
+        authoritative_cli = str(
+            Path(hook.__file__).resolve().with_name("subagent_governance.py")
+        )
         state_path, lock_path = self.store._paths(self.session_id)
         lock_path.unlink()
         before = (state_path.read_bytes(), state_path.stat().st_mtime_ns)
@@ -587,6 +590,7 @@ class V9DispatchChainTests(unittest.TestCase):
             )
         context = result["hookSpecificOutput"]["additionalContext"]
         self.assertIn(f' exact session_id（JSON）："{self.session_id}"', context)
+        self.assertIn(json.dumps(authoritative_cli, ensure_ascii=False), context)
         self.assertIn(prepared["task_ref"], context)
         self.assertIn("source_thread_id", context)
         self.assertFalse(lock_path.exists())
@@ -601,6 +605,7 @@ class V9DispatchChainTests(unittest.TestCase):
             )
         missing_context = missing_result["hookSpecificOutput"]["additionalContext"]
         self.assertIn(' exact session_id（JSON）："missing"', missing_context)
+        self.assertIn(json.dumps(authoritative_cli, ensure_ascii=False), missing_context)
         self.assertIn("source_thread_id", missing_context)
         self.assertFalse(missing.exists())
 
@@ -613,6 +618,32 @@ class V9DispatchChainTests(unittest.TestCase):
         unreadable_context = unreadable_result["hookSpecificOutput"]["additionalContext"]
         self.assertIn(' exact session_id（JSON）："unreadable"', unreadable_context)
         self.assertIn("状态摘要不可读取", unreadable_context)
+
+        installed_hook = (
+            self.root
+            / "plugins/cache/personal/subagent-governance/v-test/scripts/governance_hook.py"
+        )
+        installed_cli = installed_hook.with_name("subagent_governance.py")
+        with (
+            mock.patch.object(hook, "__file__", str(installed_hook)),
+            mock.patch.dict(
+                os.environ,
+                {"SUBAGENT_GOVERNANCE_DATA": "", "PLUGIN_DATA": ""},
+                clear=False,
+            ),
+        ):
+            installed_result = hook.handle_hook(
+                {"hook_event_name": "SessionStart", "session_id": "installed"}
+            )
+        installed_context = installed_result["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(
+            json.dumps(str(installed_cli.resolve()), ensure_ascii=False),
+            installed_context,
+        )
+        self.assertEqual(
+            store_support.data_root_path(installed_hook),
+            store_support.data_root_path(installed_cli),
+        )
 
     def test_default_namespace_is_state_v9_and_v8_is_untouched(self):
         with tempfile.TemporaryDirectory() as directory:

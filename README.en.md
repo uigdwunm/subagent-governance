@@ -13,7 +13,7 @@ The dispatch and minimal-lifecycle reduction slices now provide:
 - zero-write normal-call success/failed results, with only a reconcile reason for unknown;
 - fixed retention of 64 closed tasks, lazily pruned only by later ledger writes;
 - inert unmanaged spawn before StateStore construction;
-- lock-free, zero-write SessionStart injection of the Hook-authoritative exact session ID with a best-effort state summary, plus read-only status/diagnose.
+- lock-free, zero-write SessionStart injection of the Hook-authoritative exact session ID and installed CLI entrypoint with a best-effort state summary, plus read-only status/diagnose.
 
 PreparedContractStore, the agents index, PostToolUse receipts/indexes, attempts, pending actions, tombstones, Groups, business resume, and complex retry/recovery state machines are no longer runtime authorities.
 
@@ -40,16 +40,16 @@ Wait calls are not persisted, normal message bodies/history are not stored, and 
 
 ## Dispatch
 
-Take the current task's `<exact-session-id>` only from the authoritative value injected by the SessionStart Hook. `<codex_delegation><source_thread_id>` identifies the source task, not the current session. If the SessionStart authority is not mechanically visible, stop before prepare instead of substituting a parent, list, or other ID.
+Take the current task's `<exact-session-id>` and `<authoritative-cli-entrypoint>` only from the authoritative values injected by the same SessionStart Hook. Every command must use that installed entrypoint; a workspace-relative script can resolve to an isolated developer data root and must not substitute for it. `<codex_delegation><source_thread_id>` identifies the source task, not the current session. If either SessionStart authority is not mechanically visible, stop before prepare instead of substituting a parent, list, other ID, or guessed path.
 
 ```bash
-python3 scripts/subagent_governance.py --prepare-dispatch --session '<exact-session-id>' < contract.json
+python3 "<authoritative-cli-entrypoint>" --prepare-dispatch --session '<exact-session-id>' < contract.json
 ```
 
 Pass the returned `spawn_args` unchanged to the current native `spawn_agent`. Then copy the exact target mechanically exposed by that current native return and confirm it:
 
 ```bash
-python3 scripts/subagent_governance.py --confirm-dispatch --session '<exact-session-id>' <<'JSON'
+python3 "<authoritative-cli-entrypoint>" --confirm-dispatch --session '<exact-session-id>' <<'JSON'
 {"task_id":"<prepare task_id>","task_ref":"<prepare task_ref>","target":"<native exact target>"}
 JSON
 ```
