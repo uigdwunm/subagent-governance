@@ -19,10 +19,8 @@ EXPECTED_RUNTIME_FILES = {
     ".codex-plugin/plugin.json",
     ".codex-plugin/runtime-bundle.json",
     "LICENSE",
-    "README.md",
     "hooks/hooks.json",
     "schemas/governance-semantics.schema.json",
-    "schemas/task-contract-v2.schema.json",
     "scripts/governance_cli.py",
     "scripts/governance_context.py",
     "scripts/governance_contracts.py",
@@ -60,6 +58,14 @@ class RuntimeBundleTests(unittest.TestCase):
         self.assertEqual(runtime_bundle.runtime_files(ROOT), tuple(manifest["files"]))
         for relative in manifest["files"]:
             self.assertTrue((ROOT / relative).is_file(), relative)
+
+        repository_only_files = {
+            "README.md",
+            "schemas/task-contract-v2.schema.json",
+        }
+        for relative in repository_only_files:
+            self.assertTrue((ROOT / relative).is_file(), relative)
+            self.assertNotIn(relative, manifest["files"])
 
         forbidden_parts = {
             "tests", ".github", "improvement-plans", "validation", "AGENTS.md",

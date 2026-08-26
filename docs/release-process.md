@@ -5,7 +5,7 @@
 
 ## Runtime bundle
 
-allowlist 只包含插件 Manifest、Hook manifest、当前 Skill 与必要 references、核心 runtime scripts、当前 Schema、`README.md` 和 `LICENSE`。以下内容明确不进入 runtime：
+allowlist 只包含插件 Manifest、Hook manifest、当前 Skill 与必要 references、核心 runtime scripts、运行时读取的 governance semantics Schema 和 `LICENSE`。仓库说明 `README.md` 与对外提供的 TaskContract v2 输入 Schema 仍进入源码和 release archive，但不进入本机 runtime。以下内容也明确不进入 runtime：
 
 - tests、CI、improvement plans 与 validation reports；
 - `AGENTS.md`、贡献/安全文档、开发依赖与 release preflight；
