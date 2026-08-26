@@ -48,7 +48,7 @@ On Windows, use `py -3` in place of `python3` where appropriate.
 
 - Describe the project only in relation to native Codex subagents and the governance it adds around native Agent tools.
 - Do not name, imply, or compare against other products, plugins, Skills, or orchestration components in READMEs, manifest metadata, Marketplace copy, repository descriptions, release notes, or social-preview assets.
-- Avoid unsupported superlatives such as "market-leading," "best-in-class," or "the only." State concrete, verified behavior instead.
+- Avoid unsupported comparative or superlative claims. State concrete, verified behavior instead.
 
 ## Pull requests
 
