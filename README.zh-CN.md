@@ -40,7 +40,31 @@ Subagent Governance 将这些判断变为明确协议：
 - **最小本地状态**：一个当前 Session ledger，不保存 prompt 档案或终态正文，已关闭任务有界保留。
 - **只读恢复视图**：SessionStart 摘要、`status` 和 `diagnose` 不创建或修复状态。
 
-## 快速了解
+## 安装
+
+从已验证的发布提交创建并推送 `v0.4.0-rc.15` 标签后，使用以下命令添加 Marketplace 并安装插件：
+
+```bash
+codex plugin marketplace add uigdwunm/subagent-governance --ref main
+codex plugin add subagent-governance@subagent-governance
+```
+
+随后重启 Codex、打开新 Session，并在信任插件 Hook 前检查其定义。Codex 官方支持从 ChatGPT/Codex 的受支持界面浏览和安装插件；Codex CLI 可通过 `/plugins` 打开插件浏览器。
+
+仓库开发与验证方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。开发验证本身不构成修改已安装插件、Marketplace、Hook trust 或运行缓存的授权。
+
+## 5 分钟上手
+
+直接用自然语言描述任务即可，不需要记忆命令，也不需要点名 Skill：
+
+```text
+把这个任务交给一个原生子 Agent：
+
+检查当前项目的测试入口，并给出推荐运行的测试命令。
+只读检查，不要修改文件；等待它完成后汇报证据，并收尾对应任务。
+```
+
+这个请求涉及原生子 Agent 的派发、等待和完成验收，因此插件内置 Skill 会自动应用治理流程：
 
 ```text
 TaskContract v2
@@ -55,27 +79,7 @@ prepare ──► native spawn claim ──► exact-target confirm
                               terminal fact ──► close
 ```
 
-让 Codex 使用插件内置 Skill：
-
-```text
-使用 $subagent-governance 将这个任务派发给 Codex 原生子 Agent，
-等待其终态通知，并关闭对应的治理任务。
-```
-
-Skill 会生成契约、向用户说明派发信息、把生成参数交给原生 `spawn_agent`、确认原生返回的精确目标，并只记录后续判断需要的最小生命周期事实。
-
-## 安装
-
-从已验证的发布提交创建并推送 `v0.4.0-rc.15` 标签后，使用以下命令添加 Marketplace 并安装插件：
-
-```bash
-codex plugin marketplace add uigdwunm/subagent-governance --ref main
-codex plugin add subagent-governance@subagent-governance
-```
-
-随后重启 Codex、打开新 Session、调用 `$subagent-governance`，并在信任插件 Hook 前检查其定义。Codex 官方支持从 ChatGPT/Codex 的受支持界面浏览和安装插件；Codex CLI 可通过 `/plugins` 打开插件浏览器。
-
-仓库开发与验证方式见 [CONTRIBUTING.md](CONTRIBUTING.md)。开发验证本身不构成修改已安装插件、Marketplace、Hook trust 或运行缓存的授权。
+Skill 会生成契约、说明派发信息、把生成参数交给原生 `spawn_agent`、确认原生返回的精确目标、等待终态证据并关闭治理任务。只有当前客户端无法自动选择 Skill 时，才需要显式调用 `$subagent-governance` 作为备用入口。
 
 ## TaskContract v2
 

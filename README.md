@@ -40,7 +40,32 @@ Subagent Governance makes those decisions explicit:
 - **Minimal local state** — one current Session ledger, no prompt archive, no terminal body persistence, and bounded closed-task retention.
 - **Read-only recovery views** — SessionStart summaries, `status`, and `diagnose` do not create or repair state.
 
-## Quick tour
+## Installation
+
+After the `v0.4.0-rc.15` tag is published from the verified release commit, install the Marketplace and plugin with:
+
+```bash
+codex plugin marketplace add uigdwunm/subagent-governance --ref main
+codex plugin add subagent-governance@subagent-governance
+```
+
+Restart Codex, open a new session, and review the bundled Hooks before trusting them. Codex officially supports browsing and installing plugins from supported ChatGPT/Codex surfaces; Codex CLI exposes the plugin browser through `/plugins`.
+
+For repository development and validation, see [CONTRIBUTING.md](CONTRIBUTING.md). Development validation is not permission to modify an installed plugin, Marketplace, Hook trust, or runtime cache.
+
+## Five-minute quick start
+
+Ask naturally—there is no command to memorize and no need to name the Skill:
+
+```text
+Delegate this to a native subagent:
+
+Inspect this repository's test entry points and recommend the commands I should run.
+Read only; do not modify files. Wait for completion, report the evidence, and close
+out the task.
+```
+
+Because this request requires native subagent dispatch, waiting, and completion, the bundled Skill automatically applies the governance flow:
 
 ```text
 TaskContract v2
@@ -55,27 +80,7 @@ prepare ──► native spawn claim ──► exact-target confirm
                               terminal fact ──► close
 ```
 
-Ask Codex to use the bundled Skill:
-
-```text
-Use $subagent-governance to delegate this task to a native Codex
-subagent, wait for its terminal notification, and close the governed task.
-```
-
-The Skill generates the contract, explains the dispatch to the user, passes the generated arguments to native `spawn_agent`, confirms the exact returned target, and records only the lifecycle facts needed for later decisions.
-
-## Installation
-
-After the `v0.4.0-rc.15` tag is published from the verified release commit, install the Marketplace and plugin with:
-
-```bash
-codex plugin marketplace add uigdwunm/subagent-governance --ref main
-codex plugin add subagent-governance@subagent-governance
-```
-
-Restart Codex, open a new session, invoke `$subagent-governance`, and review the bundled Hooks before trusting them. Codex officially supports browsing and installing plugins from supported ChatGPT/Codex surfaces; Codex CLI exposes the plugin browser through `/plugins`.
-
-For repository development and validation, see [CONTRIBUTING.md](CONTRIBUTING.md). Development validation is not permission to modify an installed plugin, Marketplace, Hook trust, or runtime cache.
+The Skill generates the contract, explains the dispatch, passes the generated arguments to native `spawn_agent`, confirms the exact returned target, waits for terminal evidence, and closes the governed task. Explicitly invoking `$subagent-governance` is only a fallback when automatic Skill selection is unavailable in the current client.
 
 ## TaskContract v2
 
