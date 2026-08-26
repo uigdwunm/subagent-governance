@@ -7,9 +7,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Status: stable](https://img.shields.io/badge/status-stable-2EA44F)](#release-status)
 
-**Reliable lifecycle governance for native Codex subagents.**
+**Verifiable handoff and lifecycle governance for native Codex subagents.**
 
-Make dispatch, exact-target binding, waiting, interruption, and completion explicit and diagnosable—without replacing native `spawn_agent`.
+Keep native Codex as the execution layer while making task handoff, declared-context freshness, exact-target binding, waiting, interruption, and completion explicit and diagnosable.
 
 Subagent Governance is a local Codex plugin for developers who use native subagents but do not want identity, lifecycle state, or terminal decisions to depend on task names, timing, transcripts, or guesses. It adds a small, auditable protocol around the native Agent tools while keeping those tools as the only execution channel.
 
@@ -17,19 +17,18 @@ Subagent Governance is a local Codex plugin for developers who use native subage
 
 The current stable release is `v0.4.0`. Its Marketplace entry is pinned to the same immutable tag. It consolidates the lifecycle and identity fixes validated across the release-candidate series and includes the natural-language quick start.
 
-## Why use it?
+## What it adds to native Codex
 
-Native subagents are useful, but lifecycle coordination becomes fragile when a parent Agent has to infer which child was created, whether a dispatch was claimed, whether a terminal event is authoritative, or whether an unknown platform result is safe to retry.
+Native Codex continues to create and run every subagent. Subagent Governance adds a local protocol around those native actions:
 
-Subagent Governance makes those decisions explicit:
-
-| Problem | Governance behavior |
+| Native Codex activity | Governance added by this plugin |
 | --- | --- |
-| Agent identity inferred from a name, list, or final response | Bind only the exact target returned by the current native spawn |
-| Duplicate or conflicting target confirmation | Preserve the first bind; replay idempotently; reconcile conflicts |
-| Parent and child disagree about completion | Record exact observations and terminal facts before parent close |
-| A message, interrupt, or platform response is unknown | Preserve `unknown`; never silently turn it into success or failure |
-| Governance is unavailable for an ordinary native spawn | Keep unmanaged `spawn_agent` fail-open and inert |
+| The parent dispatches work through native `spawn_agent` | Require one current objective, non-empty scope, and verifiable completion conditions |
+| Native spawn returns a target | Bind only that exact returned target; never infer identity from a name, list, time, transcript, or final response |
+| The parent selects task context | Optionally verify declared working-tree files or Git objects at both prepare and claim time |
+| The parent waits, messages, interrupts, and observes completion | Record an explicit `prepare → claim → bind → terminal → close` lifecycle |
+| A platform result cannot be confirmed | Preserve `unknown` and reconcile conflicting facts instead of guessing or silently retrying |
+| An ordinary native spawn is not governed | Keep unmanaged `spawn_agent` fail-open and inert |
 
 ## What it provides
 
