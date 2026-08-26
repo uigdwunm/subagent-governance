@@ -87,6 +87,24 @@ prepare ──► native spawn claim ──► exact-target confirm
 
 The Skill generates the contract, explains the dispatch, passes the generated arguments to native `spawn_agent`, confirms the exact returned target, waits for terminal evidence, and closes the governed task. Explicitly invoking `$subagent-governance` is only a fallback when automatic Skill selection is unavailable in the current client.
 
+## Frequently asked questions
+
+### How does this plugin help manage native Codex subagents?
+
+Native Codex still creates and runs every subagent. The plugin adds an explicit task contract, optional declared-material verification, exact-target binding, lifecycle records, and terminal evidence around those native actions.
+
+### Do I need to invoke `$subagent-governance` explicitly?
+
+Normally, no. A natural request that involves dispatching or coordinating a native subagent should select the bundled Skill automatically. Explicit invocation is only a fallback when automatic Skill selection is unavailable.
+
+### What does verified context prove?
+
+It proves only that the working-tree files or Git objects explicitly declared in `context.verified` match at prepare and claim time. It does not scan the workspace or prove that every necessary material was declared.
+
+### What happens when a Codex result cannot be confirmed?
+
+The result remains `unknown` and the governed task enters bounded reconciliation. The plugin does not automatically resend, respawn, or guess a terminal state.
+
 ## TaskContract v2
 
 ```json
