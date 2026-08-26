@@ -39,6 +39,12 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 - **最小本地状态**：一个当前 Session ledger，不保存 prompt 档案或终态正文，已关闭任务有界保留。
 - **只读恢复视图**：SessionStart 摘要、`status` 和 `diagnose` 不创建或修复状态。
 
+## 有证据支持的保护
+
+仓库测试和真实 Codex 验收覆盖了三类实际保护：派发前发现显式声明任务材料的变化、在并发工作中保持 exact-target 身份，以及在平台结果无法确认时保留未知状态且不自动重试。这些机制在不替代原生 Codex 执行的前提下，旨在减少可避免的过期材料工作、错误目标跟进和重复动作。
+
+完整的复现条件、证据来源、实际作用和结论边界见[原生 Codex 子 Agent 治理证据](docs/native-codex-governance-evidence.md)。
+
 ## 安装
 
 使用以下命令从已验证的 `v0.4.0` 标签添加 Marketplace 并安装插件：
@@ -150,6 +156,7 @@ Subagent Governance **不是**沙箱、权限系统、远程控制平面、Hook 
 ## 项目文档
 
 - [当前架构](docs/architecture.md)
+- [原生 Codex 子 Agent 治理证据](docs/native-codex-governance-evidence.md)
 - [上下文完整性契约](docs/context-completeness-contract.md)
 - [中断与 reconcile](docs/interruption-reconciliation.md)
 - [平台验证](docs/platform-validation.md)
