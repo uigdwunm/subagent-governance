@@ -86,6 +86,24 @@ prepare ──► native spawn claim ──► exact-target confirm
 
 Skill 会生成契约、说明派发信息、把生成参数交给原生 `spawn_agent`、确认原生返回的精确目标、等待终态证据并关闭治理任务。只有当前客户端无法自动选择 Skill 时，才需要显式调用 `$subagent-governance` 作为备用入口。
 
+## 常见问题
+
+### 这个插件如何帮助管理 Codex 原生子 Agent？
+
+每个子 Agent 仍由原生 Codex 创建和执行。本插件只在这些原生动作外增加明确任务契约、可选声明材料验证、exact-target 绑定、生命周期记录和终态证据。
+
+### 需要显式调用 `$subagent-governance` 吗？
+
+通常不需要。涉及派发或协调原生子 Agent 的自然语言请求应自动选择插件内置 Skill；只有当前客户端无法自动选择时，才需要显式调用作为备用入口。
+
+### verified context 能证明什么？
+
+它只证明 `context.verified` 中显式声明的工作树文件或 Git 对象在 prepare 和 claim 阶段保持匹配。它不会扫描整个工作区，也不能证明父 Agent 已声明全部必要材料。
+
+### Codex 结果无法确认时会怎样？
+
+结果保持 `unknown`，受治理任务进入有界 reconcile。本插件不会自动重发、重新派发或猜测终态。
+
 ## TaskContract v2
 
 ```json
