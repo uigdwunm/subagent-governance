@@ -39,6 +39,12 @@ Native Codex continues to create and run every subagent. Subagent Governance add
 - **Minimal local state** — one current Session ledger, no prompt archive, no terminal body persistence, and bounded closed-task retention.
 - **Read-only recovery views** — SessionStart summaries, `status`, and `diagnose` do not create or repair state.
 
+## Evidence-backed protections
+
+Repository tests and real Codex acceptance cover three practical protections: detecting changes to explicitly declared task materials before dispatch, retaining exact-target identity across concurrent work, and preserving unconfirmed platform results without automatic retries. These mechanisms are designed to reduce avoidable stale-material work, wrong-target follow-up, and duplicate actions without replacing native Codex execution.
+
+See [governance evidence for native Codex subagents](docs/native-codex-governance-evidence.md) for reproducible conditions, evidence sources, practical effects, and claim boundaries.
+
 ## Installation
 
 Install the verified `v0.4.0` release with:
@@ -151,6 +157,7 @@ Local tests cannot prove every platform failure mode. Real acceptance evidence a
 ## Project documentation
 
 - [Architecture](docs/architecture.md)
+- [Governance evidence for native Codex subagents](docs/native-codex-governance-evidence.md)
 - [Context completeness contract](docs/context-completeness-contract.md)
 - [Interruption and reconciliation](docs/interruption-reconciliation.md)
 - [Platform validation](docs/platform-validation.md)
