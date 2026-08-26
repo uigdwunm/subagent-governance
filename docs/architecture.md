@@ -124,7 +124,7 @@ wait 不持久化。business resume、managed followup、多 attempt、复杂 re
 
 ## Runtime bundle 与开发部署
 
-`.codex-plugin/runtime-bundle.json` 是机器可检查的 runtime allowlist。运行包精确包含 Manifest、Hook、Skill/references、核心 runtime scripts、当前 Schema 与最小 README/license；tests、CI、plans、validation、`AGENTS.md`、开发依赖、release preflight 及部署工具均不进入 bundle。bundle digest 只覆盖 allowlisted path、mode 和 bytes，目标 verifier 拒绝任何额外文件或符号链接。
+`.codex-plugin/runtime-bundle.json` 是机器可检查的 runtime allowlist。运行包精确包含 Manifest、Hook、Skill/references、核心 runtime scripts、运行时读取的 governance semantics Schema 与 `LICENSE`；仓库 `README.md` 和对外提供的 TaskContract v2 输入 Schema 只进入源码与 release archive，不进入 runtime。tests、CI、plans、validation、`AGENTS.md`、开发依赖、release preflight 及部署工具也不进入 bundle。bundle digest 只覆盖 allowlisted path、mode 和 bytes，目标 verifier 拒绝任何额外文件或符号链接。
 
 `scripts/dev_deploy.py` 是唯一的本机开发测试部署入口，默认严格 dry-run。经另行授权后，它从干净 exact HEAD 构造 allowlisted staging，验证 digest，原子激活 stable，调用原生 Codex 安装，并精确保留 target 与可选 previous；失败或中断 transaction 恢复部署前 stable 和完整 cache 集合。该工具不写 Marketplace 配置、Registry、Hook trust 或全局 `AGENTS.md`，也不属于 runtime bundle。
 
