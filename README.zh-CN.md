@@ -7,9 +7,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![状态：稳定版](https://img.shields.io/badge/%E7%8A%B6%E6%80%81-%E7%A8%B3%E5%AE%9A%E7%89%88-2EA44F)](#发布状态)
 
-**面向 Codex 原生子 Agent 的可靠生命周期治理。**
+**面向 Codex 原生子 Agent 的可验证交接与生命周期治理。**
 
-在不替代原生 `spawn_agent` 的前提下，让派发、精确目标绑定、等待、中断和完成状态变得明确、可诊断。
+保留原生 Codex 作为唯一执行层，同时让任务交接、声明材料的新鲜度、精确目标绑定、等待、中断和完成状态变得明确、可诊断。
 
 Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 Agent、但不希望依靠任务名、时间邻近、对话记录或猜测来判断身份和终态的开发者。它在原生 Agent 工具之外增加一层小型、可审计的协作协议，同时保留原生工具作为唯一执行通道。
 
@@ -17,19 +17,18 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 
 当前稳定版为 `v0.4.0`，Marketplace 入口固定到相同的不可变标签。该版本收录了候选发布阶段完成并验证的生命周期与身份修复，以及自然语言快速上手体验。
 
-## 为什么需要它？
+## 它为原生 Codex 增加了什么？
 
-原生子 Agent 很有用，但当父 Agent 需要推断创建了哪个子 Agent、派发是否被正确认领、哪个终态事实可信，或者未知平台结果能否安全重试时，生命周期协作会变得脆弱。
+原生 Codex 继续创建并执行每一个子 Agent。Subagent Governance 只在这些原生动作外增加一层本地协议：
 
-Subagent Governance 将这些判断变为明确协议：
-
-| 问题 | 治理行为 |
+| 原生 Codex 动作 | 本插件增加的治理 |
 | --- | --- |
-| 通过任务名、列表或最终回复推断 Agent 身份 | 只绑定当前原生 spawn 机械返回的 exact target |
-| 重复或冲突的目标确认 | 保留首次绑定；相同事实幂等重放；冲突进入 reconcile |
-| 父子 Agent 对完成状态理解不一致 | 在父任务关闭前记录精确观察和终态事实 |
-| 消息、中断或平台结果未知 | 保留 `unknown`，不静默转换为成功或失败 |
-| 普通原生派发遇到治理组件异常 | unmanaged `spawn_agent` 保持 fail-open 和 inert |
+| 父 Agent 通过原生 `spawn_agent` 派发任务 | 强制提供一个当前目标、非空范围和可验证完成条件 |
+| 原生 spawn 返回目标 | 只绑定本次机械返回的 exact target，不根据名称、列表、时间、transcript 或最终回复推断身份 |
+| 父 Agent 选择任务上下文 | 可选在 prepare 和 claim 两个阶段验证声明的工作树文件或 Git 对象 |
+| 父 Agent 等待、发送消息、中断并观察完成 | 记录明确的 `prepare → claim → bind → terminal → close` 生命周期 |
+| 平台结果无法确认 | 保留 `unknown`，冲突事实进入 reconcile，不猜测或静默重试 |
+| 普通原生派发未受治理 | unmanaged `spawn_agent` 保持 fail-open 和 inert |
 
 ## 核心能力
 

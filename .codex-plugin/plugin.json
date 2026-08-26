@@ -1,7 +1,7 @@
 {
   "name": "subagent-governance",
   "version": "0.4.0+codex.20260826100408",
-  "description": "Codex-first minimal lifecycle governance for native subagents",
+  "description": "Verifiable handoff and lifecycle governance for native Codex subagents",
   "author": {
     "name": "zhaolaiyuan"
   },
@@ -17,8 +17,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "\u5b50 Agent \u6cbb\u7406",
-    "shortDescription": "\u4ee5\u5355\u4e00 ledger \u7ba1\u7406\u539f\u751f\u5b50 Agent \u6d3e\u53d1\u4e0e exact target",
-    "longDescription": "Codex-first minimal lifecycle governance for native subagents, with TaskContract v2, one current-only Session ledger, atomic governed-spawn claim, explicit exact-target confirmation, and read-only recovery summaries.",
+    "shortDescription": "\u4e3a Codex \u539f\u751f\u5b50 Agent \u589e\u52a0\u53ef\u9a8c\u8bc1\u4ea4\u63a5\u4e0e\u751f\u547d\u5468\u671f\u6cbb\u7406",
+    "longDescription": "Adds TaskContract v2, optional declared-context freshness checks, exact-target binding, an explicit lifecycle, and read-only diagnostics around native Codex subagents without replacing native Agent tools.",
     "developerName": "zhaolaiyuan",
     "category": "Developer Tools",
     "capabilities": [
