@@ -1,4 +1,4 @@
 interface:
   display_name: "子 Agent 治理"
   short_description: "用最小持久生命周期治理 Codex 原生子 Agent"
-  default_prompt: "使用 $subagent-governance 为当前子 Agent 生成 TaskContract v2，并按原生返回确认 exact target。"
+  default_prompt: "把适合并行处理的当前任务交给原生子 Agent；自动生成 TaskContract v2，确认 exact target，等待终态并完成治理收尾。"

@@ -5,7 +5,7 @@
 [![CI](https://github.com/uigdwunm/subagent-governance/actions/workflows/ci.yml/badge.svg)](https://github.com/uigdwunm/subagent-governance/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![状态：候选发布版](https://img.shields.io/badge/%E7%8A%B6%E6%80%81-%E5%80%99%E9%80%89%E5%8F%91%E5%B8%83%E7%89%88-F59E0B)](#发布状态)
+[![状态：稳定版](https://img.shields.io/badge/%E7%8A%B6%E6%80%81-%E7%A8%B3%E5%AE%9A%E7%89%88-2EA44F)](#发布状态)
 
 **面向 Codex 原生子 Agent 的可靠生命周期治理。**
 
@@ -15,7 +15,7 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 
 ## 发布状态
 
-当前候选发布版为 `v0.4.0-rc.15`。Marketplace 入口固定到相同的不可变标签，因此安装结果可复现，同时包含 `v0.4.0-rc.14` 之后新增的生命周期与身份修复。
+当前稳定版为 `v0.4.0`，Marketplace 入口固定到相同的不可变标签。该版本收录了候选发布阶段完成并验证的生命周期与身份修复，以及自然语言快速上手体验。
 
 ## 为什么需要它？
 
@@ -42,10 +42,10 @@ Subagent Governance 将这些判断变为明确协议：
 
 ## 安装
 
-从已验证的发布提交创建并推送 `v0.4.0-rc.15` 标签后，使用以下命令添加 Marketplace 并安装插件：
+使用以下命令从已验证的 `v0.4.0` 标签添加 Marketplace 并安装插件：
 
 ```bash
-codex plugin marketplace add uigdwunm/subagent-governance --ref main
+codex plugin marketplace add uigdwunm/subagent-governance --ref v0.4.0
 codex plugin add subagent-governance@subagent-governance
 ```
 

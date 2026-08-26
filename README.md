@@ -5,7 +5,7 @@
 [![CI](https://github.com/uigdwunm/subagent-governance/actions/workflows/ci.yml/badge.svg)](https://github.com/uigdwunm/subagent-governance/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status: release candidate](https://img.shields.io/badge/status-release%20candidate-F59E0B)](#release-status)
+[![Status: stable](https://img.shields.io/badge/status-stable-2EA44F)](#release-status)
 
 **Reliable lifecycle governance for native Codex subagents.**
 
@@ -15,7 +15,7 @@ Subagent Governance is a local Codex plugin for developers who use native subage
 
 ## Release status
 
-The current release candidate is `v0.4.0-rc.15`. Its Marketplace entry is pinned to the same immutable tag, so installations remain reproducible while including the lifecycle and identity fixes added after `v0.4.0-rc.14`.
+The current stable release is `v0.4.0`. Its Marketplace entry is pinned to the same immutable tag. It consolidates the lifecycle and identity fixes validated across the release-candidate series and includes the natural-language quick start.
 
 ## Why use it?
 
@@ -42,10 +42,10 @@ Subagent Governance makes those decisions explicit:
 
 ## Installation
 
-After the `v0.4.0-rc.15` tag is published from the verified release commit, install the Marketplace and plugin with:
+Install the verified `v0.4.0` release with:
 
 ```bash
-codex plugin marketplace add uigdwunm/subagent-governance --ref main
+codex plugin marketplace add uigdwunm/subagent-governance --ref v0.4.0
 codex plugin add subagent-governance@subagent-governance
 ```
 
