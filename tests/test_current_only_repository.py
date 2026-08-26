@@ -13,6 +13,7 @@ CURRENT_DOCUMENTS = {
     "docs/architecture.md",
     "docs/context-completeness-contract.md",
     "docs/interruption-reconciliation.md",
+    "docs/native-codex-governance-evidence.md",
     "docs/platform-validation.md",
     "docs/release-process.md",
 } | VALIDATION_DOCUMENTS
