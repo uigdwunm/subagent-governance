@@ -7,7 +7,6 @@ import time
 from typing import Any
 
 try:
-    from scripts.governance_dispatch_identity import task_name_from_message
     from scripts.governance_context import verify_context_manifest
     from scripts.governance_contracts import (
         TaskContract,
@@ -17,10 +16,10 @@ try:
         spawn_digest,
     )
     from scripts.governance_dispatch_rendering import expected_native_parameters
-    from scripts.governance_errors import StateConflictError
+    from scripts.governance_native_adapter import normalize_native_spawn
+    from scripts.governance_errors import NativeInputMismatch, NativeInputUnavailable, StateConflictError
     from scripts.governance_lifecycle import enter_reconcile, prune_closed_tasks
 except ModuleNotFoundError:
-    from governance_dispatch_identity import task_name_from_message
     from governance_context import verify_context_manifest
     from governance_contracts import (
         TaskContract,
@@ -30,7 +29,8 @@ except ModuleNotFoundError:
         spawn_digest,
     )
     from governance_dispatch_rendering import expected_native_parameters
-    from governance_errors import StateConflictError
+    from governance_native_adapter import normalize_native_spawn
+    from governance_errors import NativeInputMismatch, NativeInputUnavailable, StateConflictError
     from governance_lifecycle import enter_reconcile, prune_closed_tasks
 
 
@@ -48,10 +48,12 @@ def initial_task_record(
     context_verification: dict[str, Any] | None,
     created_at: int,
     *,
+    native_interface: str,
     expires_at: int,
 ) -> dict[str, Any]:
     return {
         "task_ref": task_ref,
+        "native_interface": native_interface,
         "phase": "prepared",
         "contract_digest": contract_digest(contract),
         "contract_summary": contract_summary(contract),
@@ -80,29 +82,12 @@ def _find_by_ref(state: dict[str, Any], task_ref: str) -> tuple[str, dict[str, A
     return matches[0]
 
 
-def _normalized_tool_input(value: Any) -> dict[str, Any]:
-    """Normalize the current native API to the ledger's semantic spawn shape."""
-    if not isinstance(value, dict):
-        raise StateConflictError("spawn_agent tool_input 必须是对象")
-    if set(value) - {"message", "fork_context", "model", "reasoning_effort"}:
-        raise StateConflictError("spawn_agent tool_input 含不支持的字段")
-    fork_context = value.get("fork_context", False)
-    if not isinstance(fork_context, bool):
-        raise StateConflictError("fork_context 必须是布尔值")
-    return {
-        "task_name": task_name_from_message(value.get("message")),
-        "message": value.get("message"),
-        "fork_turns": "all" if fork_context else "none",
-        "model": value.get("model"),
-        "reasoning_effort": value.get("reasoning_effort"),
-    }
-
-
 def _claim_parameters_match(
     tool_input: Any,
     expected: Any,
+    native_interface: str,
 ) -> bool:
-    actual = _normalized_tool_input(tool_input)
+    actual = normalize_native_spawn(native_interface, tool_input)
     return actual == expected
 
 
@@ -127,7 +112,7 @@ def claim_spawn(
             if task.get("claimed_tool_use_id") == tool_use_id:
                 expected = task.get("prepared", {}).get("expected_native_parameters")
                 if not _claim_parameters_match(
-                    tool_input, expected
+                    tool_input, expected, task.get("native_interface")
                 ):
                     raise StateConflictError("重复 claim 的 native parameters 不一致")
                 outcome.update(result="already_claimed", task_id=task_id, task_ref=task_ref)
@@ -141,8 +126,7 @@ def claim_spawn(
         if capability.get("expires_at", -1) <= claimed_at:
             raise StateConflictError("prepared capability 已过期，请重新 prepare")
         if not _claim_parameters_match(
-            tool_input,
-            capability.get("expected_native_parameters"),
+            tool_input, capability.get("expected_native_parameters"), task.get("native_interface"),
         ):
             raise StateConflictError("原生 spawn 参数与 prepared capability 不一致")
         contract = contract_from_input(capability.get("contract"))
@@ -171,7 +155,7 @@ def claim_spawn(
                 task.get("phase") == "claimed"
                 and task.get("claimed_tool_use_id") == tool_use_id
                 and _claim_parameters_match(
-                    tool_input, expected
+                    tool_input, expected, task.get("native_interface")
                 )
             ):
                 outcome.update(
@@ -241,7 +225,7 @@ def confirm_dispatch(
         common = {
             name: copy.deepcopy(task[name])
             for name in (
-                "task_ref", "contract_digest", "contract_summary", "created_at"
+                "task_ref", "native_interface", "contract_digest", "contract_summary", "created_at"
             )
         }
         task.clear()
@@ -282,11 +266,11 @@ def record_dispatch_result(
         task = state["tasks"].get(task_id)
         if not isinstance(task, dict) or task.get("task_ref") != task_ref:
             raise StateConflictError("dispatch result task identity 不匹配")
-        if task.get("phase") != "claimed":
-            raise StateConflictError("dispatch result 只接受 claimed task")
+        if task.get("phase") not in {"prepared", "claimed"}:
+            raise StateConflictError("dispatch result 只接受 prepared 或 claimed task")
         common = {
             name: copy.deepcopy(task[name])
-            for name in ("task_ref", "contract_digest", "contract_summary", "created_at")
+            for name in ("task_ref", "native_interface", "contract_digest", "contract_summary", "created_at")
         }
         task.clear()
         if result == "failed":

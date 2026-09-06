@@ -6,8 +6,10 @@ from typing import Any
 
 try:
     from scripts.governance_contracts import TaskContract
+    from scripts.governance_native_adapter import render_native_spawn
 except ModuleNotFoundError:
     from governance_contracts import TaskContract
+    from governance_native_adapter import render_native_spawn
 
 
 def _list(values: list[str]) -> str:
@@ -67,15 +69,9 @@ def expected_native_parameters(
     }
 
 
-def spawn_args(contract: TaskContract, task_name: str, verification: dict[str, Any] | None) -> dict[str, Any]:
+def spawn_args(contract: TaskContract, task_name: str, verification: dict[str, Any] | None, *, native_interface: str) -> dict[str, Any]:
     expected = expected_native_parameters(contract, task_name, verification)
-    native = {
-        "message": expected["message"],
-        "fork_context": expected["fork_turns"] == "all",
-        "model": expected["model"],
-        "reasoning_effort": expected["reasoning_effort"],
-    }
-    return {key: value for key, value in native.items() if value is not None}
+    return render_native_spawn(native_interface, expected)
 
 
 __all__ = ["expected_native_parameters", "render_dispatch_prompt", "render_dispatch_user_message", "spawn_args"]

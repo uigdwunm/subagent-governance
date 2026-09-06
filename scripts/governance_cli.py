@@ -60,6 +60,7 @@ def _parser() -> NonExitingArgumentParser:
     modes.add_argument("--status", action="store_true")
     modes.add_argument("--diagnose", action="store_true")
     parser.add_argument("--session")
+    parser.add_argument("--native-interface")
     parser.add_argument("--data-root", type=Path)
     return parser
 
@@ -123,12 +124,18 @@ def main(
         args.close_task, args.status, args.diagnose,
     ))
     if not selected:
-        if args.session or args.data_root:
-            print("--session/--data-root require an explicit command", file=stderr)
+        if args.session or args.data_root or args.native_interface:
+            print("--session/--data-root/--native-interface require an explicit command", file=stderr)
             return 2
         return _hook(stdin, stdout)
     if not args.session:
         print("operation requires --session", file=stderr)
+        return 2
+    if args.native_interface is not None and not args.prepare_dispatch:
+        print("--native-interface 只可配合 --prepare-dispatch 使用", file=stderr)
+        return 2
+    if args.prepare_dispatch and args.native_interface is None:
+        print("--prepare-dispatch requires --native-interface", file=stderr)
         return 2
     root = _data_root(args.data_root)
     try:
@@ -140,7 +147,7 @@ def main(
             value = read_json_object(stdin)
             store = _store(args.data_root)
             if args.prepare_dispatch:
-                result = prepare_dispatch(value, args.session, state_store=store)
+                result = prepare_dispatch(value, args.session, native_interface=args.native_interface, state_store=store)
             elif args.confirm_dispatch:
                 result = confirm_dispatch(args.session, value, state_store=store)
             elif args.record_dispatch_result:

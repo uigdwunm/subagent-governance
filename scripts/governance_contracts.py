@@ -162,8 +162,8 @@ def validate_task_contract(value: Any) -> list[str]:
             errors.append("spawn unknown fields: " + "、".join(spawn_unknown))
         errors.extend(f"spawn 缺少字段 {field}" for field in spawn_missing)
         fork_turns = spawn.get("fork_turns")
-        if not isinstance(fork_turns, str) or re.fullmatch(r"(?:none|all)", fork_turns) is None:
-            errors.append("字段 spawn.fork_turns 必须是 none 或 all；当前原生接口不支持有限轮数继承")
+        if not isinstance(fork_turns, str) or re.fullmatch(r"(?:none|all|[1-9][0-9]{0,11})", fork_turns) is None:
+            errors.append("字段 spawn.fork_turns 必须是 none、all 或 1-12 位正整数字符串")
         model = spawn.get("model")
         if model is not None:
             errors.extend(_text(model, "spawn.model", maximum=MAX_CONTRACT_TEXT))

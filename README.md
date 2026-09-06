@@ -131,7 +131,7 @@ The result remains `unknown` and the governed task enters bounded reconciliation
 
 ## How it works
 
-Each exact Codex Session has one `state-v9` ledger. One governed task represents one native Agent lifecycle and moves through these phases:
+Each exact Codex Session has one `state-v10` ledger. One governed task represents one native Agent lifecycle and moves through these phases:
 
 ```text
 prepared | claimed | bound | terminal | closed | reconcile
@@ -159,7 +159,7 @@ Subagent Governance is **not** a sandbox, permission system, remote control plan
 - There is no managed business resume, managed follow-up, multi-attempt retry system, Group abstraction, or automatic cross-Session recovery.
 - A crash after native spawn but before exact-target confirmation remains `claimed/unbound`; the plugin does not guess identity or automatically respawn.
 - An unknown message, interrupt, or platform response remains unknown and may require parent reconciliation.
-- The current native adapter uses `fork_context` and a generated message header for the task reference. The Hook verifies the complete visible message and spawn configuration; opaque or unmarked inputs pass through without a governance claim.
+- A prepare explicitly freezes either the `collaboration_turns` or `fork_context` native adapter. The Hook verifies the complete visible message and spawn configuration; opaque, unknown, or internally unreadable inputs pass through without a governance claim.
 
 ## Verification
 

@@ -20,6 +20,7 @@ try:
         render_dispatch_user_message,
         spawn_args,
     )
+    from scripts.governance_native_adapter import normalize_native_spawn, validate_native_spawn
     from scripts.governance_errors import DispatchPreparationError
     from scripts.governance_lifecycle import prune_closed_tasks
     from scripts.governance_semantics import PREPARED_EXPIRY_SECONDS
@@ -34,6 +35,7 @@ except ModuleNotFoundError:
         select_task_ref,
     )
     from governance_dispatch_rendering import render_dispatch_user_message, spawn_args
+    from governance_native_adapter import normalize_native_spawn, validate_native_spawn
     from governance_errors import DispatchPreparationError
     from governance_lifecycle import prune_closed_tasks
     from governance_semantics import PREPARED_EXPIRY_SECONDS
@@ -44,6 +46,7 @@ def prepare_dispatch(
     contract_value: Any,
     session_id: str,
     *,
+    native_interface: str,
     state_store: StateStore | None = None,
     task_id_factory: Callable[[], str] | None = None,
     now: int | None = None,
@@ -52,6 +55,7 @@ def prepare_dispatch(
         raise DispatchPreparationError("session_id 必须是非空、无首尾空白且不超过 1024 字符的字符串")
     try:
         contract = contract_from_input(contract_value)
+        validate_native_spawn(native_interface, contract.spawn)
     except ValueError as exc:
         raise DispatchPreparationError(f"TaskContract v2 无效：{exc}") from exc
     manifest = contract.context.get("verified")
@@ -88,19 +92,20 @@ def prepare_dispatch(
         semantic_name = normalize_semantic_name(contract.objective)
         task_name = build_task_name(contract.profile, semantic_name, task_ref)
         record = initial_task_record(
-            task_ref, contract, task_name, verification, created_at,
+            task_ref, contract, task_name, verification, created_at, native_interface=native_interface,
             expires_at=created_at + PREPARED_EXPIRY_SECONDS,
         )
         state["tasks"][task_id] = record
-        native = spawn_args(contract, task_name, verification)
+        native = spawn_args(contract, task_name, verification, native_interface=native_interface)
         result.update(
             task_id=task_id,
             task_ref=task_ref,
+            native_interface=native_interface,
             task_name=task_name,
             contract=contract.to_record(),
             contract_digest=contract_digest(contract),
             context_verification=copy.deepcopy(verification),
-            user_message=render_dispatch_user_message(contract, verification),
+            user_message=render_dispatch_user_message(contract, verification) + f"\n原生接口：{native_interface}",
             dispatch_prompt=native["message"],
             spawn_args=native,
         )
@@ -121,14 +126,9 @@ def prepare_dispatch(
                 and task.get("phase") == "prepared"
                 and task.get("task_ref") == result.get("task_ref")
                 and task.get("contract_digest") == result.get("contract_digest")
+                and task.get("native_interface") == native_interface
                 and task.get("prepared", {}).get("expected_native_parameters")
-                == {
-                    "task_name": result.get("task_name"),
-                    "message": result.get("spawn_args", {}).get("message"),
-                    "fork_turns": "all" if result.get("spawn_args", {}).get("fork_context") else "none",
-                    "model": result.get("spawn_args", {}).get("model"),
-                    "reasoning_effort": result.get("spawn_args", {}).get("reasoning_effort"),
-                }
+                == normalize_native_spawn(native_interface, result.get("spawn_args"))
             ):
                 result["warning"] = "prepare write reported an error after exact committed readback"
                 return result

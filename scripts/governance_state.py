@@ -15,11 +15,13 @@ try:
         spawn_digest,
     )
     from scripts.governance_errors import StateValidationError
+    from scripts.governance_native_adapter import validate_native_spawn
     from scripts.governance_semantics import (
         MAX_TASKS_PER_SESSION,
         PERSISTED_INTERRUPT_RESULTS,
         PERSISTED_PLATFORM_STATUSES,
         PHASES,
+        NATIVE_INTERFACES,
         RECONCILE_CODES,
         STATE_FORMAT_VERSION,
         TASK_REF_LENGTHS,
@@ -35,11 +37,13 @@ except ModuleNotFoundError:
         spawn_digest,
     )
     from governance_errors import StateValidationError
+    from governance_native_adapter import validate_native_spawn
     from governance_semantics import (
         MAX_TASKS_PER_SESSION,
         PERSISTED_INTERRUPT_RESULTS,
         PERSISTED_PLATFORM_STATUSES,
         PHASES,
+        NATIVE_INTERFACES,
         RECONCILE_CODES,
         STATE_FORMAT_VERSION,
         TASK_REF_LENGTHS,
@@ -58,7 +62,7 @@ class StateFormatIssue:
 
 
 COMMON_FIELDS = {
-    "task_ref", "phase", "contract_digest", "contract_summary", "created_at", "updated_at"
+    "task_ref", "native_interface", "phase", "contract_digest", "contract_summary", "created_at", "updated_at"
 }
 PHASE_FIELDS = {
     "prepared": {"prepared"},
@@ -196,6 +200,8 @@ def _validate_task(task_id: str, value: Any, path: str, issues: list[StateFormat
         _issue(issues, path, "包含未知字段 " + "、".join(unknown))
     if not _task_ref(value.get("task_ref")):
         _issue(issues, f"{path}.task_ref", "task_ref 无效")
+    if value.get("native_interface") not in NATIVE_INTERFACES:
+        _issue(issues, f"{path}.native_interface", "native_interface 无效")
     if not _digest(value.get("contract_digest")):
         _issue(issues, f"{path}.contract_digest", "digest 无效")
     summary = value.get("contract_summary")
@@ -223,6 +229,10 @@ def _validate_task(task_id: str, value: Any, path: str, issues: list[StateFormat
                     _issue(issues, f"{path}.contract_digest", "与 capability business contract 不一致")
                 if value.get("contract_summary") != contract_summary(contract):
                     _issue(issues, f"{path}.contract_summary", "与 capability contract 不一致")
+                try:
+                    validate_native_spawn(value.get("native_interface"), contract.spawn)
+                except ValueError as exc:
+                    _issue(issues, f"{path}.native_interface", str(exc))
     if phase == "claimed":
         if not _text(value.get("claimed_tool_use_id")) or not _timestamp(value.get("claimed_at")):
             _issue(issues, path, "claimed facts 无效")

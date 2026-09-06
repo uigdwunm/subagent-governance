@@ -34,6 +34,8 @@ TASK_CONTRACT_REQUIRED_INPUT_FIELDS = tuple(
     SEMANTIC_RULES["task_contract_required_input_fields"]
 )
 PROFILES = frozenset(SEMANTIC_RULES["profiles"])
+NATIVE_INTERFACES = frozenset(SEMANTIC_RULES["native_interfaces"])
+NATIVE_SPAWN_TOOL_NAMES = frozenset(SEMANTIC_RULES["native_spawn_tool_names"])
 PHASES = frozenset(SEMANTIC_RULES["phases"])
 TASK_REF_LENGTHS = tuple(int(value) for value in SEMANTIC_RULES["task_ref_lengths"])
 PREPARED_EXPIRY_SECONDS = int(SEMANTIC_RULES["prepared_expiry_seconds"])
@@ -94,6 +96,8 @@ __all__ = [
     "MAX_STATE_BYTES",
     "MAX_TASKS_PER_SESSION",
     "NEW_TASK_SOFT_LIMIT_BYTES",
+    "NATIVE_INTERFACES",
+    "NATIVE_SPAWN_TOOL_NAMES",
     "PHASES",
     "PERSISTED_INTERRUPT_RESULTS",
     "PERSISTED_PLATFORM_STATUSES",

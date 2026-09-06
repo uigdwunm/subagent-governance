@@ -25,6 +25,14 @@ class DispatchPreparationError(RuntimeError):
     """TaskContract v2 could not be prepared in the single ledger."""
 
 
+class NativeInputUnavailable(RuntimeError):
+    """The Hook input cannot be safely compared to a governed capability."""
+
+
+class NativeInputMismatch(RuntimeError):
+    """A known native input differs from the frozen governed capability."""
+
+
 class ContextVerificationError(RuntimeError):
     """Explicit verified context is invalid, unavailable, or changed."""
 
@@ -36,5 +44,5 @@ class DiagnosticReadError(RuntimeError):
 __all__ = [
     "ContextVerificationError", "DiagnosticReadError", "DispatchPreparationError",
     "StateCapacityError", "StateConflictError", "StateStoreError",
-    "StateValidationError", "StateWriteError",
+    "NativeInputMismatch", "NativeInputUnavailable", "StateValidationError", "StateWriteError",
 ]

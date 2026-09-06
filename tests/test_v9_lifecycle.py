@@ -38,6 +38,7 @@ class V9LifecycleTests(unittest.TestCase):
                 "completion": ["lifecycle fact recorded"],
             },
             self.session_id,
+            native_interface="fork_context",
             state_store=self.store,
             task_id_factory=lambda: task_id,
             now=now,

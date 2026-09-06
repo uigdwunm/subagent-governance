@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 from pathlib import Path
 from typing import Any
@@ -10,37 +9,28 @@ from typing import Any
 try:
     from scripts.governance_dispatch import claim_spawn
     from scripts.governance_dispatch_identity import MESSAGE_PREFIX, parse_task_name, task_name_from_message
-    from scripts.governance_semantics import SESSION_SUMMARY_CONTEXT_LIMIT
+    from scripts.governance_errors import NativeInputMismatch, NativeInputUnavailable, StateConflictError
+    from scripts.governance_semantics import NATIVE_SPAWN_TOOL_NAMES, SESSION_SUMMARY_CONTEXT_LIMIT, STATE_STORAGE_NAMESPACE
     from scripts.governance_state_store import StateStore, read_ledger_readonly
     from scripts.governance_store_support import data_root_path
 except ModuleNotFoundError:
     from governance_dispatch import claim_spawn
     from governance_dispatch_identity import MESSAGE_PREFIX, parse_task_name, task_name_from_message
-    from governance_semantics import SESSION_SUMMARY_CONTEXT_LIMIT
+    from governance_errors import NativeInputMismatch, NativeInputUnavailable, StateConflictError
+    from governance_semantics import NATIVE_SPAWN_TOOL_NAMES, SESSION_SUMMARY_CONTEXT_LIMIT, STATE_STORAGE_NAMESPACE
     from governance_state_store import StateStore, read_ledger_readonly
     from governance_store_support import data_root_path
 
 
-_NATIVE_SPAWN_TOOLS = {
-    "spawn_agent", "multi_agent_v1.spawn_agent", "multi_agent_v1__spawn_agent",
-    "multi_agent_v1spawn_agent",
-}
-
-
 def tool_kind(tool_name: str) -> str | None:
-    return "spawn" if tool_name in _NATIVE_SPAWN_TOOLS else None
+    return "spawn" if tool_name in NATIVE_SPAWN_TOOL_NAMES else None
 
 
-def _allow(
-    updated_input: dict[str, Any] | None,
-    context: str | None = None,
-) -> dict[str, Any]:
+def _allow(context: str | None = None) -> dict[str, Any]:
     value: dict[str, Any] = {
         "hookEventName": "PreToolUse",
         "permissionDecision": "allow",
     }
-    if updated_input is not None:
-        value["updatedInput"] = updated_input
     if context:
         value["additionalContext"] = context[:SESSION_SUMMARY_CONTEXT_LIMIT]
     return {"hookSpecificOutput": value}
@@ -64,19 +54,30 @@ def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | N
     if not isinstance(tool_input, dict):
         return None
     message = tool_input.get("message")
-    if not isinstance(message, str) or not message.startswith(MESSAGE_PREFIX):
+    explicit_name = tool_input.get("task_name")
+    embedded_name = task_name_from_message(message)
+    has_marker = isinstance(message, str) and message.startswith(MESSAGE_PREFIX)
+    if explicit_name is None and not has_marker:
         return None
-    task_name = task_name_from_message(message)
+    if explicit_name is not None and not isinstance(explicit_name, str):
+        return None
+    if has_marker and embedded_name is None:
+        return _deny("governed message 标记无效；必须由 prepare-dispatch 生成")
+    if explicit_name is not None and embedded_name is not None and explicit_name != embedded_name:
+        return _deny("governed task_name 与 message 标记不一致")
+    task_name = explicit_name or embedded_name
     parsed = parse_task_name(task_name)
     if parsed is None:
+        if not has_marker:
+            return None
         return _deny("governed task_name 无效；必须由 prepare-dispatch 生成")
     _profile, _semantic_name, task_ref = parsed
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id.strip():
-        return _deny("governed spawn 缺少 exact session_id")
+        return _allow("Subagent Governance 无法验证 exact session_id；已 fail-open 且未 claim。")
     tool_use_id = payload.get("tool_use_id")
     if not isinstance(tool_use_id, str) or not tool_use_id.strip():
-        return _deny("governed spawn 缺少 tool_use_id，无法原子 claim")
+        return _allow("Subagent Governance 无法验证 tool_use_id；已 fail-open 且未 claim。")
     try:
         store = state_store or StateStore()
         outcome = claim_spawn(
@@ -87,11 +88,16 @@ def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | N
             state_store=store,
             now=payload.get("now"),
         )
-    except Exception as exc:
-        return _deny(f"governed spawn claim 失败：{exc}")
+    except NativeInputUnavailable:
+        return _allow("Subagent Governance 无法验证原生输入；已 fail-open 且未 claim。")
+    except NativeInputMismatch as exc:
+        return _deny(f"governed spawn native input 不一致：{exc}")
+    except StateConflictError as exc:
+        return _deny(f"governed spawn claim 冲突：{exc}")
+    except Exception:
+        return _allow("Subagent Governance 内部故障；已 fail-open 且未声称 claim。")
     return _allow(
-        copy.deepcopy(tool_input),
-        f"Subagent Governance 已在 state-v9 单一 ledger 原子 claim task_ref={task_ref}（{outcome['result']}）。原生返回后立即 confirm exact target。",
+        f"Subagent Governance 已在 {STATE_STORAGE_NAMESPACE} 单一 ledger 原子 claim task_ref={task_ref}（{outcome['result']}）。原生返回后立即 confirm exact target。"
     )
 
 
@@ -122,7 +128,7 @@ def _session_start(payload: dict[str, Any]) -> dict[str, Any] | None:
             ]
         )
         if open_tasks:
-            lines.append("Subagent Governance state-v9 当前 exact Session 未关闭任务：")
+            lines.append(f"Subagent Governance {STATE_STORAGE_NAMESPACE} 当前 exact Session 未关闭任务：")
             for task_id, task in open_tasks[:8]:
                 target = f" target={task['target']}" if task.get("target") else ""
                 lines.append(

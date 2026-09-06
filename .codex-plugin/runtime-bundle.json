@@ -17,6 +17,7 @@
     "scripts/governance_hook.py",
     "scripts/governance_input.py",
     "scripts/governance_lifecycle.py",
+    "scripts/governance_native_adapter.py",
     "scripts/governance_protocol.py",
     "scripts/governance_semantics.py",
     "scripts/governance_state.py",

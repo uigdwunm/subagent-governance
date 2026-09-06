@@ -1,6 +1,6 @@
 # Runtime boundaries
 
-- 唯一当前持久格式是 `state_format_version=9`、namespace `state-v9`。v8 及更早状态不读取、不迁移、不修复、不写回、不删除。
+- 唯一当前持久格式是 `state_format_version=10`、namespace `state-v10`。v9 及更早状态不读取、不迁移、不修复、不写回、不删除。
 - 每个 exact Session 只有一个 ledger，根字段精确为 `state_format_version`、`session_id`、`tasks`。
 - 一个 task 对应一个原生 Agent lifecycle，不存在 attempt。
 - phase 只有 `prepared|claimed|bound|terminal|closed|reconcile`。
@@ -19,13 +19,13 @@
 
 ## Current native adapter
 
-TaskContract v2 and the state-v9 capability retain semantic `task_name` and
-`fork_turns` fields internally. They are not serialized verbatim to native
-`spawn_agent`: the generated message header carries the name, and `none|all`
-map to boolean `fork_context`. Claim normalizes the current native arguments
-back to that semantic shape and compares the entire message and configuration.
-Unknown native fields and non-boolean context values are rejected for marked
-calls. Finite-turn inheritance is unavailable and rejected during prepare.
+TaskContract v2 and the state-v10 capability retain semantic `task_name` and
+`fork_turns` fields internally. A frozen `native_interface` selects either
+`collaboration_turns` (message/task_name/fork_turns) or `fork_context`
+(message/fork_context); the two shapes are never mixed. Claim normalizes the
+selected shape and compares the entire message and configuration. Unknown or
+opaque native input fails open without a claim; known mismatches are rejected.
+Finite-turn inheritance is supported only by `collaboration_turns`.
 
 The adapter requires a visible generated message header at PreToolUse. An
 opaque or unmarked message cannot be associated with a prepared task; it passes

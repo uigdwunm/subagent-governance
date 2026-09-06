@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/uigdwunm/subagent-governance/schemas/governance-semantics.schema.json",
-  "title": "Subagent Governance current-only v9 semantics",
+  "title": "Subagent Governance current-only v10 semantics",
   "$defs": {
     "nonempty_text": {"type": "string", "minLength": 1, "maxLength": 8192, "pattern": ".*\\S.*"},
     "short_text": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": ".*\\S.*"},
@@ -12,7 +12,8 @@
     "profile": {"type": "string", "enum": ["standard", "strict"]},
     "phase": {"type": "string", "enum": ["prepared", "claimed", "bound", "terminal", "closed", "reconcile"]},
     "reasoning_effort": {"type": ["string", "null"], "enum": [null, "low", "medium", "high", "xhigh", "max", "ultra"]},
-    "fork_turns": {"type": "string", "pattern": "^(?:none|all)$", "maxLength": 12},
+    "fork_turns": {"type": "string", "pattern": "^(?:none|all|[1-9][0-9]{0,11})$", "maxLength": 12},
+    "native_interface": {"type": "string", "enum": ["collaboration_turns", "fork_context"]},
     "text_list": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/short_text"}},
     "context_path_list": {
       "type": "array", "maxItems": 64, "uniqueItems": true,
@@ -230,40 +231,40 @@
       "additionalProperties": false
     },
     "prepared_task": {
-      "type": "object", "required": ["task_ref", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "prepared"],
-      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "phase": {"const": "prepared"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "prepared": {"$ref": "#/$defs/prepared_capability"}},
+      "type": "object", "required": ["task_ref", "native_interface", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "prepared"],
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "native_interface": {"$ref": "#/$defs/native_interface"}, "phase": {"const": "prepared"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "prepared": {"$ref": "#/$defs/prepared_capability"}},
       "additionalProperties": false
     },
     "claimed_task": {
-      "type": "object", "required": ["task_ref", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "prepared", "claimed_tool_use_id", "claimed_at"],
-      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "phase": {"const": "claimed"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "prepared": {"$ref": "#/$defs/prepared_capability"}, "claimed_tool_use_id": {"$ref": "#/$defs/short_text"}, "claimed_at": {"$ref": "#/$defs/timestamp"}},
+      "type": "object", "required": ["task_ref", "native_interface", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "prepared", "claimed_tool_use_id", "claimed_at"],
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "native_interface": {"$ref": "#/$defs/native_interface"}, "phase": {"const": "claimed"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "prepared": {"$ref": "#/$defs/prepared_capability"}, "claimed_tool_use_id": {"$ref": "#/$defs/short_text"}, "claimed_at": {"$ref": "#/$defs/timestamp"}},
       "additionalProperties": false
     },
     "bound_task": {
-      "type": "object", "required": ["task_ref", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "target", "bound_at"],
-      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "phase": {"const": "bound"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}},
+      "type": "object", "required": ["task_ref", "native_interface", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "target", "bound_at"],
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "native_interface": {"$ref": "#/$defs/native_interface"}, "phase": {"const": "bound"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}},
       "additionalProperties": false
     },
     "terminal_task": {
-      "type": "object", "required": ["task_ref", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "target", "bound_at", "terminal_fact"],
-      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "phase": {"const": "terminal"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}},
+      "type": "object", "required": ["task_ref", "native_interface", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "target", "bound_at", "terminal_fact"],
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "native_interface": {"$ref": "#/$defs/native_interface"}, "phase": {"const": "terminal"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}},
       "additionalProperties": false
     },
     "closed_task": {
-      "type": "object", "required": ["task_ref", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "close_reason", "closed_at"],
-      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "phase": {"const": "closed"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}, "close_reason": {"$ref": "#/$defs/short_text"}, "closed_at": {"$ref": "#/$defs/timestamp"}},
+      "type": "object", "required": ["task_ref", "native_interface", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "close_reason", "closed_at"],
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "native_interface": {"$ref": "#/$defs/native_interface"}, "phase": {"const": "closed"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}, "close_reason": {"$ref": "#/$defs/short_text"}, "closed_at": {"$ref": "#/$defs/timestamp"}},
       "additionalProperties": false
     },
     "reconcile_task": {
-      "type": "object", "required": ["task_ref", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "reconcile"],
-      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "phase": {"const": "reconcile"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}, "reconcile": {"$ref": "#/$defs/reconcile_fact"}},
+      "type": "object", "required": ["task_ref", "native_interface", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "reconcile"],
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "native_interface": {"$ref": "#/$defs/native_interface"}, "phase": {"const": "reconcile"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}, "reconcile": {"$ref": "#/$defs/reconcile_fact"}},
       "additionalProperties": false
     },
     "task_record": {"oneOf": [{"$ref": "#/$defs/prepared_task"}, {"$ref": "#/$defs/claimed_task"}, {"$ref": "#/$defs/bound_task"}, {"$ref": "#/$defs/terminal_task"}, {"$ref": "#/$defs/closed_task"}, {"$ref": "#/$defs/reconcile_task"}]},
     "session_ledger": {
       "type": "object", "required": ["state_format_version", "session_id", "tasks"],
       "properties": {
-        "state_format_version": {"const": 9},
+        "state_format_version": {"const": 10},
         "session_id": {"type": "string", "minLength": 1, "maxLength": 1024},
         "tasks": {"type": "object", "maxProperties": 512, "propertyNames": {"type": "string", "minLength": 1, "maxLength": 256}, "additionalProperties": {"$ref": "#/$defs/task_record"}}
       },
@@ -271,8 +272,10 @@
     }
   },
   "x-semantics": {
-    "state_format_version": 9,
-    "state_storage_namespace": "state-v9",
+    "state_format_version": 10,
+    "state_storage_namespace": "state-v10",
+    "native_interfaces": ["collaboration_turns", "fork_context"],
+    "native_spawn_tool_names": ["spawn_agent", "multi_agent_v1.spawn_agent", "multi_agent_v1__spawn_agent", "multi_agent_v1spawn_agent", "collaboration.spawn_agent", "collaborationspawn_agent"],
     "task_contract_wire_version": 2,
     "task_contract_fields": ["profile", "objective", "scope", "forbidden_scope", "completion", "evidence", "context", "spawn"],
     "task_contract_required_input_fields": ["objective", "scope", "completion"],

@@ -30,6 +30,7 @@ except ModuleNotFoundError:
 
 PRESERVED_FACT_FIELDS = (
     "task_ref",
+    "native_interface",
     "contract_digest",
     "contract_summary",
     "created_at",

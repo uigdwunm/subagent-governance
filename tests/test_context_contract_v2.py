@@ -69,6 +69,7 @@ class ContextContractV2Tests(unittest.TestCase):
                     },
                 },
                 "verified-session",
+                native_interface="fork_context",
                 state_store=state,
                 task_id_factory=lambda: "verified-task",
                 now=10,
@@ -103,7 +104,7 @@ class ContextContractV2Tests(unittest.TestCase):
             with self.assertRaisesRegex(
                 DispatchPreparationError, "working_tree.*directory"
             ):
-                prepare_dispatch(contract, "directory-session", state_store=state)
+                prepare_dispatch(contract, "directory-session", native_interface="fork_context", state_store=state)
             self.assertEqual(list(state.root.glob("*.json")), [])
 
     def test_git_commit_directory_uses_tree_object_and_rejects_workspace_drift(self):
@@ -141,6 +142,7 @@ class ContextContractV2Tests(unittest.TestCase):
             prepared = prepare_dispatch(
                 contract,
                 "git-directory-session",
+                native_interface="fork_context",
                 state_store=state,
                 task_id_factory=lambda: "git-directory-task",
                 now=10,
@@ -163,6 +165,7 @@ class ContextContractV2Tests(unittest.TestCase):
                 prepare_dispatch(
                     contract,
                     "dirty-directory-session",
+                    native_interface="fork_context",
                     state_store=state,
                 )
 

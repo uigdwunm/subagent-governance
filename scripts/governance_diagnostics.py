@@ -7,8 +7,10 @@ from typing import Any
 
 try:
     from scripts.governance_state_store import read_ledger_readonly
+    from scripts.governance_semantics import STATE_FORMAT_VERSION
 except ModuleNotFoundError:
     from governance_state_store import read_ledger_readonly
+    from governance_semantics import STATE_FORMAT_VERSION
 
 
 NEXT_ACTIONS = {
@@ -23,12 +25,13 @@ NEXT_ACTIONS = {
 
 def project_status(state: dict[str, Any], session_id: str) -> dict[str, Any]:
     return {
-        "state_format_version": 9,
+        "state_format_version": STATE_FORMAT_VERSION,
         "session_id": session_id,
         "tasks": [
             {
                 "task_id": task_id,
                 "task_ref": task["task_ref"],
+                "native_interface": task["native_interface"],
                 "phase": task["phase"],
                 "objective": task["contract_summary"]["objective"],
                 "target": task.get("target"),
@@ -47,7 +50,7 @@ def project_status(state: dict[str, Any], session_id: str) -> dict[str, Any]:
 def status(session_id: str, data_root: Path) -> dict[str, Any]:
     state = read_ledger_readonly(data_root / "sessions", session_id)
     if state is None:
-        return {"state_format_version": 9, "session_id": session_id, "tasks": []}
+        return {"state_format_version": STATE_FORMAT_VERSION, "session_id": session_id, "tasks": []}
     return project_status(state, session_id)
 
 

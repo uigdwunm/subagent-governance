@@ -32,6 +32,7 @@ EXPECTED_RUNTIME_FILES = {
     "scripts/governance_hook.py",
     "scripts/governance_input.py",
     "scripts/governance_lifecycle.py",
+    "scripts/governance_native_adapter.py",
     "scripts/governance_protocol.py",
     "scripts/governance_semantics.py",
     "scripts/governance_state.py",
@@ -176,7 +177,7 @@ class RuntimeBundleTests(unittest.TestCase):
             )
 
             prepared = run(
-                ["--prepare-dispatch", "--session", session_id],
+                ["--prepare-dispatch", "--native-interface", "fork_context", "--session", session_id],
                 {
                     "objective": "Read the installed plugin manifest",
                     "scope": [".codex-plugin/plugin.json"],

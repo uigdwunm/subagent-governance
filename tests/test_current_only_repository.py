@@ -5,6 +5,8 @@ from tests.support import ROOT
 VALIDATION_DOCUMENTS = {
     "docs/validation/current-only-local-acceptance.md",
     "docs/validation/current-only-real-platform-validation.md",
+    "docs/validation/native-context-adapter-2026-09-06.md",
+    "docs/validation/native-tool-contract-adaptation-implementation-2026-09-06.md",
 }
 
 

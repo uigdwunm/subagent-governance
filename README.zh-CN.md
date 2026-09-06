@@ -130,7 +130,7 @@ Skill 会生成契约、说明派发信息、把生成参数交给原生 `spawn_
 
 ## 工作原理
 
-每个 exact Codex Session 只有一个 `state-v9` ledger。一个受治理任务代表一个原生 Agent 生命周期，phase 只有：
+每个 exact Codex Session 只有一个 `state-v10` ledger。一个受治理任务代表一个原生 Agent 生命周期，phase 只有：
 
 ```text
 prepared | claimed | bound | terminal | closed | reconcile
@@ -158,7 +158,7 @@ Subagent Governance **不是**沙箱、权限系统、远程控制平面、Hook 
 - 不提供 managed business resume、managed follow-up、多 attempt 重试系统、Group 抽象或自动跨 Session 恢复。
 - 原生 spawn 返回后、exact-target confirm 前崩溃时保持 `claimed/unbound`；插件不猜身份，也不自动重派。
 - 未知消息、中断或平台结果继续保持 unknown，可能需要父 Agent reconcile。
-- 当前原生适配器使用 `fork_context`，通过生成的消息头携带 task ref。Hook 校验完整可见消息和派发配置；消息不可见或没有标记时透传，不建立治理 claim。
+- prepare 显式冻结 `collaboration_turns` 或 `fork_context` 原生适配器。Hook 校验完整可见消息和派发配置；消息不可见、输入未知或内部不可读时透传，不建立治理 claim。
 
 ## 验证情况
 

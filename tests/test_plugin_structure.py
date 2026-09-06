@@ -16,12 +16,13 @@ class PluginStructureTests(unittest.TestCase):
         self.assertEqual(set(hooks), {"PreToolUse", "SessionStart"})
         self.assertEqual(
             hooks["PreToolUse"][0]["matcher"],
-            r"^(?:spawn_agent|multi_agent_v1(?:\.|__)?spawn_agent)$",
+            r"^(?:spawn_agent|multi_agent_v1(?:\.|__)?spawn_agent|collaboration\.spawn_agent|collaborationspawn_agent)$",
         )
         matcher = re.compile(hooks["PreToolUse"][0]["matcher"])
         for native_name in (
             "multi_agent_v1__spawn_agent", "spawn_agent", "multi_agent_v1.spawn_agent",
             "multi_agent_v1spawn_agent",
+            "collaboration.spawn_agent", "collaborationspawn_agent",
         ):
             with self.subTest(native_name=native_name):
                 self.assertIsNotNone(matcher.fullmatch(native_name))
@@ -55,11 +56,11 @@ class PluginStructureTests(unittest.TestCase):
         )
         self.assertLess(disable, first_runtime_import)
 
-    def test_current_schemas_are_v9_and_task_contract_v2(self):
+    def test_current_schemas_are_v10_and_task_contract_v2(self):
         semantics = json.loads((ROOT / "schemas/governance-semantics.schema.json").read_text(encoding="utf-8"))
         contract = json.loads((ROOT / "schemas/task-contract-v2.schema.json").read_text(encoding="utf-8"))
         assert_schema_supported(semantics)
-        self.assertEqual(semantics["x-semantics"]["state_format_version"], 9)
+        self.assertEqual(semantics["x-semantics"]["state_format_version"], 10)
         self.assertEqual(contract["$ref"], "governance-semantics.schema.json#/$defs/task_contract_input")
         self.assertFalse((ROOT / "schemas/task-contract-v1.schema.json").exists())
 

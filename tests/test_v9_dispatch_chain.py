@@ -54,6 +54,7 @@ class V9DispatchChainTests(unittest.TestCase):
         return protocol.prepare_dispatch(
             self.contract(**overrides),
             self.session_id,
+            native_interface="fork_context",
             state_store=self.store,
             task_id_factory=lambda: "sg-task-v9",
             now=100,
@@ -90,6 +91,37 @@ class V9DispatchChainTests(unittest.TestCase):
             state_store=self.store, now=102)
         self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["target"], target)
 
+    def test_collaboration_turns_chain_freezes_interface_and_binds_exact_target(self):
+        prepared = protocol.prepare_dispatch(
+            self.contract(spawn={"fork_turns": "3"}),
+            self.session_id,
+            native_interface="collaboration_turns",
+            state_store=self.store,
+            task_id_factory=lambda: "sg-turns-chain",
+            now=100,
+        )
+        self.assertEqual(set(prepared["spawn_args"]), {"message", "task_name", "fork_turns"})
+        allowed = hook.handle_hook(
+            {
+                "session_id": self.session_id,
+                "hook_event_name": "PreToolUse",
+                "tool_name": "collaboration.spawn_agent",
+                "tool_use_id": "turns-call",
+                "tool_input": prepared["spawn_args"],
+                "now": 101,
+            },
+            self.store,
+        )
+        self.assertEqual(allowed["hookSpecificOutput"]["permissionDecision"], "allow")
+        result = dispatch.confirm_dispatch(
+            self.session_id,
+            {"task_id": prepared["task_id"], "task_ref": prepared["task_ref"], "target": "/root/turns"},
+            state_store=self.store,
+            now=102,
+        )
+        self.assertEqual(result["result"], "bound")
+        self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["native_interface"], "collaboration_turns")
+
     def test_full_context_and_explicit_overrides_are_mapped_exactly(self):
         prepared = self.prepare(spawn={"fork_turns": "all", "model": "gpt-5.6-terra", "reasoning_effort": "high"})
         args = prepared["spawn_args"]
@@ -99,7 +131,7 @@ class V9DispatchChainTests(unittest.TestCase):
         self.claim(prepared)
 
     def test_limited_history_is_rejected_before_prepare(self):
-        with self.assertRaisesRegex(RuntimeError, "none.*all"):
+        with self.assertRaisesRegex(RuntimeError, "有限"):
             self.prepare(spawn={"fork_turns": "3"})
 
     def test_contract_v2_defaults_strict_profile_and_business_digest(self):
@@ -171,7 +203,7 @@ class V9DispatchChainTests(unittest.TestCase):
         self.assertEqual(
             set(state), {"state_format_version", "session_id", "tasks"}
         )
-        self.assertEqual(state["state_format_version"], 9)
+        self.assertEqual(state["state_format_version"], 10)
         task = state["tasks"][prepared["task_id"]]
         self.assertEqual(task["phase"], "prepared")
         self.assertEqual(task["task_ref"], prepared["task_ref"])
@@ -240,14 +272,22 @@ class V9DispatchChainTests(unittest.TestCase):
     def test_current_message_and_context_tampering_are_rejected(self):
         prepared = self.prepare()
         for update in ({"fork_context": True}, {"fork_context": "false"},
-                       {"message": prepared["spawn_args"]["message"] + "tampered"},
-                       {"task_name": prepared["task_name"]}, {"items": []}):
+                       {"message": prepared["spawn_args"]["message"] + "tampered"}):
             with self.subTest(update=update):
                 args = {**prepared["spawn_args"], **update}
                 result = hook.handle_hook({"session_id": self.session_id,
                     "hook_event_name": "PreToolUse", "tool_name": "multi_agent_v1__spawn_agent",
                     "tool_use_id": "tampered-call", "tool_input": args, "now": 101}, self.store)
                 self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["phase"], "prepared")
+        for update in ({"task_name": prepared["task_name"]}, {"items": []}):
+            with self.subTest(update=update):
+                args = {**prepared["spawn_args"], **update}
+                result = hook.handle_hook({"session_id": self.session_id,
+                    "hook_event_name": "PreToolUse", "tool_name": "multi_agent_v1__spawn_agent",
+                    "tool_use_id": "unavailable-call", "tool_input": args, "now": 101}, self.store)
+                self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
+                self.assertIn("未 claim", result["hookSpecificOutput"].get("additionalContext", ""))
                 self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["phase"], "prepared")
 
     def test_opaque_or_unmarked_message_never_claims_by_guessing(self):
@@ -343,7 +383,7 @@ class V9DispatchChainTests(unittest.TestCase):
 
             store.update = persist_then_raise
             prepared = protocol.prepare_dispatch(
-                self.contract(), self.session_id, state_store=store,
+                self.contract(), self.session_id, native_interface="fork_context", state_store=store,
                 task_id_factory=lambda: "persisted-prepare", now=100,
             )
             self.assertIn("warning", prepared)
@@ -436,6 +476,7 @@ class V9DispatchChainTests(unittest.TestCase):
         prepared = protocol.prepare_dispatch(
             self.contract(objective="V2"),
             self.session_id,
+            native_interface="fork_context",
             state_store=self.store,
             task_id_factory=lambda: task_id,
             now=100,
@@ -461,6 +502,7 @@ class V9DispatchChainTests(unittest.TestCase):
         claimed = protocol.prepare_dispatch(
             self.contract(objective="V2"),
             claimed_session,
+            native_interface="fork_context",
             state_store=self.store,
             task_id_factory=lambda: task_id,
             now=100,
@@ -509,7 +551,7 @@ class V9DispatchChainTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as directory:
                     store = state_store_module.StateStore(Path(directory))
                     prepared = protocol.prepare_dispatch(
-                        self.contract(), self.session_id, state_store=store,
+                        self.contract(), self.session_id, native_interface="fork_context", state_store=store,
                         task_id_factory=lambda: f"dispatch-{result}", now=100,
                     )
                     hook.handle_hook(
@@ -624,7 +666,7 @@ class V9DispatchChainTests(unittest.TestCase):
             ):
                 self.assertEqual(
                     store_support.data_root_path(state_store_module.__file__),
-                    plugin_root / "state-v9",
+                    plugin_root / "state-v10",
                 )
                 state_store_module.StateStore().read("current-v9")
             self.assertEqual(

@@ -26,7 +26,7 @@ class GovernanceCliTests(unittest.TestCase):
         self.assertEqual((code, error), (0, ""))
         self.assertTrue(json.loads(output)["continue"])
 
-    def test_prepare_confirm_and_status_use_v9_commands(self):
+    def test_prepare_confirm_and_status_use_v10_commands(self):
         contract = {
             "objective": "CLI dispatch",
             "scope": ["tests"],
@@ -36,7 +36,7 @@ class GovernanceCliTests(unittest.TestCase):
             root = Path(directory)
             base = ["--session", "cli-session", "--data-root", str(root)]
             code, output, error = self.invoke(
-                ["--prepare-dispatch", *base], json.dumps(contract).encode()
+                ["--prepare-dispatch", "--native-interface", "fork_context", *base], json.dumps(contract).encode()
             )
             self.assertEqual(code, 0, error)
             prepared = json.loads(output)
@@ -79,6 +79,17 @@ class GovernanceCliTests(unittest.TestCase):
             self.assertEqual(json.loads(output)["tasks"], [])
             self.assertFalse(root.exists())
 
+    def test_prepare_requires_interface_before_state_creation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            code, _output, error = self.invoke(
+                ["--prepare-dispatch", "--session", "s", "--data-root", str(root)],
+                b'{"objective":"x","scope":["x"],"completion":["x"]}',
+            )
+            self.assertEqual(code, 2)
+            self.assertIn("native-interface", error)
+            self.assertFalse((root / "sessions").exists())
+
     def test_minimal_lifecycle_commands_are_exposed_by_thin_cli(self):
         from scripts.governance_dispatch import confirm_dispatch
         from scripts.governance_hook import handle_hook
@@ -99,6 +110,7 @@ class GovernanceCliTests(unittest.TestCase):
                         "completion": ["recorded"],
                     },
                     session,
+                    native_interface="fork_context",
                     state_store=store,
                     task_id_factory=lambda: task_id,
                     now=100,

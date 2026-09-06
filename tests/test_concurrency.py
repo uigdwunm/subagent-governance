@@ -28,7 +28,7 @@ class ConcurrencyTests(unittest.TestCase):
                     "completion": ["prepared"],
                 }
                 process = subprocess.Popen(
-                    [sys.executable, str(SCRIPT), "--prepare-dispatch", "--session", "parallel", "--data-root", directory],
+                    [sys.executable, str(SCRIPT), "--prepare-dispatch", "--native-interface", "fork_context", "--session", "parallel", "--data-root", directory],
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     text=True, env=environment,
                 )
@@ -49,7 +49,7 @@ class ConcurrencyTests(unittest.TestCase):
             store = StateStore(root / "sessions")
             prepared = prepare_dispatch(
                 {"objective": "Race exact confirms", "scope": ["tests"], "completion": ["one bind"]},
-                "confirm-race", state_store=store,
+                "confirm-race", native_interface="fork_context", state_store=store,
                 task_id_factory=lambda: "confirm-race-task", now=100,
             )
             result = handle_hook(

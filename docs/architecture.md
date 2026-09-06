@@ -2,7 +2,7 @@
 
 Subagent Governance 是 Codex 原生子 Agent 的本地生命周期治理层。它继续使用原生 Agent 工具，不替代平台调度、权限、Hook trust、沙箱或父 Agent 的业务判断。
 
-当前实现已完成 [减法收口 cutover](improvement-plans/reduction-cutover.md) 的派发与最小生命周期切片：state-v9 单一 Session ledger、TaskContract v2、prepare、governed spawn Pre claim、父 Agent explicit exact-target confirm，以及 observation/terminal/interrupt/close 已落地。当前代码不保留旧机制作为兼容 fallback。
+当前实现已完成 [减法收口 cutover](improvement-plans/reduction-cutover.md) 的派发与最小生命周期切片：state-v10 单一 Session ledger、TaskContract v2、prepare、显式冻结的 governed spawn Pre claim、父 Agent explicit exact-target confirm，以及 observation/terminal/interrupt/close 已落地。当前代码不保留旧机制作为兼容 fallback。
 
 ## TaskContract v2
 
@@ -25,7 +25,7 @@ spawn(fork_turns, model, reasoning_effort)
 - semantic name、task ref 和 task name 由 runtime 派生。
 - business contract digest 排除 spawn config；spawn config 使用独立 digest。
 
-## state-v9 单一 ledger
+## state-v10 单一 ledger
 
 每个 exact Session 只有一份 JSON ledger，根字段精确为：
 
@@ -43,7 +43,7 @@ prepared | claimed | bound | terminal | closed | reconcile
 
 prepared capability 位于 task record 内，和 lifecycle state 共享同一 lock 与原子写边界。当前持久状态没有 PreparedContractStore、agents index、Post receipt/index、pending action、tombstone 或 Group。
 
-StateStore 只接受严格 `state_format_version=9`，默认 namespace 为 `state-v9`。v8 及更早状态不读取、不迁移、不修复、不写回、不删除。
+StateStore 只接受严格 `state_format_version=10`，默认 namespace 为 `state-v10`。v9 及更早状态不读取、不迁移、不修复、不写回、不删除。
 
 ## 派发与 identity
 
@@ -109,7 +109,7 @@ wait 不持久化。business resume、managed followup、多 attempt、复杂 re
 
 ## 文件所有权
 
-- `schemas/governance-semantics.schema.json`：state-v9、TaskContract v2 和 phase-specific closed Schema。
+- `schemas/governance-semantics.schema.json`：state-v10、TaskContract v2、冻结 native interface 和 phase-specific closed Schema。
 - `schemas/task-contract-v2.schema.json`：TaskContract v2 模型输入 wire schema。
 - `scripts/governance_contracts.py`：v2 normalization 与 business/spawn digest。
 - `scripts/governance_state.py`：strict v9 runtime validator。
