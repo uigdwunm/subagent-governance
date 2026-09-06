@@ -9,27 +9,21 @@ from typing import Any
 
 try:
     from scripts.governance_dispatch import claim_spawn
-    from scripts.governance_dispatch_identity import parse_task_name
+    from scripts.governance_dispatch_identity import MESSAGE_PREFIX, parse_task_name, task_name_from_message
     from scripts.governance_semantics import SESSION_SUMMARY_CONTEXT_LIMIT
     from scripts.governance_state_store import StateStore, read_ledger_readonly
     from scripts.governance_store_support import data_root_path
 except ModuleNotFoundError:
     from governance_dispatch import claim_spawn
-    from governance_dispatch_identity import parse_task_name
+    from governance_dispatch_identity import MESSAGE_PREFIX, parse_task_name, task_name_from_message
     from governance_semantics import SESSION_SUMMARY_CONTEXT_LIMIT
     from governance_state_store import StateStore, read_ledger_readonly
     from governance_store_support import data_root_path
 
 
 _NATIVE_SPAWN_TOOLS = {
-    "Agent",
-    "spawn_agent",
-    "collaboration.spawn_agent",
-    "collaborationspawn_agent",
-}
-_OPAQUE_MESSAGE_SPAWN_TOOLS = {
-    "collaboration.spawn_agent",
-    "collaborationspawn_agent",
+    "spawn_agent", "multi_agent_v1.spawn_agent", "multi_agent_v1__spawn_agent",
+    "multi_agent_v1spawn_agent",
 }
 
 
@@ -69,9 +63,10 @@ def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | N
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
         return None
-    task_name = tool_input.get("task_name")
-    if not isinstance(task_name, str) or not task_name.startswith("sg_"):
+    message = tool_input.get("message")
+    if not isinstance(message, str) or not message.startswith(MESSAGE_PREFIX):
         return None
+    task_name = task_name_from_message(message)
     parsed = parse_task_name(task_name)
     if parsed is None:
         return _deny("governed task_name 无效；必须由 prepare-dispatch 生成")
@@ -84,7 +79,6 @@ def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | N
         return _deny("governed spawn 缺少 tool_use_id，无法原子 claim")
     try:
         store = state_store or StateStore()
-        opaque_message = tool_name in _OPAQUE_MESSAGE_SPAWN_TOOLS
         outcome = claim_spawn(
             session_id,
             task_ref,
@@ -92,12 +86,11 @@ def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | N
             tool_input,
             state_store=store,
             now=payload.get("now"),
-            opaque_message=opaque_message,
         )
     except Exception as exc:
         return _deny(f"governed spawn claim 失败：{exc}")
     return _allow(
-        None if opaque_message else copy.deepcopy(tool_input),
+        copy.deepcopy(tool_input),
         f"Subagent Governance 已在 state-v9 单一 ledger 原子 claim task_ref={task_ref}（{outcome['result']}）。原生返回后立即 confirm exact target。",
     )
 

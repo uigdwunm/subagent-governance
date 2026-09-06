@@ -60,7 +60,7 @@ def expected_native_parameters(
 ) -> dict[str, Any]:
     return {
         "task_name": task_name,
-        "message": render_dispatch_prompt(contract, verification),
+        "message": f"[subagent-governance:{task_name}]\n" + render_dispatch_prompt(contract, verification),
         "fork_turns": contract.spawn["fork_turns"],
         "model": contract.spawn["model"],
         "reasoning_effort": contract.spawn["reasoning_effort"],
@@ -69,7 +69,13 @@ def expected_native_parameters(
 
 def spawn_args(contract: TaskContract, task_name: str, verification: dict[str, Any] | None) -> dict[str, Any]:
     expected = expected_native_parameters(contract, task_name, verification)
-    return {key: value for key, value in expected.items() if value is not None}
+    native = {
+        "message": expected["message"],
+        "fork_context": expected["fork_turns"] == "all",
+        "model": expected["model"],
+        "reasoning_effort": expected["reasoning_effort"],
+    }
+    return {key: value for key, value in native.items() if value is not None}
 
 
 __all__ = ["expected_native_parameters", "render_dispatch_prompt", "render_dispatch_user_message", "spawn_args"]

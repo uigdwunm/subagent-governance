@@ -16,3 +16,19 @@
 - normal message success/failed 只校验 exact identity 且零写入；unknown 只写 `delivery_unknown`，不保存正文或调用历史。
 - terminal notification 保存 exact sender 对应的 status/time，不接收正文。interrupt 只保存明确 failed/inactive 机械结果；unknown reconcile。
 - parent close 是显式写入，不调用原生 interrupt。closed task 固定保留最新 64 条，只由后续 ledger 写操作惰性裁剪。
+
+## Current native adapter
+
+TaskContract v2 and the state-v9 capability retain semantic `task_name` and
+`fork_turns` fields internally. They are not serialized verbatim to native
+`spawn_agent`: the generated message header carries the name, and `none|all`
+map to boolean `fork_context`. Claim normalizes the current native arguments
+back to that semantic shape and compares the entire message and configuration.
+Unknown native fields and non-boolean context values are rejected for marked
+calls. Finite-turn inheritance is unavailable and rejected during prepare.
+
+The adapter requires a visible generated message header at PreToolUse. An
+opaque or unmarked message cannot be associated with a prepared task; it passes
+through without claim. A subsequent explicit confirm then reports missing claim
+instead of inventing identity. Real Hook delivery and visibility must be checked
+after installation in a fresh task.

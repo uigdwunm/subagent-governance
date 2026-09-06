@@ -159,7 +159,7 @@ Subagent Governance is **not** a sandbox, permission system, remote control plan
 - There is no managed business resume, managed follow-up, multi-attempt retry system, Group abstraction, or automatic cross-Session recovery.
 - A crash after native spawn but before exact-target confirmation remains `claimed/unbound`; the plugin does not guess identity or automatically respawn.
 - An unknown message, interrupt, or platform response remains unknown and may require parent reconciliation.
-- Codex MultiAgent V2 exposes an opaque message at the local PreToolUse boundary, so the plugin binds the derived task reference and visible spawn configuration rather than claiming plaintext-message attestation.
+- The current native adapter uses `fork_context` and a generated message header for the task reference. The Hook verifies the complete visible message and spawn configuration; opaque or unmarked inputs pass through without a governance claim.
 
 ## Verification
 

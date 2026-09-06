@@ -123,9 +123,9 @@ def prepare_dispatch(
                 and task.get("contract_digest") == result.get("contract_digest")
                 and task.get("prepared", {}).get("expected_native_parameters")
                 == {
-                    "task_name": result.get("spawn_args", {}).get("task_name"),
+                    "task_name": result.get("task_name"),
                     "message": result.get("spawn_args", {}).get("message"),
-                    "fork_turns": result.get("spawn_args", {}).get("fork_turns"),
+                    "fork_turns": "all" if result.get("spawn_args", {}).get("fork_context") else "none",
                     "model": result.get("spawn_args", {}).get("model"),
                     "reasoning_effort": result.get("spawn_args", {}).get("reasoning_effort"),
                 }

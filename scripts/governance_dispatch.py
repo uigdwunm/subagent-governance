@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 try:
+    from scripts.governance_dispatch_identity import task_name_from_message
     from scripts.governance_context import verify_context_manifest
     from scripts.governance_contracts import (
         TaskContract,
@@ -19,6 +20,7 @@ try:
     from scripts.governance_errors import StateConflictError
     from scripts.governance_lifecycle import enter_reconcile, prune_closed_tasks
 except ModuleNotFoundError:
+    from governance_dispatch_identity import task_name_from_message
     from governance_context import verify_context_manifest
     from governance_contracts import (
         TaskContract,
@@ -79,12 +81,18 @@ def _find_by_ref(state: dict[str, Any], task_ref: str) -> tuple[str, dict[str, A
 
 
 def _normalized_tool_input(value: Any) -> dict[str, Any]:
+    """Normalize the current native API to the ledger's semantic spawn shape."""
     if not isinstance(value, dict):
         raise StateConflictError("spawn_agent tool_input 必须是对象")
+    if set(value) - {"message", "fork_context", "model", "reasoning_effort"}:
+        raise StateConflictError("spawn_agent tool_input 含不支持的字段")
+    fork_context = value.get("fork_context", False)
+    if not isinstance(fork_context, bool):
+        raise StateConflictError("fork_context 必须是布尔值")
     return {
-        "task_name": value.get("task_name"),
+        "task_name": task_name_from_message(value.get("message")),
         "message": value.get("message"),
-        "fork_turns": value.get("fork_turns"),
+        "fork_turns": "all" if fork_context else "none",
         "model": value.get("model"),
         "reasoning_effort": value.get("reasoning_effort"),
     }
@@ -93,20 +101,9 @@ def _normalized_tool_input(value: Any) -> dict[str, Any]:
 def _claim_parameters_match(
     tool_input: Any,
     expected: Any,
-    *,
-    opaque_message: bool,
 ) -> bool:
     actual = _normalized_tool_input(tool_input)
-    expected_normalized = _normalized_tool_input(expected)
-    if opaque_message:
-        # MultiAgent V2 encrypts message before the local Hook boundary.  The
-        # derived task_name/task_ref and visible spawn config remain exact, but
-        # the plugin cannot claim plaintext-message attestation at this layer.
-        message = actual.get("message")
-        if not isinstance(message, str) or not message:
-            return False
-        actual["message"] = expected_normalized["message"]
-    return actual == expected_normalized
+    return actual == expected
 
 
 def claim_spawn(
@@ -117,7 +114,6 @@ def claim_spawn(
     *,
     state_store: Any,
     now: int | None = None,
-    opaque_message: bool = False,
 ) -> dict[str, Any]:
     claimed_at = _now(now)
     if not isinstance(tool_use_id, str) or not tool_use_id.strip() or len(tool_use_id) > 1024:
@@ -131,7 +127,7 @@ def claim_spawn(
             if task.get("claimed_tool_use_id") == tool_use_id:
                 expected = task.get("prepared", {}).get("expected_native_parameters")
                 if not _claim_parameters_match(
-                    tool_input, expected, opaque_message=opaque_message
+                    tool_input, expected
                 ):
                     raise StateConflictError("重复 claim 的 native parameters 不一致")
                 outcome.update(result="already_claimed", task_id=task_id, task_ref=task_ref)
@@ -147,7 +143,6 @@ def claim_spawn(
         if not _claim_parameters_match(
             tool_input,
             capability.get("expected_native_parameters"),
-            opaque_message=opaque_message,
         ):
             raise StateConflictError("原生 spawn 参数与 prepared capability 不一致")
         contract = contract_from_input(capability.get("contract"))
@@ -176,7 +171,7 @@ def claim_spawn(
                 task.get("phase") == "claimed"
                 and task.get("claimed_tool_use_id") == tool_use_id
                 and _claim_parameters_match(
-                    tool_input, expected, opaque_message=opaque_message
+                    tool_input, expected
                 )
             ):
                 outcome.update(

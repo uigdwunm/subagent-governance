@@ -12,7 +12,7 @@
     "profile": {"type": "string", "enum": ["standard", "strict"]},
     "phase": {"type": "string", "enum": ["prepared", "claimed", "bound", "terminal", "closed", "reconcile"]},
     "reasoning_effort": {"type": ["string", "null"], "enum": [null, "low", "medium", "high", "xhigh", "max", "ultra"]},
-    "fork_turns": {"type": "string", "pattern": "^(?:none|all|[1-9][0-9]*)$", "maxLength": 12},
+    "fork_turns": {"type": "string", "pattern": "^(?:none|all)$", "maxLength": 12},
     "text_list": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/short_text"}},
     "context_path_list": {
       "type": "array", "maxItems": 64, "uniqueItems": true,

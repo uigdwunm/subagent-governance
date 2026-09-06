@@ -60,4 +60,17 @@ def parse_task_name(value: Any) -> tuple[str, str, str] | None:
     return None if match is None else (match.group(1), match.group(2), match.group(3))
 
 
+MESSAGE_PREFIX = "[subagent-governance:"
+
+
+def task_name_from_message(message: Any) -> str | None:
+    if not isinstance(message, str) or not message.startswith(MESSAGE_PREFIX):
+        return None
+    header = message.split("\n", 1)[0]
+    if not header.endswith("]"):
+        return None
+    name = header[len(MESSAGE_PREFIX):-1]
+    return name if parse_task_name(name) is not None else None
+
+
 __all__ = ["build_task_name", "derive_task_ref", "normalize_semantic_name", "parse_task_name", "select_task_ref"]

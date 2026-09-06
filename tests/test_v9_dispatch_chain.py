@@ -63,7 +63,7 @@ class V9DispatchChainTests(unittest.TestCase):
         payload = {
             "session_id": self.session_id,
             "hook_event_name": "PreToolUse",
-            "tool_name": "collaboration.spawn_agent",
+            "tool_name": "multi_agent_v1.spawn_agent",
             "tool_use_id": tool_use_id,
             "tool_input": copy.deepcopy(prepared["spawn_args"]),
             "now": now,
@@ -73,6 +73,34 @@ class V9DispatchChainTests(unittest.TestCase):
             result["hookSpecificOutput"]["permissionDecision"], "allow", result
         )
         return result
+
+    def test_current_native_schema_and_exact_claim(self):
+        prepared = self.prepare()
+        args = prepared["spawn_args"]
+        self.assertEqual(set(args), {"message", "fork_context"})
+        self.assertIs(args["fork_context"], False)
+        self.assertIn(prepared["task_name"], args["message"].splitlines()[0])
+        result = hook.handle_hook({"session_id": self.session_id,
+            "hook_event_name": "PreToolUse", "tool_name": "multi_agent_v1__spawn_agent",
+            "tool_use_id": "current-call", "tool_input": args, "now": 101}, self.store)
+        self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
+        target = "019fd6ea-2afb-73e0-810c-0bb2636aeaae"
+        result = dispatch.confirm_dispatch(self.session_id,
+            {"task_id": prepared["task_id"], "task_ref": prepared["task_ref"], "target": target},
+            state_store=self.store, now=102)
+        self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["target"], target)
+
+    def test_full_context_and_explicit_overrides_are_mapped_exactly(self):
+        prepared = self.prepare(spawn={"fork_turns": "all", "model": "gpt-5.6-terra", "reasoning_effort": "high"})
+        args = prepared["spawn_args"]
+        self.assertIs(args["fork_context"], True)
+        self.assertEqual(args["model"], "gpt-5.6-terra")
+        self.assertEqual(args["reasoning_effort"], "high")
+        self.claim(prepared)
+
+    def test_limited_history_is_rejected_before_prepare(self):
+        with self.assertRaisesRegex(RuntimeError, "none.*all"):
+            self.prepare(spawn={"fork_turns": "3"})
 
     def test_contract_v2_defaults_strict_profile_and_business_digest(self):
         standard = contracts.contract_from_input(self.contract())
@@ -209,104 +237,41 @@ class V9DispatchChainTests(unittest.TestCase):
         self.assertIn("prepared", task)
         self.assertFalse((self.root / "prepared").exists())
 
-    def test_flattened_v2_spawn_claims_with_opaque_message(self):
+    def test_current_message_and_context_tampering_are_rejected(self):
         prepared = self.prepare()
-        encrypted_input = copy.deepcopy(prepared["spawn_args"])
-        encrypted_input["message"] = "gAAAAABopaque-native-v2-message"
-        result = hook.handle_hook(
-            {
-                "session_id": self.session_id,
-                "hook_event_name": "PreToolUse",
-                "tool_name": "collaborationspawn_agent",
-                "tool_use_id": "native-v2-call",
-                "tool_input": encrypted_input,
-                "now": 101,
-            },
-            self.store,
-        )
-        self.assertEqual(
-            result["hookSpecificOutput"]["permissionDecision"], "allow", result
-        )
-        self.assertNotIn("updatedInput", result["hookSpecificOutput"])
-        task = self.store.read(self.session_id)["tasks"][prepared["task_id"]]
-        self.assertEqual(task["phase"], "claimed")
-        self.assertEqual(task["claimed_tool_use_id"], "native-v2-call")
+        for update in ({"fork_context": True}, {"fork_context": "false"},
+                       {"message": prepared["spawn_args"]["message"] + "tampered"},
+                       {"task_name": prepared["task_name"]}, {"items": []}):
+            with self.subTest(update=update):
+                args = {**prepared["spawn_args"], **update}
+                result = hook.handle_hook({"session_id": self.session_id,
+                    "hook_event_name": "PreToolUse", "tool_name": "multi_agent_v1__spawn_agent",
+                    "tool_use_id": "tampered-call", "tool_input": args, "now": 101}, self.store)
+                self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["phase"], "prepared")
 
-        replay_input = copy.deepcopy(encrypted_input)
-        replay_input["message"] = "gAAAAABopaque-native-v2-message-replay"
-        replay = hook.handle_hook(
-            {
-                "session_id": self.session_id,
-                "hook_event_name": "PreToolUse",
-                "tool_name": "collaborationspawn_agent",
-                "tool_use_id": "native-v2-call",
-                "tool_input": replay_input,
-                "now": 102,
-            },
-            self.store,
-        )
-        self.assertEqual(
-            replay["hookSpecificOutput"]["permissionDecision"], "allow", replay
-        )
-        self.assertIn(
-            "already_claimed", replay["hookSpecificOutput"]["additionalContext"]
-        )
-
-    def test_flattened_v2_spawn_still_rejects_visible_config_mismatch(self):
+    def test_opaque_or_unmarked_message_never_claims_by_guessing(self):
         prepared = self.prepare()
-        encrypted_input = copy.deepcopy(prepared["spawn_args"])
-        encrypted_input["message"] = "gAAAAABopaque-native-v2-message"
-        encrypted_input["fork_turns"] = "all"
-        result = hook.handle_hook(
-            {
-                "session_id": self.session_id,
-                "hook_event_name": "PreToolUse",
-                "tool_name": "collaborationspawn_agent",
-                "tool_use_id": "native-v2-call",
-                "tool_input": encrypted_input,
-                "now": 101,
-            },
-            self.store,
-        )
-        self.assertEqual(
-            result["hookSpecificOutput"]["permissionDecision"], "deny", result
-        )
-        task = self.store.read(self.session_id)["tasks"][prepared["task_id"]]
-        self.assertEqual(task["phase"], "prepared")
-
-    def test_flattened_v2_spawn_rejects_missing_opaque_message(self):
-        prepared = self.prepare()
-        encrypted_input = copy.deepcopy(prepared["spawn_args"])
-        encrypted_input["message"] = ""
-        result = hook.handle_hook(
-            {
-                "session_id": self.session_id,
-                "hook_event_name": "PreToolUse",
-                "tool_name": "collaborationspawn_agent",
-                "tool_use_id": "native-v2-call",
-                "tool_input": encrypted_input,
-                "now": 101,
-            },
-            self.store,
-        )
-        self.assertEqual(
-            result["hookSpecificOutput"]["permissionDecision"], "deny", result
-        )
-        task = self.store.read(self.session_id)["tasks"][prepared["task_id"]]
-        self.assertEqual(task["phase"], "prepared")
+        for message in ("gAAAAABopaque", "", "ordinary task"):
+            result = hook.handle_hook({"session_id": self.session_id,
+                "hook_event_name": "PreToolUse", "tool_name": "multi_agent_v1__spawn_agent",
+                "tool_use_id": "opaque-call", "tool_input": {**prepared["spawn_args"], "message": message},
+                "now": 101}, self.store)
+            self.assertIsNone(result)
+            self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["phase"], "prepared")
 
     def test_spawn_tool_names_cover_native_v1_and_flattened_v2_only(self):
         for tool_name in (
-            "Agent",
+            "multi_agent_v1__spawn_agent",
             "spawn_agent",
-            "collaboration.spawn_agent",
-            "collaborationspawn_agent",
+            "multi_agent_v1.spawn_agent",
+            "multi_agent_v1spawn_agent",
         ):
             with self.subTest(tool_name=tool_name):
                 self.assertEqual(hook.tool_kind(tool_name), "spawn")
         for tool_name in (
             "send_message", "collaborationsend_message", "spawn_agents",
-            "thirdparty.spawn_agent", "vendor.collaboration.spawn_agent",
+            "thirdparty.spawn_agent", "vendor.multi_agent_v1.spawn_agent",
         ):
             with self.subTest(tool_name=tool_name):
                 self.assertIsNone(hook.tool_kind(tool_name))
@@ -476,7 +441,7 @@ class V9DispatchChainTests(unittest.TestCase):
             now=100,
         )
         self.assertEqual(prepared["task_ref"], "d3386869e8aa")
-        self.assertEqual(prepared["spawn_args"]["task_name"], target.removeprefix("/root/"))
+        self.assertEqual(prepared["task_name"], target.removeprefix("/root/"))
         confirmation = {
             "task_id": task_id,
             "task_ref": prepared["task_ref"],

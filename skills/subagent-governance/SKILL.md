@@ -45,6 +45,7 @@ description: 治理 Codex 原生子 Agent 的派发、等待、通信、中断�
 - `profile` 只有 `standard|strict`。strict 必须提供非空 `forbidden_scope` 和 `evidence`。
 - 不使用 `auto`、`light`、`task_features`、attempt 或模型手写 task name/ref。
 - semantic name、task ref 和 task name 由生成器派生。
+- `spawn.fork_turns` 只接受 `none|all`，分别映射为 `fork_context: false|true`；有限轮数不受当前原生接口支持，prepare 前拒绝。默认 model/effort 为 null，原生调用省略以继承父任务；只有用户明确要求覆盖时才填写。
 - business contract digest 不包含 `spawn`；spawn config 有独立 digest。
 - `context.paths` 只是定位提示，不建立文件存在或内容正确的事实。
 
@@ -68,10 +69,9 @@ profile 与状态边界见 [references/governance-profiles.md](references/govern
    python3 "<authoritative-cli-entrypoint>" --prepare-dispatch --session <exact-session-id>
    ```
 
-2. 向用户展示返回的 `user_message`。把 `spawn_args` 原样传给当前原生 `spawn_agent`；不要重写 message、task name、model、effort 或 `fork_turns`。
-3. governed spawn 的 PreToolUse 在同一个 Session ledger 原子执行 `prepared → claimed`。unmanaged task name 完全 inert，不创建治理状态。
-   Codex MultiAgent V2 会在本地 Hook 前加密 message；runtime 通过派生 task name/ref 与仍可见的 spawn config 绑定 prepared capability，不宣称对 V2 明文正文提供独立 attestation。父 Agent 的原样提交义务不变。
-4. 读取这一次原生 spawn 的机械返回。只有返回中明确给出的、可直接用于后续原生调用的 exact target 才能绑定；如果平台没有机械暴露 exact target，停止并报告，不使用 list/name/time/final 补绑。
+2. 向用户展示返回的 `user_message`。把 `spawn_args` 原样传给当前原生 `spawn_agent`；它只含 message、fork_context 和显式覆盖的 model/effort。派生 task name 保存在消息首行和账本，不是原生工具参数。
+3. governed spawn 的 PreToolUse 根据消息首行 `[subagent-governance:<生成的 task name>]` 定位精确 task ref，校验完整 message 和配置，在同一个 Session ledger 原子执行 `prepared → claimed`。当前适配器支持 `spawn_agent` 和 `multi_agent_v1` 的点号、双下划线、展开命名。缺少标记或消息不可见的调用透传，不猜测 prepared identity、不声称 claim 成功；后续 confirm 缺少 claim 时保持异常，不重派。
+4. 读取这一次原生 spawn 的机械返回。当前接口返回的 `agent_id` 是 exact target；只有返回中明确给出的、可直接用于后续原生调用的 exact target 才能绑定；如果平台没有机械暴露 exact target，停止并报告，不使用 list/name/time/final 补绑。
 5. 立即提交 exact target：
 
    ```bash
@@ -95,21 +95,21 @@ spawn 返回后、confirm 前如果父任务中断，记录保持 `claimed/unbou
 - bind 后保存 runtime 返回的 exact target，并用原生 `wait_agent` 等待。
 - wait 不持久化；正常超时不等于 failed、terminal 或需要重派。
 - `list_agents` 只允许观察已经 bound 的 exact target，不能建立或修复 identity。
-- 对 exact target 得到规范化平台观察后，提交：
+- 原生 wait 返回的 completed/errored 对象分别归一化为 completed/error，running、interrupted 保留；pending_init 视为 running，shutdown 视为 stopped，not_found 或未知形态视为 unknown。对 exact target 得到规范化平台观察后，提交：
 
   ```bash
   python3 "<authoritative-cli-entrypoint>" --record-platform-observation --session <exact-session-id>
   ```
 
   stdin 精确为 `{"task_id":"...","task_ref":"...","target":"...","status":"running|completed|stopped|interrupted|error|unknown"}`。unknown 只进入 reconcile，不自动重查或猜 terminal。
-- 普通 `send_message` 的机械结果用 `--record-call-result` 提交 exact task/ref/target 和 `result=success|failed|unknown`。success/failed 只校验 identity，ledger 字节不变；unknown 只写 `delivery_unknown`，不得自动重发。任何 message、response 或 summary 字段都会被拒绝。
-- 当前切片不提供 managed followup 或 business resume。原生 `followup_task` 不建立新 attempt，也不进入治理持久状态。
+- 普通原生 `send_input` 的机械结果用 `--record-call-result` 提交 exact task/ref/target 和 `result=success|failed|unknown`。success/failed 只校验 identity，ledger 字节不变；unknown 只写 `delivery_unknown`，不得自动重发。任何 message、response 或 summary 字段都会被拒绝。
+- 后续消息继续使用已绑定 target 的 `send_input`；不建立新 attempt。
 
 ## Terminal、中断与关闭
 
 - 收到原生 child terminal notification 时，用 `--record-terminal-notification` 提交精确 `task_id`、`task_ref`、`sender` 与 `status=completed|stopped|interrupted`。不提交正文。sender 必须等于已 bound target；相同 status 重放幂等，冲突 status 保留首个 terminal fact 并 reconcile。
-- 调用原生 `interrupt_agent` 后，用 `--record-interrupt-result` 提交 exact task/ref/target 和 `result=failed|inactive|unknown`。failed 保存明确失败事实但保持 bound；inactive 建立 terminal fact；unknown 进入 reconcile。不要把模糊成功或 not-found 自行改写为 inactive。
-- 父 Agent 完成验收或明确决定停止跟踪后，用 `--close-task` 提交 `task_id`、`task_ref` 和有界 `reason`。close 不自动调用 interrupt。相同 reason 重放幂等；不同 reason 不覆盖首次 close。
+- 通过原生 `send_input(interrupt=true)` 请求中断后，用 `--record-interrupt-result` 提交 exact task/ref/target 和 `result=failed|inactive|unknown`。failed 保存明确失败事实但保持 bound；inactive 建立 terminal fact；unknown 进入 reconcile。不要把模糊成功或 not-found 自行改写为 inactive。
+- 父 Agent 完成验收或明确决定停止跟踪后，用 `--close-task` 提交 `task_id`、`task_ref` 和有界 `reason`。close 不自动调用原生关闭。完成验收后先使用原生 `close_agent(target)` 释放子 Agent，再关闭账本记录；仅发送成功不能证明子 Agent 已停止。相同 reason 重放幂等；不同 reason 不覆盖首次 close。
 - ledger 只保留最新 64 条 closed task，并只在后续真实写操作时惰性裁剪。status、diagnose 和 SessionStart 永不清理。
 
 ## 只读恢复与状态

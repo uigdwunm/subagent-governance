@@ -158,7 +158,7 @@ Subagent Governance **不是**沙箱、权限系统、远程控制平面、Hook 
 - 不提供 managed business resume、managed follow-up、多 attempt 重试系统、Group 抽象或自动跨 Session 恢复。
 - 原生 spawn 返回后、exact-target confirm 前崩溃时保持 `claimed/unbound`；插件不猜身份，也不自动重派。
 - 未知消息、中断或平台结果继续保持 unknown，可能需要父 Agent reconcile。
-- Codex MultiAgent V2 在本地 PreToolUse 边界暴露的是 opaque message，因此插件绑定派生 task ref 和可见 spawn 配置，不宣称提供明文消息证明。
+- 当前原生适配器使用 `fork_context`，通过生成的消息头携带 task ref。Hook 校验完整可见消息和派发配置；消息不可见或没有标记时透传，不建立治理 claim。
 
 ## 验证情况
 

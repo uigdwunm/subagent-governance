@@ -187,14 +187,13 @@ class RuntimeBundleTests(unittest.TestCase):
             self.assertEqual(prepared.returncode, 0, prepared.stderr)
             prepared_value = json.loads(prepared.stdout)
             spawn_args = prepared_value["spawn_args"]
-            spawn_args["message"] = "gAAAAABinstalled-authority-opaque-message"
 
             claimed = run(
                 [],
                 {
                     "hook_event_name": "PreToolUse",
                     "session_id": session_id,
-                    "tool_name": "collaboration.spawn_agent",
+                    "tool_name": "multi_agent_v1.spawn_agent",
                     "tool_use_id": "installed-authority-native-call",
                     "tool_input": spawn_args,
                 },
