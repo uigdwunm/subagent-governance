@@ -8,6 +8,7 @@ from pathlib import Path
 from scripts import governance_semantics as semantics
 from scripts.governance_contracts import contract_from_input
 from scripts.governance_errors import DispatchPreparationError
+from scripts.governance_hook import handle_hook
 from scripts.governance_protocol import prepare_dispatch
 from scripts.governance_state_store import StateStore
 from tests.schema_validation import validate_instance
@@ -168,6 +169,50 @@ class ContextContractV2Tests(unittest.TestCase):
                     native_interface="fork_context",
                     state_store=state,
                 )
+
+    def test_git_material_drift_at_claim_is_a_conflict_and_denied(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory) / "workspace"
+            workspace.mkdir()
+            subprocess.run(["git", "init", "-q", str(workspace)], check=True)
+            subprocess.run(["git", "-C", str(workspace), "config", "user.name", "Test"], check=True)
+            subprocess.run(["git", "-C", str(workspace), "config", "user.email", "test@example.com"], check=True)
+            (workspace / "input.txt").write_text("stable", encoding="utf-8")
+            subprocess.run(["git", "-C", str(workspace), "add", "input.txt"], check=True)
+            subprocess.run(["git", "-C", str(workspace), "commit", "-q", "-m", "fixture"], check=True)
+            revision = subprocess.run(
+                ["git", "-C", str(workspace), "rev-parse", "HEAD"],
+                check=True, capture_output=True, text=True,
+            ).stdout.strip()
+            contract = self.verified_contract(
+                workspace,
+                {"kind": "git_commit", "revision": revision},
+                [{"path": "input.txt", "type": "file"}],
+            )
+            state = StateStore(Path(directory) / "state")
+            prepared = prepare_dispatch(
+                contract,
+                "git-claim-session",
+                native_interface="fork_context",
+                state_store=state,
+                task_id_factory=lambda: "git-claim-task",
+                now=10,
+            )
+            (workspace / "input.txt").write_text("changed", encoding="utf-8")
+            result = handle_hook(
+                {
+                    "session_id": "git-claim-session",
+                    "hook_event_name": "PreToolUse",
+                    "tool_name": "spawn_agent",
+                    "tool_use_id": "git-claim-call",
+                    "tool_input": prepared["spawn_args"],
+                    "now": 11,
+                },
+                state,
+            )
+            self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+            self.assertIn("材料冲突", result["hookSpecificOutput"]["permissionDecisionReason"])
+            self.assertEqual(state.read("git-claim-session")["tasks"][prepared["task_id"]]["phase"], "prepared")
 
 
 if __name__ == "__main__":

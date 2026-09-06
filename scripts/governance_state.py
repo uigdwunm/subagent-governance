@@ -1,4 +1,4 @@
-"""Strict runtime validation for the sole supported state-v9 Session ledger."""
+"""Strict runtime validation for the sole supported state-v10 Session ledger."""
 
 from __future__ import annotations
 

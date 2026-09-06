@@ -1,4 +1,4 @@
-"""Exception hierarchy for the current state-v9 runtime."""
+"""Exception hierarchy for the current state-v10 runtime."""
 
 
 class StateStoreError(RuntimeError):
@@ -37,12 +37,16 @@ class ContextVerificationError(RuntimeError):
     """Explicit verified context is invalid, unavailable, or changed."""
 
 
+class ContextMaterialConflictError(ContextVerificationError):
+    """Declared verified material no longer matches its frozen baseline."""
+
+
 class DiagnosticReadError(RuntimeError):
     """A read-only exact Session ledger could not be interpreted."""
 
 
 __all__ = [
-    "ContextVerificationError", "DiagnosticReadError", "DispatchPreparationError",
+    "ContextMaterialConflictError", "ContextVerificationError", "DiagnosticReadError", "DispatchPreparationError",
     "StateCapacityError", "StateConflictError", "StateStoreError",
     "NativeInputMismatch", "NativeInputUnavailable", "StateValidationError", "StateWriteError",
 ]

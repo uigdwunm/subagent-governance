@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts import governance_cli
 from scripts.governance_input import read_json_object
@@ -25,6 +26,19 @@ class GovernanceCliTests(unittest.TestCase):
         code, output, error = self.invoke([], b'{"hook_event_name":"PreToolUse"')
         self.assertEqual((code, error), (0, ""))
         self.assertTrue(json.loads(output)["continue"])
+
+    def test_hook_outer_failure_is_fail_open(self):
+        with mock.patch.object(
+            governance_cli, "handle_hook", side_effect=RuntimeError("boom")
+        ):
+            code, output, error = self.invoke(
+                [], b'{"hook_event_name":"PreToolUse"}'
+            )
+        self.assertEqual((code, error), (0, ""))
+        result = json.loads(output)
+        self.assertTrue(result["continue"])
+        self.assertNotIn("permissionDecision", result.get("hookSpecificOutput", {}))
+        self.assertIn("fail-open", result["systemMessage"])
 
     def test_prepare_confirm_and_status_use_v10_commands(self):
         contract = {

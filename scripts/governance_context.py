@@ -13,10 +13,10 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.governance_errors import ContextVerificationError
+    from scripts.governance_errors import ContextMaterialConflictError, ContextVerificationError
     from scripts.governance_validation import required_fields
 except ModuleNotFoundError:
-    from governance_errors import ContextVerificationError
+    from governance_errors import ContextMaterialConflictError, ContextVerificationError
     from governance_validation import required_fields
 
 
@@ -190,7 +190,7 @@ def verify_context_manifest(value: Any) -> dict[str, Any]:
         run_git(workspace_root, "cat-file", "-e", f"{revision}^{{commit}}")
         current_head = run_git(workspace_root, "rev-parse", "--verify", "HEAD")
         if current_head != revision:
-            raise ContextVerificationError(f"Git 工作区 HEAD 与声明 baseline 不一致：HEAD={current_head}，baseline={revision}")
+            raise ContextMaterialConflictError(f"Git 工作区 HEAD 与声明 baseline 不一致：HEAD={current_head}，baseline={revision}")
         for item in value["required_paths"]:
             path_value, expected_type = str(item["path"]), str(item["type"])
             object_spec = f"{revision}:{path_value}"
@@ -204,7 +204,7 @@ def verify_context_manifest(value: Any) -> dict[str, Any]:
                 raise ContextVerificationError(f"必需上下文类型不匹配：{path_value} 声明为 {expected_type}，Git 对象类型为 {object_type}")
             dirty = run_git(workspace_root, "status", "--porcelain=v1", "--untracked-files=all", "--", path_value)
             if dirty:
-                raise ContextVerificationError(f"必需上下文工作区内容与 Git baseline 不一致：{path_value}")
+                raise ContextMaterialConflictError(f"必需上下文工作区内容与 Git baseline 不一致：{path_value}")
             verified_paths.append({"path": path_value, "type": expected_type, "object_id": object_id})
         verified_baseline = {"kind": "git_commit", "revision": revision}
     else:

@@ -300,6 +300,38 @@ class V9DispatchChainTests(unittest.TestCase):
             self.assertIsNone(result)
             self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["phase"], "prepared")
 
+    def test_visible_task_name_with_unverifiable_message_fails_open_without_claim(self):
+        prepared = protocol.prepare_dispatch(
+            self.contract(),
+            self.session_id,
+            native_interface="collaboration_turns",
+            state_store=self.store,
+            task_id_factory=lambda: "sg-task-turns",
+            now=100,
+        )
+        opaque = {
+            "task_name": prepared["task_name"],
+            "message": "opaque-provider-body",
+            "fork_turns": "none",
+        }
+        result = hook.handle_hook(
+            {
+                "session_id": self.session_id,
+                "hook_event_name": "PreToolUse",
+                "tool_name": "collaboration.spawn_agent",
+                "tool_use_id": "opaque-visible-name",
+                "tool_input": opaque,
+                "now": 101,
+            },
+            self.store,
+        )
+        self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertIn("无法验证", result["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(
+            self.store.read(self.session_id)["tasks"][prepared["task_id"]]["phase"],
+            "prepared",
+        )
+
     def test_spawn_tool_names_cover_native_v1_and_flattened_v2_only(self):
         for tool_name in (
             "multi_agent_v1__spawn_agent",

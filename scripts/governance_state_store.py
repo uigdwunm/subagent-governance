@@ -1,4 +1,4 @@
-"""Atomic persistence for the single current-only state-v9 Session ledger."""
+"""Atomic persistence for the single current-only state-v10 Session ledger."""
 
 from __future__ import annotations
 

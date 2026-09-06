@@ -1,4 +1,4 @@
-"""Machine-readable constants for the current-only state-v9 runtime."""
+"""Machine-readable constants for the current-only state-v10 runtime."""
 
 from __future__ import annotations
 

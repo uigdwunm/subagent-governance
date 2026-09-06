@@ -1,4 +1,4 @@
-"""Lock-free, zero-write status and diagnostics for one exact state-v9 Session."""
+"""Lock-free, zero-write status and diagnostics for one exact state-v10 Session."""
 
 from __future__ import annotations
 

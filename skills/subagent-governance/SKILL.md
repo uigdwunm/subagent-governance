@@ -92,10 +92,10 @@ spawn 返回后、confirm 前如果父任务中断，记录保持 `claimed/unbou
 
 ## 等待与通信
 
-- bind 后保存 runtime 返回的 exact target，并用原生 `wait_agent` 等待；其超时、用户输入打断或邮箱摘要都不是终态。
+- bind 后保存 runtime 返回的 exact target，并用原生 `wait_agent` 等待。当前 `wait_agent` 是邮箱唤醒接口：它返回新消息/终态摘要、超时摘要，或因用户新输入而提前结束等待；这些返回本身不按 Agent 逐项 `completed`/`errored` 对象解释，也不自动写入某个 Agent 的终态。
 - wait 不持久化；正常超时不等于 failed、terminal 或需要重派。
 - `list_agents` 只允许观察已经 bound 的 exact target，不能建立或修复 identity。
-- 原生 wait 返回的 completed/errored 对象分别归一化为 completed/error，running、interrupted 保留；pending_init 视为 running，shutdown 视为 stopped，not_found 或未知形态视为 unknown。对 exact target 得到规范化平台观察后，提交：
+- 只有收到可明确归属已绑定 exact target 的平台终态通知，才提交规范化平台观察。邮箱摘要、超时和用户中断需要父 Agent 依据后续机械证据决定；不得把摘要字段猜成 `completed`、`errored`、`running` 或 `stopped`。确认有明确状态后，提交：
 
   ```bash
   python3 "<authoritative-cli-entrypoint>" --record-platform-observation --session <exact-session-id>

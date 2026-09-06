@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Thin CLI transport for the current state-v9 governance runtime."""
+"""Thin CLI transport for the current state-v10 governance runtime."""
 
 from __future__ import annotations
 
@@ -86,16 +86,18 @@ def _hook(stdin: BinaryIO, stdout: TextIO) -> int:
     try:
         result = handle_hook(payload)
     except Exception as exc:
-        if payload.get("hook_event_name") == "PreToolUse":
-            result = {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": f"governed spawn Hook 失败：{exc}",
-                }
-            }
-        else:
-            result = None
+        # The outer transport boundary must never turn a governance/runtime
+        # fault into a native-tool denial.  Inner Hook logic classifies known
+        # mismatches; anything escaping here is an unverifiable internal fault.
+        _emit(
+            stdout,
+            {
+                "continue": True,
+                "systemMessage": f"Subagent Governance Hook 内部故障，已 fail-open：{str(exc)[:600]}",
+            },
+            pretty=False,
+        )
+        return 0
     if result is not None:
         _emit(stdout, result, pretty=False)
     return 0

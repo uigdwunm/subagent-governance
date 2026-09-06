@@ -1,4 +1,4 @@
-"""Single-ledger prepare/claim/confirm dispatch transitions for state-v9."""
+"""Single-ledger prepare/claim/confirm dispatch transitions for state-v10."""
 
 from __future__ import annotations
 
@@ -17,7 +17,12 @@ try:
     )
     from scripts.governance_dispatch_rendering import expected_native_parameters
     from scripts.governance_native_adapter import normalize_native_spawn
-    from scripts.governance_errors import NativeInputMismatch, NativeInputUnavailable, StateConflictError
+    from scripts.governance_errors import (
+        ContextMaterialConflictError,
+        NativeInputMismatch,
+        NativeInputUnavailable,
+        StateConflictError,
+    )
     from scripts.governance_lifecycle import enter_reconcile, prune_closed_tasks
 except ModuleNotFoundError:
     from governance_context import verify_context_manifest
@@ -30,7 +35,12 @@ except ModuleNotFoundError:
     )
     from governance_dispatch_rendering import expected_native_parameters
     from governance_native_adapter import normalize_native_spawn
-    from governance_errors import NativeInputMismatch, NativeInputUnavailable, StateConflictError
+    from governance_errors import (
+        ContextMaterialConflictError,
+        NativeInputMismatch,
+        NativeInputUnavailable,
+        StateConflictError,
+    )
     from governance_lifecycle import enter_reconcile, prune_closed_tasks
 
 
@@ -132,9 +142,12 @@ def claim_spawn(
         contract = contract_from_input(capability.get("contract"))
         manifest = contract.context.get("verified")
         if manifest is not None:
-            verification = verify_context_manifest(manifest)
+            try:
+                verification = verify_context_manifest(manifest)
+            except ContextMaterialConflictError as exc:
+                raise StateConflictError(f"声明材料冲突：{exc}") from exc
             if verification != capability.get("context_verification"):
-                raise StateConflictError("verified context 在 prepare 与 claim 之间发生变化")
+                raise StateConflictError("声明材料冲突：verified context 在 prepare 与 claim 之间发生变化")
         task["phase"] = "claimed"
         task["claimed_tool_use_id"] = tool_use_id
         task["claimed_at"] = claimed_at
