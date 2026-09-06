@@ -16,7 +16,7 @@
 
 ```text
 python3 -m unittest tests.test_native_adapter -v                 PASS (5 tests)
-python3 -m unittest discover -s tests -v                        PASS (103 tests)
+python3 -m unittest discover -s tests -v                        PASS (109 tests)
 python3 -m compileall -q scripts                                PASS
 git diff --check                                                PASS
 ```

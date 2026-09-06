@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Vertical acceptance coverage for the state-v9 dispatch cutover."""
+"""Vertical acceptance coverage for the state-v10 dispatch cutover."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from scripts.governance_errors import StateWriteError
 from tests.schema_validation import validate_instance
 
 
-class V9DispatchChainTests(unittest.TestCase):
+class V10DispatchChainTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
@@ -197,7 +197,7 @@ class V9DispatchChainTests(unittest.TestCase):
                 )
             )
 
-    def test_prepare_writes_one_strict_v9_ledger_and_schema_accepts_it(self):
+    def test_prepare_writes_one_strict_v10_ledger_and_schema_accepts_it(self):
         prepared = self.prepare()
         state = self.store.read(self.session_id)
         self.assertEqual(
@@ -684,7 +684,7 @@ class V9DispatchChainTests(unittest.TestCase):
             store_support.data_root_path(installed_cli),
         )
 
-    def test_default_namespace_is_state_v9_and_v8_is_untouched(self):
+    def test_default_namespace_is_state_v10_and_v8_is_untouched(self):
         with tempfile.TemporaryDirectory() as directory:
             plugin_root = Path(directory)
             old_root = plugin_root / "state-v8"

@@ -74,7 +74,7 @@ def normalize_native_spawn(native_interface: str, tool_input: Any) -> dict[str, 
 
 不把接口塞入 task_id/task_ref 或 business digest；接口字段独立校验。既有 spawn digest 仍校验模型/继承配置。validator 无法识别出“两个接口都允许的配置被整体篡改”为原始接口，这与现有父方协作账本的信任边界一致，不宣称防任意磁盘篡改。
 
-更新测试 fixture 的当前版本值；旧 v9 数据作为“不得访问”fixture 保留。测试文件 `test_v9_dispatch_chain.py`、`test_v9_lifecycle.py` 可继续使用原文件名以减少移动，类和说明更新当前含义；不要把历史报告全局替换成 v10。
+更新测试 fixture 的当前版本值；旧 v9 数据作为“不得访问”fixture 保留。当前测试文件使用 `test_v10_dispatch_chain.py`、`test_v10_lifecycle.py`，历史报告中的 v9 名称不做全局替换。
 
 ## 4. Hook 判定表与错误所有权
 
@@ -118,14 +118,14 @@ Hook 只检查，不改原生输入：成功与降级输出均省略 `updatedInp
 - 文件：rendering、protocol、dispatch、cli、state、lifecycle 的字段保留点、diagnostics；相关现有 dispatch/lifecycle/state/schema 测试。
 - 测试：CLI 缺少/错误/误用于其他操作的接口参数零状态失败；两接口 prepare → claim → confirm；全六 phase 保留接口；expected 与 contract 校验；同调用幂等、另一调用拒绝；prepared 的 failed/unknown 收口；缺 claim 的 success 不绑定；v9 隔离；完整 prepare 写后回读故障注入。
 - 测试：两种适配器各覆盖相同精确调用的 claim 写后失败回读；task/ref/接口/message/config 任一不等时不能报告精确恢复。不得通过回读业务目标相同就误认同一个 task。
-- 检查：`python3 -m unittest tests.test_v9_dispatch_chain tests.test_v9_lifecycle tests.test_state_store tests.test_state_store_modules tests.test_semantic_baseline -v`。
+- 检查：`python3 -m unittest tests.test_v10_dispatch_chain tests.test_v10_lifecycle tests.test_state_store tests.test_state_store_modules tests.test_semantic_baseline -v`。
 - 完成条件：业务契约仍为 v2，只有 v10 namespace 被读写；完整继承的合法性由所选接口判断；prepare 正常与异常路径使用相同语义。
 
 ### E3：Hook 接入与故障边界
 
 - 文件：hook、cli Hook 外层、identity 的标记识别辅助函数（仅在需要时）、errors、Hook manifest；dispatch 中精确区分冲突与内部故障的部分；对应 Hook/dispatch/结构测试。
 - 逐行覆盖第 4 节判定表；验证输出、账本前后字节和是否构造/读取存储。可恢复写后故障验证保留真实 claim，不把所有异常都期待零写入。
-- 检查：`python3 -m unittest tests.test_v9_dispatch_chain tests.test_hook_event_contract tests.test_plugin_structure -v`。
+- 检查：`python3 -m unittest tests.test_v10_dispatch_chain tests.test_hook_event_contract tests.test_plugin_structure -v`。
 - 完成条件：已知名称匹配，第三方近似名称透传；内部故障不禁用原生通道，无法验证不虚构成功；未引入 Post Hook 或新事件日志。
 
 ### E4：Skill、打包和集中验收

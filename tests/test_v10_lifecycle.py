@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Acceptance coverage for the minimal state-v9 lifecycle slice."""
+"""Acceptance coverage for the minimal state-v10 lifecycle slice."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from scripts.governance_state_store import StateStore
 from tests.schema_validation import validate_instance
 
 
-class V9LifecycleTests(unittest.TestCase):
+class V10LifecycleTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
