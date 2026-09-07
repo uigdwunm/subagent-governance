@@ -98,7 +98,10 @@ def _claim_parameters_match(
     native_interface: str,
 ) -> bool:
     actual = normalize_native_spawn(native_interface, tool_input)
-    return actual == expected
+    return all(
+        actual.get(field) == expected.get(field)
+        for field in ("task_name", "fork_turns", "model", "reasoning_effort")
+    )
 
 
 def claim_spawn(

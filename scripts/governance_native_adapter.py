@@ -85,15 +85,8 @@ def normalize_native_spawn(native_interface: str, tool_input: Any) -> dict[str, 
         task_name = tool_input.get("task_name")
         if not isinstance(task_name, str):
             raise NativeInputUnavailable("spawn_agent task_name 不可验证")
-        # A visible task_name is enough to locate a governed capability, but an
-        # opaque/unmarked message body is not comparable to the frozen prompt.
-        # Only a message carrying the governance marker is a comparable body.
-        if not message.startswith(MESSAGE_PREFIX):
-            raise NativeInputUnavailable("spawn_agent message 正文不可验证")
         embedded = task_name_from_message(message)
-        if embedded is None:
-            raise NativeInputMismatch("message 治理标记无效")
-        if embedded != task_name:
+        if embedded is not None and embedded != task_name:
             raise NativeInputMismatch("task_name 与 message 治理标记不一致")
         turns = tool_input.get("fork_turns", "all")
         try:

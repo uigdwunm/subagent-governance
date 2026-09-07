@@ -11,7 +11,8 @@
 
 | 方案 | 状态 | 范围 |
 | --- | --- | --- |
-| [原生工具契约适配修复](native-tool-contract-adaptation-2026-09-06.md)及[执行清单](native-tool-contract-execution-2026-09-06.md) | 开发仓库实施完成，待审查/真实验收 | 显式派发适配、Hook 输入边界、通信与生命周期语义、本地及真实验收 |
+| [原生工具契约适配修复](native-tool-contract-adaptation-2026-09-06.md)及[执行清单](native-tool-contract-execution-2026-09-06.md) | 执行准备完成，尚未实施 | 显式派发适配、Hook 输入边界、通信与生命周期语义、本地及真实验收 |
+| [task_name claim 修复](task-name-claim-fix-2026-09-07.md) | 实现完成，待部署和真实验收 | 让 claim 依据稳定的 task_name 与派发配置，不逐字匹配平台重构后的 message |
 
 ## 历史执行约束
 

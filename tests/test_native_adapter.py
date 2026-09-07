@@ -60,12 +60,12 @@ class NativeAdapterTests(unittest.TestCase):
         with self.assertRaises(NativeInputUnavailable):
             normalize_native_spawn("collaboration_turns", {"task_name": EXPECTED["task_name"], "message": EXPECTED["message"], "model": None})
 
-    def test_visible_task_name_with_unmarked_body_is_unavailable(self):
-        with self.assertRaises(NativeInputUnavailable):
-            normalize_native_spawn(
-                "collaboration_turns",
-                {"task_name": EXPECTED["task_name"], "message": "opaque-provider-body"},
-            )
+    def test_visible_task_name_with_unmarked_body_is_normalizable(self):
+        actual = normalize_native_spawn(
+            "collaboration_turns",
+            {"task_name": EXPECTED["task_name"], "message": "opaque-provider-body"},
+        )
+        self.assertEqual(actual["task_name"], EXPECTED["task_name"])
 
     def test_invalid_turn_strings_are_rejected(self):
         for value in ("0", "01", "+1", "-1", "1.0", "", 1, True):

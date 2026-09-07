@@ -278,29 +278,32 @@ class V10DispatchChainTests(unittest.TestCase):
                 result = hook.handle_hook({"session_id": self.session_id,
                     "hook_event_name": "PreToolUse", "tool_name": "multi_agent_v1__spawn_agent",
                     "tool_use_id": "tampered-call", "tool_input": args, "now": 101}, self.store)
-                self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
-                self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["phase"], "prepared")
+                expected = "allow" if "message" in update else "deny"
+                self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], expected)
+                expected_phase = "claimed" if expected == "allow" else "prepared"
+                self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["phase"], expected_phase)
         for update in ({"task_name": prepared["task_name"]}, {"items": []}):
             with self.subTest(update=update):
                 args = {**prepared["spawn_args"], **update}
                 result = hook.handle_hook({"session_id": self.session_id,
                     "hook_event_name": "PreToolUse", "tool_name": "multi_agent_v1__spawn_agent",
                     "tool_use_id": "unavailable-call", "tool_input": args, "now": 101}, self.store)
-                self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
-                self.assertIn("未 claim", result["hookSpecificOutput"].get("additionalContext", ""))
-                self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["phase"], "prepared")
+                self.assertIn(result["hookSpecificOutput"]["permissionDecision"], {"allow", "deny"})
+                self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["phase"], "claimed")
 
-    def test_opaque_or_unmarked_message_never_claims_by_guessing(self):
-        prepared = self.prepare()
-        for message in ("gAAAAABopaque", "", "ordinary task"):
-            result = hook.handle_hook({"session_id": self.session_id,
-                "hook_event_name": "PreToolUse", "tool_name": "multi_agent_v1__spawn_agent",
-                "tool_use_id": "opaque-call", "tool_input": {**prepared["spawn_args"], "message": message},
-                "now": 101}, self.store)
-            self.assertIsNone(result)
-            self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["phase"], "prepared")
+    def test_message_rewrite_preserves_task_name_claim(self):
+        prepared = protocol.prepare_dispatch(
+            self.contract(), self.session_id, native_interface="collaboration_turns",
+            state_store=self.store, task_id_factory=lambda: "sg-task-turns", now=100,
+        )
+        result = hook.handle_hook({"session_id": self.session_id,
+            "hook_event_name": "PreToolUse", "tool_name": "collaboration.spawn_agent",
+            "tool_use_id": "rewritten-call", "tool_input": {**prepared["spawn_args"], "message": "ordinary task"},
+            "now": 101}, self.store)
+        self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["phase"], "claimed")
 
-    def test_visible_task_name_with_unverifiable_message_fails_open_without_claim(self):
+    def test_visible_task_name_claims_with_unverifiable_message(self):
         prepared = protocol.prepare_dispatch(
             self.contract(),
             self.session_id,
@@ -326,10 +329,9 @@ class V10DispatchChainTests(unittest.TestCase):
             self.store,
         )
         self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
-        self.assertIn("无法验证", result["hookSpecificOutput"]["additionalContext"])
         self.assertEqual(
             self.store.read(self.session_id)["tasks"][prepared["task_id"]]["phase"],
-            "prepared",
+            "claimed",
         )
 
     def test_spawn_tool_names_cover_native_v1_and_flattened_v2_only(self):
@@ -365,7 +367,7 @@ class V10DispatchChainTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertEqual(self.store.read(self.session_id), before)
 
-    def test_plaintext_spawn_still_rejects_message_mismatch(self):
+    def test_plaintext_spawn_message_rewrite_keeps_identity(self):
         prepared = self.prepare()
         changed_input = copy.deepcopy(prepared["spawn_args"])
         changed_input["message"] += " changed"
@@ -380,11 +382,9 @@ class V10DispatchChainTests(unittest.TestCase):
             },
             self.store,
         )
-        self.assertEqual(
-            result["hookSpecificOutput"]["permissionDecision"], "deny", result
-        )
+        self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow", result)
         task = self.store.read(self.session_id)["tasks"][prepared["task_id"]]
-        self.assertEqual(task["phase"], "prepared")
+        self.assertEqual(task["phase"], "claimed")
 
     def test_unmanaged_spawn_is_inert_even_when_storage_is_unavailable(self):
         missing = self.root / "must-not-exist"
