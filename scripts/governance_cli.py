@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Thin CLI transport for the current state-v10 governance runtime."""
+"""Thin CLI transport for the current state-v11 governance runtime."""
 
 from __future__ import annotations
 

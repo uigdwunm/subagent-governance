@@ -1,18 +1,27 @@
-# 中断与 reconcile 边界
+# 中断、unknown 与 reconcile 边界
 
-当前 state-v9 实现同时覆盖 dispatch identity 与最小 lifecycle：prepare、Pre claim、explicit exact-target confirm、明确 dispatch result、exact observation、terminal、interrupt result 和 parent close。
+当前 state-v11 沿用 prepare → Pre claim → exact-target confirm → 生命周期 → parent close。
 
-native spawn 返回后、confirm 前父任务中断时，task 保持 `claimed/unbound`：
+## 派发与身份冲突
 
-- 不自动 retry；
-- 不创建 attempt；
-- 不用 `list_agents`、task name、时间、summary、transcript 或 child final 补绑；
-- exact target 无法从当前 native return 机械取得时停止并报告。
+原生 spawn 返回后、confirm 前中断，任务保持 claimed/unbound。只接受本次原生返回的 exact target；不从 list、task_name、时间、summary、transcript 或 child final 补绑，不自动重派。
 
-first bind wins。相同 target confirm 重放幂等；不同 target 或 task/ref 不匹配保留已可靠身份并进入 reconcile。reconcile reason 有界，不保存冲突 target、业务正文或原生 response。
+first bind wins。派发结果未知、missing claim、身份或终态冲突仍进入 reconcile，保留首个阻断原因及已有可靠事实。后续通知不能自动补绑或解锁。该异常只停止依赖缺失身份／冲突事实的操作；继续其他已授权且不依赖它的工作。
 
-bind 后的 unknown normal-message delivery、unknown platform observation 和 unknown interrupt result 分别只写 `delivery_unknown`、`platform_observation_unknown` 和 `interrupt_unknown`。它们不触发自动重发、重查、补绑或 retry。已有可靠 terminal fact 时，后到的未知或 active 观察不能降级该事实。
+## 已绑定任务的未知回执
 
-原生 `interrupt_agent` 的明确 failed/inactive 机械结果通过 `record-interrupt-result` 写入；failed 保持 bound，inactive 建立 terminal fact。不得把模糊 success、not-found、时间或 list 结果自行解释为 inactive。
+普通消息、平台观察、中断的 unknown 分别记录在 unknown_facts 的 delivery_unknown、platform_observation_unknown、interrupt_unknown 中。对象非空且最多三项，每项只有首次 observed_at；重复同类输入不改时间。它不保存调用历史，也不表示当前 Agent 必然未知。
 
-terminal status 冲突保留首个可靠 terminal fact并进入 `terminal_status_conflict` reconcile。父 Agent 最终通过 `close-task` 显式关闭；close 不调用 interrupt，也不把 reconcile 自动解释为成功。相同 close reason 重放幂等，不同 reason 不覆盖首次 close。
+任务保持 bound，可继续原生等待。出现新证据或需要判断能否收尾时，可对已绑定 exact target 做一次有目的的只读观察；没有新证据不循环查询。后续确定 running/error 更新观察但不建立终态；明确 completed/stopped/interrupted 才进入 terminal。unknown_facts 保留，原回执不倒改为成功，不自动重发消息或重试中断。
+
+原生 interrupt 返回 previous_status 只证明操作前状态。只有明确 failed/inactive 回执才能按对应结果登记；inactive 不等于 completed。终态建立后，未知或 active 观察不能降级该事实。
+
+## 终态与关闭
+
+一条证据按来源选择 terminal notification 或 platform observation 入口，不重复登记。矛盾终态保留首个 terminal_fact 并 reconcile，已有 unknown_facts 不丢失。
+
+父 Agent 按实际结果验收；Agent completed 本身不能证明它收到了投递未知的追加要求。完成验收或明确停止跟踪后调用 close，保留 unknown_facts、首个 reconcile 原因和已有可靠事实。相同 reason 幂等，不同 reason 不覆盖，closed 不重新开启。
+
+close 不调用 interrupt，不证明业务成功或资源释放。status/diagnose 单独呈现历史 unknown，closed 的 next_action 为 none；issues=[] 只说明账本可读且结构有效。
+
+state-v11 不读取、迁移或清理 state-v10。新版本摘要为空不证明旧任务已完成；当前实现尚未部署或真实复验。

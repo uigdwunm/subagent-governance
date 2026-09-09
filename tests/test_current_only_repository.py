@@ -7,6 +7,7 @@ VALIDATION_DOCUMENTS = {
     "docs/validation/current-only-real-platform-validation.md",
     "docs/validation/native-context-adapter-2026-09-06.md",
     "docs/validation/native-tool-contract-adaptation-implementation-2026-09-06.md",
+    "docs/validation/state-v10-hook-trust-2026-09-09.md",
 }
 
 

@@ -40,10 +40,10 @@ class StateStoreSafetyTests(unittest.TestCase):
         task_ref = "0123456789ab" if task_id == "task" else "abcdefabcdef"
         state["tasks"][task_id] = self.record(task_ref)
 
-    def test_empty_state_is_exact_v10_envelope(self):
+    def test_empty_state_is_exact_v11_envelope(self):
         self.assertEqual(
             self.store.read("s"),
-            {"state_format_version": 10, "session_id": "s", "tasks": {}},
+            {"state_format_version": 11, "session_id": "s", "tasks": {}},
         )
 
     def test_corrupt_non_utf8_and_unknown_state_are_preserved(self):

@@ -1,4 +1,4 @@
-"""Strict runtime validation for the sole supported state-v10 Session ledger."""
+"""Strict runtime validation for the sole supported state-v11 Session ledger."""
 
 from __future__ import annotations
 
@@ -18,15 +18,16 @@ try:
     from scripts.governance_native_adapter import validate_native_spawn
     from scripts.governance_semantics import (
         MAX_TASKS_PER_SESSION,
+        NATIVE_INTERFACES,
         PERSISTED_INTERRUPT_RESULTS,
         PERSISTED_PLATFORM_STATUSES,
         PHASES,
-        NATIVE_INTERFACES,
         RECONCILE_CODES,
         STATE_FORMAT_VERSION,
         TASK_REF_LENGTHS,
         TERMINAL_FACT_SOURCES,
         TERMINAL_FACT_STATUSES,
+        UNKNOWN_FACT_CODES,
     )
 except ModuleNotFoundError:
     from governance_context import validate_context_verification_record
@@ -40,15 +41,16 @@ except ModuleNotFoundError:
     from governance_native_adapter import validate_native_spawn
     from governance_semantics import (
         MAX_TASKS_PER_SESSION,
+        NATIVE_INTERFACES,
         PERSISTED_INTERRUPT_RESULTS,
         PERSISTED_PLATFORM_STATUSES,
         PHASES,
-        NATIVE_INTERFACES,
         RECONCILE_CODES,
         STATE_FORMAT_VERSION,
         TASK_REF_LENGTHS,
         TERMINAL_FACT_SOURCES,
         TERMINAL_FACT_STATUSES,
+        UNKNOWN_FACT_CODES,
     )
 
 
@@ -73,15 +75,15 @@ PHASE_FIELDS = {
     "reconcile": {"reconcile"},
 }
 OPTIONAL_PHASE_FIELDS = {
-    "bound": {"platform_observation", "interrupt_fact"},
-    "terminal": {"platform_observation", "interrupt_fact"},
+    "bound": {"platform_observation", "interrupt_fact", "unknown_facts"},
+    "terminal": {"platform_observation", "interrupt_fact", "unknown_facts"},
     "closed": {
         "target", "bound_at", "platform_observation", "terminal_fact",
-        "interrupt_fact",
+        "interrupt_fact", "unknown_facts", "reconcile",
     },
     "reconcile": {
         "target", "bound_at", "platform_observation", "terminal_fact",
-        "interrupt_fact",
+        "interrupt_fact", "unknown_facts",
     },
 }
 
@@ -236,7 +238,7 @@ def _validate_task(task_id: str, value: Any, path: str, issues: list[StateFormat
     if phase == "claimed":
         if not _text(value.get("claimed_tool_use_id")) or not _timestamp(value.get("claimed_at")):
             _issue(issues, path, "claimed facts 无效")
-    if phase in {"bound", "terminal"} or "target" in value:
+    if phase in {"bound", "terminal"} or "target" in value or "unknown_facts" in value:
         if not _text(value.get("target")) or not _timestamp(value.get("bound_at")):
             _issue(issues, path, "bound identity facts 无效")
     if phase == "terminal" or "terminal_fact" in value:
@@ -254,7 +256,15 @@ def _validate_task(task_id: str, value: Any, path: str, issues: list[StateFormat
     if phase == "closed":
         if not _text(value.get("close_reason")) or not _timestamp(value.get("closed_at")):
             _issue(issues, path, "close facts 无效")
-    if phase == "reconcile":
+    if "unknown_facts" in value:
+        facts = value["unknown_facts"]
+        if not isinstance(facts, dict) or not facts or set(facts) - UNKNOWN_FACT_CODES:
+            _issue(issues, f"{path}.unknown_facts", "unknown_facts 必须是非空且仅含允许类别的对象")
+        else:
+            for code, fact in facts.items():
+                if not isinstance(fact, dict) or set(fact) != {"observed_at"} or not _timestamp(fact.get("observed_at")):
+                    _issue(issues, f"{path}.unknown_facts.{code}", "unknown fact 必须仅含非负整数 observed_at")
+    if phase == "reconcile" or "reconcile" in value:
         reconcile = value.get("reconcile")
         if not isinstance(reconcile, dict) or set(reconcile) != {"code", "observed_at"}:
             _issue(issues, f"{path}.reconcile", "reconcile 字段集合无效")

@@ -40,7 +40,7 @@ class GovernanceCliTests(unittest.TestCase):
         self.assertNotIn("permissionDecision", result.get("hookSpecificOutput", {}))
         self.assertIn("fail-open", result["systemMessage"])
 
-    def test_prepare_confirm_and_status_use_v10_commands(self):
+    def test_prepare_confirm_and_status_use_v11_commands(self):
         contract = {
             "objective": "CLI dispatch",
             "scope": ["tests"],
@@ -162,6 +162,8 @@ class GovernanceCliTests(unittest.TestCase):
             commands = (
                 ("--record-platform-observation", {**identity, "status": "running"}, "recorded"),
                 ("--record-call-result", {**identity, "result": "success"}, "success"),
+                ("--record-call-result", {**identity, "result": "unknown"}, "unknown_recorded"),
+                ("--record-call-result", {**identity, "result": "unknown"}, "already_unknown"),
                 (
                     "--record-terminal-notification",
                     {
@@ -188,6 +190,14 @@ class GovernanceCliTests(unittest.TestCase):
                 )
                 self.assertEqual(code, 0, error)
                 self.assertEqual(json.loads(output)["result"], expected)
+
+            code, output, error = self.invoke(["--status", *base])
+            self.assertEqual(code, 0, error)
+            task = json.loads(output)["tasks"][0]
+            self.assertEqual(task["phase"], "closed")
+            self.assertEqual(task["terminal_status"], "completed")
+            self.assertEqual(task["next_action"], "none")
+            self.assertIn("delivery_unknown", task["unknown_facts"])
 
             interrupted, interrupted_target = bind("cli-lifecycle-two")
             code, output, error = self.invoke(

@@ -6,7 +6,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 from scripts.governance_hook import handle_hook
 from scripts.governance_protocol import prepare_dispatch
@@ -17,6 +19,42 @@ SCRIPT = ROOT / "scripts/subagent_governance.py"
 
 
 class ConcurrencyTests(unittest.TestCase):
+    def test_concurrent_unknown_categories_preserve_all_first_receipts(self):
+        from scripts import governance_lifecycle as lifecycle
+        from scripts.governance_dispatch import confirm_dispatch
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = StateStore(Path(directory) / "sessions")
+            session = "unknown-race"
+            prepared = prepare_dispatch(
+                {"objective": "Concurrent unknown receipts", "scope": ["tests"], "completion": ["all receipts retained"]},
+                session, native_interface="fork_context", state_store=store, now=100,
+            )
+            handle_hook({"session_id": session, "hook_event_name": "PreToolUse",
+                         "tool_name": "spawn_agent", "tool_use_id": "unknown-call",
+                         "tool_input": prepared["spawn_args"], "now": 101}, store)
+            identity = {"task_id": prepared["task_id"], "task_ref": prepared["task_ref"], "target": "/root/unknown-race"}
+            confirm_dispatch(session, identity, state_store=store, now=102)
+            barrier = Barrier(3)
+
+            def record(operation, field):
+                barrier.wait(timeout=5)
+                return operation(session, {**identity, field: "unknown"}, state_store=store, now=103)
+
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                futures = [pool.submit(record, operation, field) for operation, field in (
+                    (lifecycle.record_call_result, "result"),
+                    (lifecycle.record_interrupt_result, "result"),
+                    (lifecycle.record_platform_observation, "status"),
+                )]
+                for future in futures:
+                    self.assertEqual(future.result(timeout=10)["result"], "unknown_recorded")
+            task = store.read(session)["tasks"][prepared["task_id"]]
+            self.assertEqual(task["phase"], "bound")
+            self.assertEqual(task["unknown_facts"], {code: {"observed_at": 103} for code in (
+                "delivery_unknown", "interrupt_unknown", "platform_observation_unknown",
+            )})
+
     def test_parallel_prepare_keeps_all_tasks_in_one_ledger(self):
         with tempfile.TemporaryDirectory() as directory:
             environment = {**os.environ, "SUBAGENT_GOVERNANCE_DATA": directory}

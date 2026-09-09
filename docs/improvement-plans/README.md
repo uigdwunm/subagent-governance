@@ -11,6 +11,7 @@
 
 | 方案 | 状态 | 范围 |
 | --- | --- | --- |
+| [GPT-6 使用基线下的治理流程精简](gpt6-workflow-simplification-2026-09-09.md) | 开发仓库实施完成；117 项测试通过，lint 有 3 项基线遗留；未部署或真实验证 | unknown 与生命周期分离、减少重复记账、精简提示、更新 GPT-6 验收基线；TaskContract v2 / state-v11；见[本地验收](../validation/current-only-local-acceptance.md) |
 | [原生工具契约适配修复](native-tool-contract-adaptation-2026-09-06.md)及[执行清单](native-tool-contract-execution-2026-09-06.md) | 执行准备完成，尚未实施 | 显式派发适配、Hook 输入边界、通信与生命周期语义、本地及真实验收 |
 | [task_name claim 修复](task-name-claim-fix-2026-09-07.md) | 已部署，重新信任 Hook 后核心真实验收通过；中断回执保留 unknown 边界 | 让 claim 依据稳定的 task_name 与派发配置，不逐字匹配平台重构后的 message；见 [state-v10 验收](../validation/state-v10-hook-trust-2026-09-09.md) |
 

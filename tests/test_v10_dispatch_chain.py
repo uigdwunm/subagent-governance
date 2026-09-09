@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Vertical acceptance coverage for the state-v10 dispatch cutover."""
+"""Vertical acceptance coverage for the state-v11 dispatch cutover."""
 
 from __future__ import annotations
 
@@ -197,13 +197,13 @@ class V10DispatchChainTests(unittest.TestCase):
                 )
             )
 
-    def test_prepare_writes_one_strict_v10_ledger_and_schema_accepts_it(self):
+    def test_prepare_writes_one_strict_v11_ledger_and_schema_accepts_it(self):
         prepared = self.prepare()
         state = self.store.read(self.session_id)
         self.assertEqual(
             set(state), {"state_format_version", "session_id", "tasks"}
         )
-        self.assertEqual(state["state_format_version"], 10)
+        self.assertEqual(state["state_format_version"], 11)
         task = state["tasks"][prepared["task_id"]]
         self.assertEqual(task["phase"], "prepared")
         self.assertEqual(task["task_ref"], prepared["task_ref"])
@@ -684,13 +684,13 @@ class V10DispatchChainTests(unittest.TestCase):
             store_support.data_root_path(installed_cli),
         )
 
-    def test_default_namespace_is_state_v10_and_v8_is_untouched(self):
+    def test_default_namespace_is_state_v11_and_previous_namespace_is_untouched(self):
         with tempfile.TemporaryDirectory() as directory:
             plugin_root = Path(directory)
-            old_root = plugin_root / "state-v8"
+            old_root = plugin_root / "state-v10"
             old_root.mkdir()
             old_file = old_root / "legacy.json"
-            old_file.write_text('{"state_format_version": 8}', encoding="utf-8")
+            old_file.write_text('{"state_format_version": 10}', encoding="utf-8")
             before = (old_file.read_bytes(), old_file.stat().st_mtime_ns)
             with mock.patch.dict(
                 os.environ,
@@ -698,9 +698,9 @@ class V10DispatchChainTests(unittest.TestCase):
             ):
                 self.assertEqual(
                     store_support.data_root_path(state_store_module.__file__),
-                    plugin_root / "state-v10",
+                    plugin_root / "state-v11",
                 )
-                state_store_module.StateStore().read("current-v9")
+                state_store_module.StateStore().read("current-v11")
             self.assertEqual(
                 (old_file.read_bytes(), old_file.stat().st_mtime_ns), before
             )

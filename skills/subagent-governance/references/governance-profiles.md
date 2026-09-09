@@ -2,7 +2,7 @@
 
 ## Standard
 
-默认 profile，适用于普通编码、研究、诊断和 review。`forbidden_scope` 与 `evidence` 可以为空，但 objective、scope 和 completion 仍须可执行、可验证。
+默认采用，不必在每次派发时重新讨论等级。适用于普通编码、研究、诊断和 review。`forbidden_scope` 与 `evidence` 可以为空，但 objective、scope 和 completion 仍须可执行、可验证。
 
 ## Strict
 

@@ -13,48 +13,45 @@ except ModuleNotFoundError:
 
 
 def _list(values: list[str]) -> str:
-    return "- 无" if not values else "\n".join(f"- {value}" for value in values)
+    return "\n".join(f"- {value}" for value in values)
 
 
 def render_dispatch_prompt(contract: TaskContract, verification: dict[str, Any] | None) -> str:
-    verified = "无"
+    sections = [
+        ("唯一当前目标", contract.objective),
+        ("上下文摘要", contract.context["summary"]),
+        ("工作范围", _list(contract.scope)),
+        ("禁止范围", _list(contract.forbidden_scope)),
+        ("定位路径", _list(contract.context["paths"])),
+    ]
     if verification is not None:
-        verified = f"{verification['workspace_root']}（{len(verification['required_paths'])} 项已验证材料）"
-    return "\n".join(
-        [
-            f"【治理 profile】{contract.profile}",
-            "【唯一当前目标】", contract.objective, "",
-            "【上下文摘要】", contract.context["summary"] or "无", "",
-            "【工作范围】", _list(contract.scope), "",
-            "【禁止范围】", _list(contract.forbidden_scope), "",
-            "【定位路径】", _list(contract.context["paths"]), "",
-            "【已验证材料】", verified, "",
-            "【完成条件】", _list(contract.completion), "",
-            "【验收证据】", _list(contract.evidence), "",
-            "【终态义务】",
-            "完成、阻塞、失败或需要决策时，向父 Agent 发送明确终态通知。",
-            "不要从 task name、时间、list_agents、summary、transcript 或 child final 推断治理身份。",
-        ]
+        sections.append((
+            "已验证材料",
+            f"{verification['workspace_root']}（{len(verification['required_paths'])} 项已验证材料）",
+        ))
+    sections.extend([
+        ("完成条件", _list(contract.completion)),
+        ("验收证据", _list(contract.evidence)),
+        ("终态义务", "完成、阻塞、失败或需要决策时，向父 Agent 发送明确终态通知，说明结果、验证证据和剩余事项。"),
+    ])
+    return "\n\n".join(
+        f"【{title}】\n{value}" for title, value in sections if value
     )
 
 
 def render_dispatch_user_message(contract: TaskContract, verification: dict[str, Any] | None) -> str:
-    model = contract.spawn["model"] or "继承父 Agent"
-    effort = contract.spawn["reasoning_effort"] or "继承父 Agent"
-    return "\n".join(
-        [
-            "【子 Agent 派发】",
-            f"目标：{contract.objective}",
-            f"治理 profile：{contract.profile}",
-            f"模型：{model}",
-            f"推理强度：{effort}",
-            f"fork_turns：{contract.spawn['fork_turns']}",
-            "范围：" + "；".join(contract.scope),
-            "完成条件：" + "；".join(contract.completion),
-            "已验证上下文：" + ("无" if verification is None else f"{len(verification['required_paths'])} 项"),
-            "原生 spawn 返回后必须立即 confirm exact target；confirm 前中断保持 claimed/unbound。",
-        ]
-    )
+    model = contract.spawn["model"] or "未覆盖，按原生配置解析"
+    effort = contract.spawn["reasoning_effort"] or "未覆盖，按原生配置解析"
+    turns = contract.spawn["fork_turns"]
+    context = {"none": "隔离", "all": "完整继承"}.get(turns, f"有限继承 {turns} 轮")
+    lines = [
+        f"子 Agent 目标：{contract.objective}",
+        "范围：" + "；".join(contract.scope) + "；完成条件：" + "；".join(contract.completion),
+        f"配置：模型 {model}；推理 {effort}；上下文{context}（fork_turns={turns}）；治理 {contract.profile}。",
+    ]
+    if verification is not None:
+        lines.append(f"已验证材料：{len(verification['required_paths'])} 项。")
+    return "\n".join(lines)
 
 
 def expected_native_parameters(

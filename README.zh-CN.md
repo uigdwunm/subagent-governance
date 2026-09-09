@@ -17,6 +17,8 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 
 当前稳定版为 `v0.4.0`，Marketplace 入口固定到相同的不可变标签。该版本收录了候选发布阶段完成并验证的生命周期与身份修复，以及自然语言快速上手体验。
 
+以下运行说明对应尚未发布的 state-v11 开发线；稳定标签仍为 v0.4.0。state-v11 尚未部署或真实验收，不自动读取旧账本；新摘要为空不证明旧任务已完成。
+
 ## 它为原生 Codex 增加了什么？
 
 原生 Codex 继续创建并执行每一个子 Agent。Subagent Governance 只在这些原生动作外增加一层本地协议：
@@ -33,7 +35,7 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 ## 核心能力
 
 - **精确身份**：受治理任务只绑定本次原生 spawn 机械返回的 exact target。
-- **明确生命周期**：`prepare → claim → bind → terminal → close`，冲突或未知事实进入有界 reconcile。
+- **明确生命周期**：`prepare → claim → bind → terminal → close`，派发未知及冲突进入 reconcile；已绑定调用的 unknown 单独保留，后续确定终态可正常收尾。
 - **TaskContract v2**：一个当前目标、允许范围、完成条件、证据、上下文和明确的派发配置。
 - **可选材料验证**：可以在 prepare 和 claim 阶段验证声明的工作树文件或 Git 对象。
 - **最小本地状态**：一个当前 Session ledger，不保存 prompt 档案或终态正文，已关闭任务有界保留。
@@ -102,7 +104,7 @@ Skill 会生成契约、说明派发信息、把生成参数交给原生 `spawn_
 
 ### Codex 结果无法确认时会怎样？
 
-结果保持 `unknown`，受治理任务进入有界 reconcile。本插件不会自动重发、重新派发或猜测终态。
+派发结果未知或身份／终态冲突进入 reconcile。已绑定任务的消息、中断或平台观察 unknown 记录为有界 unknown_facts，任务仍可接纳后续确定终态；关闭后保留未知回执。本插件不会自动重发、重新派发或把旧回执改为成功。
 
 ## TaskContract v2
 
@@ -130,7 +132,7 @@ Skill 会生成契约、说明派发信息、把生成参数交给原生 `spawn_
 
 ## 工作原理
 
-每个 exact Codex Session 只有一个 `state-v10` ledger。一个受治理任务代表一个原生 Agent 生命周期，phase 只有：
+每个 exact Codex Session 只有一个 `state-v11` ledger。一个受治理任务代表一个原生 Agent 生命周期，phase 只有：
 
 ```text
 prepared | claimed | bound | terminal | closed | reconcile
@@ -157,14 +159,14 @@ Subagent Governance **不是**沙箱、权限系统、远程控制平面、Hook 
 - wait 调用不持久化。
 - 不提供 managed business resume、managed follow-up、多 attempt 重试系统、Group 抽象或自动跨 Session 恢复。
 - 原生 spawn 返回后、exact-target confirm 前崩溃时保持 `claimed/unbound`；插件不猜身份，也不自动重派。
-- 未知消息、中断或平台结果继续保持 unknown，可能需要父 Agent reconcile。
-- prepare 显式冻结 `collaboration_turns` 或 `fork_context` 原生适配器。Hook 校验完整可见消息和派发配置；消息不可见、输入未知或内部不可读时透传，不建立治理 claim。
+- 已绑定调用的 unknown 与 phase 分别记录；父 Agent 仍需核实业务结果是否满足投递未知的追加要求。
+- prepare 显式冻结 `collaboration_turns` 或 `fork_context` 原生适配器。Hook 校验生成的 task name 和派发配置，不逐字比较平台重写后的消息；fork_context 需要可见消息标记，collaboration_turns 可用显式 task_name 定位。身份／配置不可验证、输入形状未知或内部不可读时透传，不建立 claim。
 
 ## 验证情况
 
-当前开发线包括：
+既有验证覆盖以下范围；state-v11 的本地结果与未验证边界见[当前本地验收](docs/validation/current-only-local-acceptance.md)，历史真实验收不替代新版本证据：
 
-- 96 个协议、状态、并发、生命周期、存储安全、打包和部署事务自动化测试；
+- 协议、状态、并发、生命周期、存储安全、打包和部署事务自动化测试；
 - Ubuntu、macOS 和 Windows 上的 Python 3.11、3.12 CI；
 - Plugin、Skill、archive、Schema、编译、lint 和 release-preflight 门禁；
 - 真实 Codex 验收，覆盖受治理派发、exact-target 绑定、active wait 唤醒、双 Agent 并发、strict verified context、消息处理、中断、终态通知、close 和只读诊断。

@@ -1,4 +1,4 @@
-"""Composition service for preparing a state-v10 governed native dispatch."""
+"""Composition service for preparing a state-v11 governed native dispatch."""
 
 from __future__ import annotations
 
@@ -20,9 +20,9 @@ try:
         render_dispatch_user_message,
         spawn_args,
     )
-    from scripts.governance_native_adapter import normalize_native_spawn, validate_native_spawn
     from scripts.governance_errors import DispatchPreparationError
     from scripts.governance_lifecycle import prune_closed_tasks
+    from scripts.governance_native_adapter import normalize_native_spawn, validate_native_spawn
     from scripts.governance_semantics import PREPARED_EXPIRY_SECONDS
     from scripts.governance_state_store import StateStore
 except ModuleNotFoundError:
@@ -35,9 +35,9 @@ except ModuleNotFoundError:
         select_task_ref,
     )
     from governance_dispatch_rendering import render_dispatch_user_message, spawn_args
-    from governance_native_adapter import normalize_native_spawn, validate_native_spawn
     from governance_errors import DispatchPreparationError
     from governance_lifecycle import prune_closed_tasks
+    from governance_native_adapter import normalize_native_spawn, validate_native_spawn
     from governance_semantics import PREPARED_EXPIRY_SECONDS
     from governance_state_store import StateStore
 

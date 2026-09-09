@@ -1,16 +1,17 @@
-"""Lock-free, zero-write status and diagnostics for one exact state-v10 Session."""
+"""Lock-free, zero-write status and diagnostics for one exact state-v11 Session."""
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.governance_state_store import read_ledger_readonly
     from scripts.governance_semantics import STATE_FORMAT_VERSION
+    from scripts.governance_state_store import read_ledger_readonly
 except ModuleNotFoundError:
-    from governance_state_store import read_ledger_readonly
     from governance_semantics import STATE_FORMAT_VERSION
+    from governance_state_store import read_ledger_readonly
 
 
 NEXT_ACTIONS = {
@@ -39,6 +40,7 @@ def project_status(state: dict[str, Any], session_id: str) -> dict[str, Any]:
                 "terminal_status": task.get("terminal_fact", {}).get("status"),
                 "interrupt_result": task.get("interrupt_fact", {}).get("result"),
                 "reconcile_reason": task.get("reconcile", {}).get("code"),
+                "unknown_facts": copy.deepcopy(task.get("unknown_facts", {})),
                 "close_reason": task.get("close_reason"),
                 "next_action": NEXT_ACTIONS[task["phase"]],
             }

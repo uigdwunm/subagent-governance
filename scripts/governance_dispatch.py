@@ -1,4 +1,4 @@
-"""Single-ledger prepare/claim/confirm dispatch transitions for state-v10."""
+"""Single-ledger prepare/claim/confirm dispatch transitions for state-v11."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ try:
         spawn_digest,
     )
     from scripts.governance_dispatch_rendering import expected_native_parameters
-    from scripts.governance_native_adapter import normalize_native_spawn
     from scripts.governance_errors import (
         ContextMaterialConflictError,
         NativeInputMismatch,
@@ -24,6 +23,7 @@ try:
         StateConflictError,
     )
     from scripts.governance_lifecycle import enter_reconcile, prune_closed_tasks
+    from scripts.governance_native_adapter import normalize_native_spawn
 except ModuleNotFoundError:
     from governance_context import verify_context_manifest
     from governance_contracts import (
@@ -34,7 +34,6 @@ except ModuleNotFoundError:
         spawn_digest,
     )
     from governance_dispatch_rendering import expected_native_parameters
-    from governance_native_adapter import normalize_native_spawn
     from governance_errors import (
         ContextMaterialConflictError,
         NativeInputMismatch,
@@ -42,6 +41,7 @@ except ModuleNotFoundError:
         StateConflictError,
     )
     from governance_lifecycle import enter_reconcile, prune_closed_tasks
+    from governance_native_adapter import normalize_native_spawn
 
 
 def _now(value: int | None) -> int:

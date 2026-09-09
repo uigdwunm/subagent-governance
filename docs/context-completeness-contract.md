@@ -15,3 +15,5 @@ TaskContract v2 把“帮助 Agent 定位”和“机械证明材料未变化”
 - strict profile 不自动扫描工作区，但影响完成条件的材料应显式列入 verified manifest；standard 提供该字段即明确 opt in。
 
 business contract digest 包含 context，因为它会改变任务含义；model、reasoning effort 和 fork turns 位于 spawn config，不进入 business digest。
+
+派发正文保留非空背景、路径、禁止范围和验收证据，省略空区块；目标、工作范围和完成条件始终保留。提示精简不改变 declared manifest 的 prepare/claim 双重验证，也不证明父 Agent 已声明全部必要材料。

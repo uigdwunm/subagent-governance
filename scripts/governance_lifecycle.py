@@ -1,4 +1,4 @@
-"""Minimal exact-identity lifecycle transitions for the state-v10 ledger."""
+"""Minimal exact-identity lifecycle transitions for the state-v11 ledger."""
 
 from __future__ import annotations
 
@@ -39,6 +39,8 @@ PRESERVED_FACT_FIELDS = (
     "platform_observation",
     "terminal_fact",
     "interrupt_fact",
+    "unknown_facts",
+    "reconcile",
 )
 
 
@@ -101,6 +103,10 @@ def _preserved_facts(task: dict[str, Any]) -> dict[str, Any]:
 
 
 def enter_reconcile(task: dict[str, Any], code: str, observed_at: int) -> None:
+    if task.get("phase") == "closed":
+        raise StateConflictError("closed task 不接受新的生命周期事实")
+    if task.get("phase") == "reconcile":
+        return
     preserved = _preserved_facts(task)
     task.clear()
     task.update(
@@ -109,6 +115,15 @@ def enter_reconcile(task: dict[str, Any], code: str, observed_at: int) -> None:
         updated_at=observed_at,
         reconcile={"code": code, "observed_at": observed_at},
     )
+
+
+def _record_unknown(task: dict[str, Any], code: str, observed_at: int) -> str:
+    facts = task.setdefault("unknown_facts", {})
+    if code in facts:
+        return "already_unknown"
+    facts[code] = {"observed_at": observed_at}
+    task["updated_at"] = observed_at
+    return "unknown_recorded"
 
 
 def prune_closed_tasks(state: dict[str, Any]) -> tuple[str, ...]:
@@ -187,8 +202,10 @@ def record_platform_observation(
         elif phase != "bound":
             raise StateConflictError("platform observation 只接受 bound/terminal task")
         elif status == "unknown":
-            enter_reconcile(task, "platform_observation_unknown", observed_at)
-            outcome.update(_reconcile_outcome(task, task_id, task_ref))
+            outcome.update(
+                result=_record_unknown(task, "platform_observation_unknown", observed_at),
+                task_id=task_id, task_ref=task_ref, target=target,
+            )
         elif status in PLATFORM_TERMINAL_STATUSES:
             task["phase"] = "terminal"
             task["platform_observation"] = {
@@ -264,8 +281,10 @@ def record_call_result(
         elif task.get("phase") != "bound":
             raise StateConflictError("unknown normal call result 只接受 bound task")
         else:
-            enter_reconcile(task, "delivery_unknown", observed_at)
-            outcome.update(_reconcile_outcome(task, task_id, task_ref))
+            outcome.update(
+                result=_record_unknown(task, "delivery_unknown", observed_at),
+                task_id=task_id, task_ref=task_ref, target=target,
+            )
         prune_closed_tasks(state)
 
     state_store.update(session_id, record_unknown)
@@ -351,8 +370,10 @@ def record_interrupt_result(
         elif result == "unknown":
             if phase != "bound":
                 raise StateConflictError("unknown interrupt result 只接受 bound task")
-            enter_reconcile(task, "interrupt_unknown", observed_at)
-            outcome.update(_reconcile_outcome(task, task_id, task_ref))
+            outcome.update(
+                result=_record_unknown(task, "interrupt_unknown", observed_at),
+                task_id=task_id, task_ref=task_ref, target=target,
+            )
         elif result == "failed":
             if phase != "bound":
                 raise StateConflictError("failed interrupt result 只接受 bound task")

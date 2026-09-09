@@ -1,4 +1,4 @@
-"""Machine-readable constants for the current-only state-v10 runtime."""
+"""Machine-readable constants for the current-only state-v11 runtime."""
 
 from __future__ import annotations
 
@@ -72,6 +72,7 @@ SESSION_SUMMARY_CONTEXT_LIMIT = 1800
 RECONCILE_CODES = frozenset(
     SEMANTIC_DEFINITIONS["reconcile_fact"]["properties"]["code"]["enum"]
 )
+UNKNOWN_FACT_CODES = frozenset(SEMANTIC_DEFINITIONS["unknown_facts"]["properties"])
 TERMINAL_FACT_SOURCES = frozenset(
     SEMANTIC_DEFINITIONS["terminal_fact"]["properties"]["source"]["enum"]
 )
@@ -107,6 +108,7 @@ __all__ = [
     "PROFILES",
     "REASONING_EFFORTS",
     "RECONCILE_CODES",
+    "UNKNOWN_FACT_CODES",
     "SEMANTIC_DEFINITIONS",
     "SEMANTIC_RULES",
     "SESSION_SUMMARY_CONTEXT_LIMIT",

@@ -5,8 +5,8 @@ from scripts import governance_semantics as semantics
 
 class SemanticBaselineTests(unittest.TestCase):
     def test_current_only_versions_and_phases(self):
-        self.assertEqual(semantics.STATE_FORMAT_VERSION, 10)
-        self.assertEqual(semantics.STATE_STORAGE_NAMESPACE, "state-v10")
+        self.assertEqual(semantics.STATE_FORMAT_VERSION, 11)
+        self.assertEqual(semantics.STATE_STORAGE_NAMESPACE, "state-v11")
         self.assertEqual(semantics.TASK_CONTRACT_WIRE_VERSION, 2)
         self.assertEqual(
             semantics.PHASES,

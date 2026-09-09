@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stable executable facade for the current state-v10 governance runtime."""
+"""Stable executable facade for the current state-v11 governance runtime."""
 
 from __future__ import annotations
 

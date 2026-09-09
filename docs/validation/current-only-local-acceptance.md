@@ -1,3 +1,52 @@
+# state-v11 流程精简本地验收
+
+日期：2026-09-09。实施基线：`468dc95`。结论：`passed_functional_checks_with_existing_lint_findings`。本记录对应 state-v11 开发仓库候选；记录时尚未部署、未更改运行缓存或 Hook trust、未创建真实测试任务。
+
+## 修改与复现证据
+
+- 基线全量测试 109 项，108 项通过，唯一失败为文档白名单遗漏已经存在的 `state-v10-hook-trust-2026-09-09.md`。补充该文档登记，保留白名单与未知文档拒绝测试。
+- 先增加两项回归测试：三类 unknown 分别接收 platform/notification 终态的六个场景全部停留在 reconcile；close 后首个 reconcile 原因消失。原代码共出现七处预期失败，修改后全部通过。
+- 已绑定 unknown 改为最多三类首次时间的 unknown_facts；后续确定终态可推进，close 保留 unknown、首个阻断原因及既有事实。派发未知、身份和终态冲突仍阻断；晚到 confirm 不能重新打开 closed。
+- Schema/runtime 同步切换 state-v11；TaskContract v2 与现有 claim 适配保持不变。新版本不读取或迁移 state-v10，新摘要为空不证明旧任务完成。
+- status/diagnose/SessionStart 共享投影，phase 与历史 unknown 分开显示；只读路径保持零写入。新增并发用例证明不同类别 unknown 不互相覆盖。
+- 普通消息 success/failed 不再要求额外 CLI；同一终态证据只走一个来源入口。提示省略空区块及父方身份细节，保留任务材料、完成条件和关键配置。
+- AGENTS.md 和当前真实测试交接改为父／子分别显式指定并核实 gpt-6-astra/high；模型运行入口仍保持可选覆盖。
+
+## 本地检查
+
+| 检查 | 结果 |
+| --- | --- |
+| `python3 -m unittest discover -s tests -v` | 117 tests passed，Python 3.9.6；补充的终态来源／未绑定字段断言单独复验通过 |
+| `python3.12 -m unittest discover -s tests -v` | 117 tests passed，Python 3.12.13 |
+| `python3 -m compileall -q scripts` | passed |
+| Plugin validator | passed |
+| Skill validator | passed |
+| `python3 scripts/release_preflight.py --mode development` | passed；未执行 release/archive 或安装 |
+| Python 3.11.15 branch coverage | 117 tests passed；综合语句／分支覆盖率 73%，达到仓库 70% 门槛 |
+| `ruff check scripts tests` | 未全通过：3 项既有 F401；HEAD 基线为 14 项，本次未新增 lint 问题 |
+| `git diff --check` 及修改文档链接／结构 | passed |
+
+新增用例覆盖 unknown → 确定终态 → close、三类 unknown 幂等与并发保留、错误身份零事实写入、首个终态／阻断原因保留、closed 不重开、runtime/Schema 非法字段与无绑定身份拒绝、只读恢复摘要、CLI 串联和精简正文的材料保真。既有精确绑定、存储、容量、unmanaged 和部署事务测试继续运行。
+
+lint 使用 ruff 0.16.6，覆盖率使用 coverage 7.16.0，均安装在隔离的临时验证环境。为判断遗留问题，将 HEAD 的 scripts/tests 与 pyproject.toml 复制到临时目录，用同一版本 ruff 对比；14 项基线问题中的导入顺序问题在本轮涉及文件中整理，以下 3 项未使用导入保持原样，不扩大清理范围：
+
+- scripts/governance_dispatch.py：NativeInputMismatch、NativeInputUnavailable；
+- scripts/governance_native_adapter.py：MESSAGE_PREFIX。
+
+因此可以确认本轮功能／契约门禁通过、没有新增 lint 问题，但不能宣称全部 CI 门禁通过。临时验证依赖不进入 runtime bundle，未改项目依赖声明或安装插件。
+
+## 未验证与交接
+
+- 未部署 stable source 或当前 runtime cache；未读取或修改旧账本，运行缓存一致性未验证。
+- 未验证 GPT-6 的真实调用减步、Hook 加载、实际 unknown 回执、双 Agent 并发、strict 材料校验及 compact/restart 恢复；本地 fixture 不替代平台事实。
+- 未在本机运行 Windows/Linux CI；不同 OS 的结果不由 macOS 本地检查推断。
+- 用户随后授权提交到 main、部署本机及重启后真实测试；部署候选缓存版本更新为 `0.4.0+codex.20260909113817`，公共版本仍为 0.4.0。本文记录于部署前，安装结果以事务输出为准；命令结束停止，等待用户确认重启，再在独立新任务以显式 gpt-6-astra/high 验证。
+- [实施方案](../improvement-plans/gpt6-workflow-simplification-2026-09-09.md)列明真实验收矩阵及 state-v11 切换限制。
+
+---
+
+以下为历史 state-v9 本地验收，不替代当前候选结果。
+
 # state-v9 减法收口本地验收
 
 日期：2026-08-25

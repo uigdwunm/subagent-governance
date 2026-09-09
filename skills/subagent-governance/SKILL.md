@@ -12,9 +12,10 @@ description: 治理 Codex 原生子 Agent 的派发、等待、通信、中断�
 - 普通任务不加载本 Skill，也不要只因任务可拆分就主动创建子 Agent。
 - 准备派发、等待、通信、中断或验收原生子 Agent 时使用本 Skill。
 - 不从 `list_agents`、task name、时间邻近、summary、transcript、child final 或唯一候选推断 identity。
+- 治理异常只停止依赖缺失身份或冲突事实的操作；继续其他不依赖它的已授权工作，不用重复 spawn 绕过异常。
 - 不修改或要求其他 Skill 采用本协议；真正调用 `spawn_agent` 的每个任务都是一个独立 governed lifecycle。
 
-当前 runtime 已实现 state-v10 的 `prepare → Pre claim → explicit exact-target confirm → minimal lifecycle → parent close`。等待和普通消息仍使用原生工具；治理层只记录下述会改变后续决策的最小事实。v9 及更早账本不读取、迁移或清理。
+当前 runtime 已实现 state-v11 的 `prepare → Pre claim → explicit exact-target confirm → minimal lifecycle → parent close`。等待和普通消息仍使用原生工具；治理层只记录下述会改变后续决策的最小事实。v10 及更早账本不读取、迁移或清理。
 
 ## TaskContract v2
 
@@ -69,9 +70,9 @@ profile 与状态边界见 [references/governance-profiles.md](references/govern
    python3 "<authoritative-cli-entrypoint>" --prepare-dispatch --native-interface <collaboration_turns|fork_context> --session <exact-session-id>
    ```
 
-2. 向用户展示返回的 `user_message`。把 `spawn_args` 原样传给当前原生 `spawn_agent`：`collaboration_turns` 使用 message/task_name/fork_turns，`fork_context` 使用 message/fork_context。派生 task name 仍须与消息首行一致。
-3. governed spawn 的 PreToolUse 根据可见 task name 或消息首行 `[subagent-governance:<生成的 task name>]` 定位精确 task ref，校验完整 message 和配置，在同一个 Session ledger 原子执行 `prepared → claimed`。当前精确匹配包含 `spawn_agent`、`multi_agent_v1` 形式以及 `collaboration.spawn_agent`、`collaborationspawn_agent`。输入不可见、未知或内部 Hook 故障时 fail-open 且不 claim、不声称成功；明确可比的不一致才拒绝。后续 confirm 缺少 claim 进入 reconcile，不重派。
-4. 读取这一次原生 spawn 的机械返回。当前接口返回的 `agent_id` 是 exact target；只有返回中明确给出的、可直接用于后续原生调用的 exact target 才能绑定；如果平台没有机械暴露 exact target，停止并报告，不使用 list/name/time/final 补绑。
+2. 用一句话说明派发理由，再展示返回的 `user_message`；不增加契约字段或重复解释内部状态机。未覆盖的模型／推理参数按原生配置解析，不冒充已核实的运行配置。把 `spawn_args` 原样传给当前原生 `spawn_agent`：`collaboration_turns` 使用 message/task_name/fork_turns，`fork_context` 使用 message/fork_context。派生 task name 仍须与消息首行一致。
+3. governed spawn 的 PreToolUse 根据可见 task name 或消息首行 `[subagent-governance:<生成的 task name>]` 定位精确 task ref，按已冻结接口校验生成的 task name 和派发配置；`collaboration_turns` 不逐字匹配平台可能重写的 message，`fork_context` 仍要求可见的生成标记，在同一个 Session ledger 原子执行 `prepared → claimed`。当前精确匹配包含 `spawn_agent`、`multi_agent_v1` 形式以及 `collaboration.spawn_agent`、`collaborationspawn_agent`。定位标识或必要配置不可验证、输入形状未知或内部 Hook 故障时 fail-open 且不 claim、不声称成功；明确可比的不一致才拒绝。后续 confirm 缺少 claim 进入 reconcile，不重派。
+4. 读取这一次原生 spawn 的机械返回。当前接口返回的 `agent_id` 是 exact target；只有返回中明确给出的、可直接用于后续原生调用的 exact target 才能绑定；如果平台没有机械暴露 exact target，停止该任务的绑定及依赖操作并报告，不使用 list/name/time/final 补绑。
 5. 立即提交 exact target：
 
    ```bash
@@ -92,28 +93,37 @@ spawn 返回后、confirm 前如果父任务中断，记录保持 `claimed/unbou
 
 ## 等待与通信
 
-- bind 后保存 runtime 返回的 exact target，并用原生 `wait_agent` 等待。当前 `wait_agent` 是邮箱唤醒接口：它返回新消息/终态摘要、超时摘要，或因用户新输入而提前结束等待；这些返回本身不按 Agent 逐项 `completed`/`errored` 对象解释，也不自动写入某个 Agent 的终态。
-- wait 不持久化；正常超时不等于 failed、terminal 或需要重派。
-- `list_agents` 只允许观察已经 bound 的 exact target，不能建立或修复 identity。
-- 只有收到可明确归属已绑定 exact target 的平台终态通知，才提交规范化平台观察。邮箱摘要、超时和用户中断需要父 Agent 依据后续机械证据决定；不得把摘要字段猜成 `completed`、`errored`、`running` 或 `stopped`。确认有明确状态后，提交：
-
-  ```bash
-  python3 "<authoritative-cli-entrypoint>" --record-platform-observation --session <exact-session-id>
-  ```
-
-  stdin 精确为 `{"task_id":"...","task_ref":"...","target":"...","status":"running|completed|stopped|interrupted|error|unknown"}`。unknown 只进入 reconcile，不自动重查或猜 terminal。
-- 普通原生 `send_message` 的机械结果用 `--record-call-result` 提交 exact task/ref/target 和 `result=success|failed|unknown`。success/failed 只校验 identity，ledger 字节不变；unknown 只写 `delivery_unknown`，不得自动重发。
+- bind 后保存 task/ref/exact target 映射，并用原生 `wait_agent` 等待。它是邮箱唤醒接口；超时、邮箱摘要或用户新输入本身不建立 Agent 状态，也不需要额外记账。正常等待不轮询代码、日志或列表。
+- 原生消息直接使用已保存的 exact target。上下文恢复或映射存疑时先读 exact-session status；不从 `list_agents`、名称或唯一候选补绑，也不在每次发送前增加固定检查。
+- 普通 `send_message` 的 success/failed 不要求额外治理调用。`--record-call-result` 仍可用于显式校验，success/failed 零写；结果 unknown 时必须提交 `{"task_id":"...","task_ref":"...","target":"...","result":"unknown"}`，记录 delivery_unknown，不自动重发。
 - 后续原范围内工作使用同一 exact target 的 `followup_task`；不建立新 identity 或 attempt。终态后不受管恢复。
 
-## Terminal、中断与关闭
+## 终态、中断与关闭
 
-- 收到原生 child terminal notification 时，用 `--record-terminal-notification` 提交精确 `task_id`、`task_ref`、`sender` 与 `status=completed|stopped|interrupted`。不提交正文。sender 必须等于已 bound target；相同 status 重放幂等，冲突 status 保留首个 terminal fact 并 reconcile。
-- 通过原生 `interrupt_agent` 请求中断后，用 `--record-interrupt-result` 提交 exact task/ref/target 和 `result=failed|inactive|unknown`。工具返回的 previous status 不证明操作后 inactive；没有明确后续事实时记录 unknown。
-- 父 Agent 完成验收或明确决定停止跟踪后，用 `--close-task` 提交 `task_id`、`task_ref` 和有界 `reason`。close 不调用不存在的 `close_agent`，不声称释放 Agent 资源。相同 reason 重放幂等；不同 reason 不覆盖首次 close。
-- ledger 只保留最新 64 条 closed task，并只在后续真实写操作时惰性裁剪。status、diagnose 和 SessionStart 永不清理。
+一条终态证据只登记一次，按实际来源选入口：
+
+| 证据来源 | 治理命令与 stdin |
+| --- | --- |
+| 可归属已绑定 exact sender 的原生 child terminal notification | `--record-terminal-notification`：`{"task_id":"...","task_ref":"...","sender":"...","status":"completed|stopped|interrupted"}` |
+| 明确的已绑定 exact-target 平台状态 | `--record-platform-observation`：`{"task_id":"...","task_ref":"...","target":"...","status":"running|completed|stopped|interrupted|error|unknown"}` |
+
+这些命令都通过标准输入传 JSON，并使用同一次 SessionStart 的权威 CLI 和 `--session`。不提交正文；表中的 status 列出允许值，实际输入只能选一个。不要把 wait 摘要猜成平台状态，也不为同一通知再补另一条登记。独立来源确有新事实时可以补充；相同终态幂等，矛盾终态保留首个事实并 reconcile。
+
+- 原生 `interrupt_agent` 后，用 `--record-interrupt-result` 提交 exact task/ref/target 和 `result=failed|inactive|unknown`。previous_status 只证明操作前状态；没有明确操作后事实时记录 unknown，不自动重试中断。inactive 不等于 completed。
+- 父 Agent 按完成条件验收结果，或明确决定停止跟踪后，用 `--close-task` 提交 `{"task_id":"...","task_ref":"...","reason":"..."}`。close 不表示业务成功或资源释放；相同 reason 幂等，不同 reason 不覆盖，closed 不重新开启。
+
+## Unknown 与冲突
+
+已绑定且没有冲突的任务，三类 unknown 记录为 `unknown_facts`，phase 保持 bound，命令返回 unknown_recorded；同类重放返回 already_unknown。该对象只保留 delivery_unknown、platform_observation_unknown、interrupt_unknown 各自首次时间，不保存消息历史。
+
+继续等待；有新证据或需要判断能否收尾时，可以对已绑定 exact target 做一次有目的的只读观察，没有新证据不循环查询。后续确定状态或终态可以正常登记，同时保留 unknown；不把旧调用倒改为成功。即使 Agent 已完成，也要核实它是否满足未知投递消息中的新增要求，不能仅凭终态验收。
+
+派发结果未知、缺少 claim、身份或终态冲突仍进入 reconcile，不能通过后续通知补绑或自动解锁。close 保留 unknown_facts 和首个 reconcile 原因；closed 只保留最新 64 条，由后续写操作惰性裁剪。
 
 ## 只读恢复与状态
 
 `--status --session <exact-session-id>` 和 `--diagnose --session <exact-session-id>` 只读 exact Session；缺失目录时不创建目录、lock 或空状态。SessionStart 始终注入当前 Hook 提供的权威 exact session ID 与 CLI entrypoint；后者保证 CLI 与真实 Hook 使用同一安装版本和插件数据根。状态摘要仍是 best-effort、无锁只读，不 cleanup、rebuild、reconcile、自动关闭、自动调用工具或扫描其他 Session。
 
 只在平台继续提供同一 exact Session identity 时显示未关闭摘要。新 Session 不跨目录扫描或猜测旧任务。
+
+status/diagnose/SessionStart 分别呈现 phase、next_action 与历史 unknown；`diagnose.issues=[]` 仅证明账本可读且结构有效。新版本不读取旧 namespace，新账本为空不证明旧任务已完成。

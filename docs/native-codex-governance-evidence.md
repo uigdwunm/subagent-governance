@@ -4,13 +4,15 @@ Subagent Governance keeps native Codex as the execution channel and adds a local
 
 OpenAI's current guidance for Codex-oriented agent work recommends stating the goal, relevant context, constraints, required evidence, success criteria, and output format. Subagent Governance turns those task inputs and the surrounding lifecycle into explicit, locally checked records; it does not replace native Codex execution or model judgment. See [OpenAI's model and prompting guidance](https://developers.openai.com/api/docs/guides/latest-model).
 
+The current development runtime is state-v11. Its [local acceptance](validation/current-only-local-acceptance.md) is separate from the historical real-platform results cited below; state-v11 has not been deployed or verified on the real platform.
+
 ## Evidence summary
 
 | Added protection | Observed behavior | Helps avoid |
 | --- | --- | --- |
 | Declared-material freshness | Opt-in verified materials are checked when a task is prepared and checked again when the native spawn claims it | Starting governed work after a declared file or Git object has changed |
 | Exact-target continuity | A governed task binds only to the exact target returned by its current native spawn; the first valid binding is retained | Follow-up, observation, or completion being attached to the wrong concurrent task |
-| Conservative unknown handling | An unconfirmed platform result remains `unknown` and moves to bounded reconciliation without an automatic retry | Duplicate dispatches, messages, or interruptions caused by guessing success or failure |
+| Conservative unknown handling | Dispatch uncertainty reconciles; unknown receipts for a bound task are retained separately and never automatically retried | Duplicate dispatches, messages, or interruptions caused by guessing success or failure |
 
 ## 1. Detect declared material changes before dispatch
 
@@ -47,9 +49,9 @@ Later observations, messages, terminal notifications, interruptions, and close d
 
 ### Evidence
 
-- `test_confirm_first_bind_wins_same_replay_is_idempotent` and `test_conflicting_confirm_enters_reconcile_and_keeps_first_identity` in [`tests/test_v9_dispatch_chain.py`](../tests/test_v9_dispatch_chain.py) verify first-bind-wins, replay, and conflict behavior.
+- `test_confirm_first_bind_wins_same_replay_is_idempotent` and `test_conflicting_confirm_enters_reconcile_and_keeps_first_identity` in [`tests/test_v10_dispatch_chain.py`](../tests/test_v10_dispatch_chain.py) verify first-bind-wins, replay, and conflict behavior.
 - `test_competing_confirms_preserve_first_bind_and_reconcile` in [`tests/test_concurrency.py`](../tests/test_concurrency.py) verifies the same invariant under competing confirmations.
-- The latest [real Codex validation](validation/current-only-real-platform-validation.md) completed a governed `prepared → claimed → bound → terminal → closed` lifecycle using only the exact target mechanically returned by that native spawn. Concurrent competing confirmations are covered separately by the automated test above.
+- The historical [real Codex validation](validation/current-only-real-platform-validation.md) completed a governed `prepared → claimed → bound → terminal → closed` lifecycle using only the exact target mechanically returned by that native spawn. Concurrent competing confirmations are covered separately by the automated test above.
 
 ### Practical effect
 
@@ -63,15 +65,15 @@ Native Codex still creates, runs, and reports every child. The plugin governs th
 
 ### Reproducible condition
 
-A governed task is already bound, but a message, interruption, dispatch, or platform observation does not return enough mechanical evidence to classify the action as successful or failed.
+A bound task receives an indeterminate message, interruption, or platform observation result. Separately, a dispatch can have an unknown outcome before any target is bound.
 
-The runtime records a bounded reason such as `delivery_unknown`, `interrupt_unknown`, or `platform_observation_unknown`, enters `reconcile`, and does not automatically resend, respawn, or invent a terminal fact.
+State-v11 stores bound-call uncertainty in unknown_facts, with only the first timestamp for each of delivery_unknown, interrupt_unknown, and platform_observation_unknown. The task stays bound and can accept later exact terminal evidence without rewriting the earlier receipt as success. Dispatch uncertainty and identity or terminal conflicts still reconcile. No path automatically resends or respawns.
 
 ### Evidence
 
-- `test_explicit_failed_closes_and_unknown_reconciles_without_retry` in [`tests/test_v9_dispatch_chain.py`](../tests/test_v9_dispatch_chain.py) verifies that an unknown dispatch outcome reconciles without retry.
-- `test_unknown_platform_observation_records_only_reconcile_reason`, `test_normal_call_success_and_failed_are_zero_write_unknown_reconciles`, and `test_interrupt_failed_fact_inactive_terminal_and_unknown_reconcile` in [`tests/test_v9_lifecycle.py`](../tests/test_v9_lifecycle.py) verify the message, observation, and interruption boundaries.
-- In the latest [real Codex validation](validation/current-only-real-platform-validation.md), an unconfirmed message result remained `delivery_unknown` and an interruption result that only reported the previous running state remained `interrupt_unknown`. Neither was rewritten as platform success.
+- `test_explicit_failed_closes_and_unknown_reconciles_without_retry` in [`tests/test_v10_dispatch_chain.py`](../tests/test_v10_dispatch_chain.py) verifies that an unknown dispatch outcome reconciles without retry.
+- `test_unknown_receipts_allow_later_terminal_and_survive_close`, `test_all_unknown_categories_are_bounded_idempotent_and_keep_known_status`, and `test_unknown_facts_survive_conflict_without_weakening_identity_or_close` in [`tests/test_v10_lifecycle.py`](../tests/test_v10_lifecycle.py) verify the message, observation, and interruption boundaries.
+- In the historical [real Codex validation](validation/current-only-real-platform-validation.md), an unconfirmed message result remained `delivery_unknown` and an interruption result that only reported the previous running state remained `interrupt_unknown`. Neither was rewritten as platform success.
 
 ### Practical effect
 

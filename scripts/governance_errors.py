@@ -1,4 +1,4 @@
-"""Exception hierarchy for the current state-v10 runtime."""
+"""Exception hierarchy for the current state-v11 runtime."""
 
 
 class StateStoreError(RuntimeError):

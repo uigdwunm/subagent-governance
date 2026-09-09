@@ -7,17 +7,37 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from scripts.governance_diagnostics import project_status
     from scripts.governance_dispatch import claim_spawn
-    from scripts.governance_dispatch_identity import MESSAGE_PREFIX, parse_task_name, task_name_from_message
-    from scripts.governance_errors import NativeInputMismatch, NativeInputUnavailable, StateConflictError
-    from scripts.governance_semantics import NATIVE_SPAWN_TOOL_NAMES, SESSION_SUMMARY_CONTEXT_LIMIT, STATE_STORAGE_NAMESPACE
+    from scripts.governance_dispatch_identity import (
+        MESSAGE_PREFIX,
+        parse_task_name,
+        task_name_from_message,
+    )
+    from scripts.governance_errors import (
+        NativeInputMismatch,
+        NativeInputUnavailable,
+        StateConflictError,
+    )
+    from scripts.governance_semantics import (
+        NATIVE_SPAWN_TOOL_NAMES,
+        SESSION_SUMMARY_CONTEXT_LIMIT,
+        SESSION_SUMMARY_RECORD_LIMIT,
+        STATE_STORAGE_NAMESPACE,
+    )
     from scripts.governance_state_store import StateStore, read_ledger_readonly
     from scripts.governance_store_support import data_root_path
 except ModuleNotFoundError:
+    from governance_diagnostics import project_status
     from governance_dispatch import claim_spawn
     from governance_dispatch_identity import MESSAGE_PREFIX, parse_task_name, task_name_from_message
     from governance_errors import NativeInputMismatch, NativeInputUnavailable, StateConflictError
-    from governance_semantics import NATIVE_SPAWN_TOOL_NAMES, SESSION_SUMMARY_CONTEXT_LIMIT, STATE_STORAGE_NAMESPACE
+    from governance_semantics import (
+        NATIVE_SPAWN_TOOL_NAMES,
+        SESSION_SUMMARY_CONTEXT_LIMIT,
+        SESSION_SUMMARY_RECORD_LIMIT,
+        STATE_STORAGE_NAMESPACE,
+    )
     from governance_state_store import StateStore, read_ledger_readonly
     from governance_store_support import data_root_path
 
@@ -122,17 +142,22 @@ def _session_start(payload: dict[str, Any]) -> dict[str, Any] | None:
             []
             if state is None
             else [
-                (task_id, task)
-                for task_id, task in sorted(state["tasks"].items())
-                if task.get("phase") != "closed"
+                task for task in project_status(state, session_id)["tasks"]
+                if task["phase"] != "closed"
             ]
         )
         if open_tasks:
             lines.append(f"Subagent Governance {STATE_STORAGE_NAMESPACE} 当前 exact Session 未关闭任务：")
-            for task_id, task in open_tasks[:8]:
+            for task in open_tasks[:SESSION_SUMMARY_RECORD_LIMIT]:
                 target = f" target={task['target']}" if task.get("target") else ""
+                unknown = (
+                    " 曾出现未确定回执=" + ",".join(sorted(task["unknown_facts"]))
+                    if task["unknown_facts"] else ""
+                )
+                reconcile = f" reconcile={task['reconcile_reason']}" if task["reconcile_reason"] else ""
                 lines.append(
-                    f"- task_id={task_id} task_ref={task['task_ref']} phase={task['phase']}{target}"
+                    f"- task_id={task['task_id']} task_ref={task['task_ref']} phase={task['phase']}{target}"
+                    f" next_action={task['next_action']}{unknown}{reconcile}"
                 )
         else:
             lines.append("当前 exact Session 没有可读的未关闭治理任务。")

@@ -17,6 +17,8 @@ Subagent Governance is a local Codex plugin for developers who use native subage
 
 The current stable release is `v0.4.0`. Its Marketplace entry is pinned to the same immutable tag. It consolidates the lifecycle and identity fixes validated across the release-candidate series and includes the natural-language quick start.
 
+The runtime description below covers the unreleased state-v11 development line. The stable tag remains v0.4.0. State-v11 has not been deployed or validated on the real platform; it does not read older ledgers, and an empty new summary does not mean older tasks completed.
+
 ## What it adds to native Codex
 
 Native Codex continues to create and run every subagent. Subagent Governance adds a local protocol around those native actions:
@@ -33,7 +35,7 @@ Native Codex continues to create and run every subagent. Subagent Governance add
 ## What it provides
 
 - **Exact identity** — a governed task binds only to the exact target mechanically returned by its current native spawn.
-- **Explicit lifecycle** — `prepare → claim → bind → terminal → close`, with bounded reconcile states for conflicting or unknown facts.
+- **Explicit lifecycle** — `prepare → claim → bind → terminal → close`, with reconcile for dispatch uncertainty and conflicts; bound-call unknown receipts are retained separately so later definite terminal facts can complete the lifecycle.
 - **TaskContract v2** — one current objective, allowed scope, completion conditions, evidence, context, and explicit spawn configuration.
 - **Optional verified context** — declared working-tree files or Git objects can be checked at prepare and claim time.
 - **Minimal local state** — one current Session ledger, no prompt archive, no terminal body persistence, and bounded closed-task retention.
@@ -103,7 +105,7 @@ It proves only that the working-tree files or Git objects explicitly declared in
 
 ### What happens when a Codex result cannot be confirmed?
 
-The result remains `unknown` and the governed task enters bounded reconciliation. The plugin does not automatically resend, respawn, or guess a terminal state.
+Dispatch uncertainty and identity or terminal conflicts enter reconcile. Unknown receipts for a bound task are kept in bounded unknown_facts; later definite terminal evidence can advance the task, and closure preserves those receipts. The plugin does not automatically resend, respawn, or rewrite an unknown receipt as success.
 
 ## TaskContract v2
 
@@ -131,7 +133,7 @@ The result remains `unknown` and the governed task enters bounded reconciliation
 
 ## How it works
 
-Each exact Codex Session has one `state-v10` ledger. One governed task represents one native Agent lifecycle and moves through these phases:
+Each exact Codex Session has one `state-v11` ledger. One governed task represents one native Agent lifecycle and moves through these phases:
 
 ```text
 prepared | claimed | bound | terminal | closed | reconcile
@@ -158,14 +160,14 @@ Subagent Governance is **not** a sandbox, permission system, remote control plan
 - Wait calls are not persisted.
 - There is no managed business resume, managed follow-up, multi-attempt retry system, Group abstraction, or automatic cross-Session recovery.
 - A crash after native spawn but before exact-target confirmation remains `claimed/unbound`; the plugin does not guess identity or automatically respawn.
-- An unknown message, interrupt, or platform response remains unknown and may require parent reconciliation.
-- A prepare explicitly freezes either the `collaboration_turns` or `fork_context` native adapter. The Hook verifies the complete visible message and spawn configuration; opaque, unknown, or internally unreadable inputs pass through without a governance claim.
+- Unknown receipts for bound calls are recorded separately from phase. The parent still verifies whether results satisfy instructions whose delivery was unknown.
+- A prepare explicitly freezes either the `collaboration_turns` or `fork_context` native adapter. The Hook checks the generated task name and spawn configuration without comparing rewritten message text. The fork_context adapter needs a visible marker; collaboration_turns can use explicit task_name. Unverifiable identity/configuration, unknown shapes, or internal failures pass through without a claim.
 
 ## Verification
 
-The current development line includes:
+Existing verification covers the areas below. See [current local acceptance](docs/validation/current-only-local-acceptance.md) for state-v11 results and unverified boundaries; historical platform acceptance does not validate the new runtime:
 
-- 96 automated tests for protocol, state, concurrency, lifecycle, storage safety, packaging, and deployment transactions;
+- Automated tests for protocol, state, concurrency, lifecycle, storage safety, packaging, and deployment transactions;
 - CI on Ubuntu, macOS, and Windows with Python 3.11 and 3.12;
 - plugin, Skill, archive, schema, compilation, lint, and release-preflight gates;
 - real Codex acceptance covering governed dispatch, exact-target binding, active wait wake-up, concurrent governed Agents, strict verified context, message handling, interruption, terminal notification, close, and read-only diagnostics.

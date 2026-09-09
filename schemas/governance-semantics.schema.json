@@ -197,10 +197,24 @@
       "properties": {"profile": {"$ref": "#/$defs/profile"}, "objective": {"$ref": "#/$defs/nonempty_text"}},
       "additionalProperties": false
     },
+    "unknown_fact": {
+      "type": "object", "required": ["observed_at"],
+      "properties": {"observed_at": {"$ref": "#/$defs/timestamp"}},
+      "additionalProperties": false
+    },
+    "unknown_facts": {
+      "type": "object", "minProperties": 1, "maxProperties": 3,
+      "properties": {
+        "delivery_unknown": {"$ref": "#/$defs/unknown_fact"},
+        "platform_observation_unknown": {"$ref": "#/$defs/unknown_fact"},
+        "interrupt_unknown": {"$ref": "#/$defs/unknown_fact"}
+      },
+      "additionalProperties": false
+    },
     "reconcile_fact": {
       "type": "object", "required": ["code", "observed_at"],
       "properties": {
-        "code": {"type": "string", "enum": ["dispatch_target_conflict", "dispatch_identity_mismatch", "dispatch_claim_missing", "dispatch_result_unknown", "delivery_unknown", "platform_observation_unknown", "interrupt_unknown", "terminal_status_conflict"]},
+        "code": {"type": "string", "enum": ["dispatch_target_conflict", "dispatch_identity_mismatch", "dispatch_claim_missing", "dispatch_result_unknown", "terminal_status_conflict"]},
         "observed_at": {"$ref": "#/$defs/timestamp"}
       },
       "additionalProperties": false
@@ -242,29 +256,31 @@
     },
     "bound_task": {
       "type": "object", "required": ["task_ref", "native_interface", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "target", "bound_at"],
-      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "native_interface": {"$ref": "#/$defs/native_interface"}, "phase": {"const": "bound"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}},
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "native_interface": {"$ref": "#/$defs/native_interface"}, "phase": {"const": "bound"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}, "unknown_facts": {"$ref": "#/$defs/unknown_facts"}},
       "additionalProperties": false
     },
     "terminal_task": {
       "type": "object", "required": ["task_ref", "native_interface", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "target", "bound_at", "terminal_fact"],
-      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "native_interface": {"$ref": "#/$defs/native_interface"}, "phase": {"const": "terminal"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}},
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "native_interface": {"$ref": "#/$defs/native_interface"}, "phase": {"const": "terminal"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}, "unknown_facts": {"$ref": "#/$defs/unknown_facts"}},
       "additionalProperties": false
     },
     "closed_task": {
       "type": "object", "required": ["task_ref", "native_interface", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "close_reason", "closed_at"],
-      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "native_interface": {"$ref": "#/$defs/native_interface"}, "phase": {"const": "closed"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}, "close_reason": {"$ref": "#/$defs/short_text"}, "closed_at": {"$ref": "#/$defs/timestamp"}},
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "native_interface": {"$ref": "#/$defs/native_interface"}, "phase": {"const": "closed"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}, "close_reason": {"$ref": "#/$defs/short_text"}, "closed_at": {"$ref": "#/$defs/timestamp"}, "unknown_facts": {"$ref": "#/$defs/unknown_facts"}, "reconcile": {"$ref": "#/$defs/reconcile_fact"}},
+      "dependentRequired": {"unknown_facts": ["target", "bound_at"]},
       "additionalProperties": false
     },
     "reconcile_task": {
       "type": "object", "required": ["task_ref", "native_interface", "phase", "contract_digest", "contract_summary", "created_at", "updated_at", "reconcile"],
-      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "native_interface": {"$ref": "#/$defs/native_interface"}, "phase": {"const": "reconcile"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}, "reconcile": {"$ref": "#/$defs/reconcile_fact"}},
+      "properties": {"task_ref": {"$ref": "#/$defs/task_ref"}, "native_interface": {"$ref": "#/$defs/native_interface"}, "phase": {"const": "reconcile"}, "contract_digest": {"$ref": "#/$defs/digest"}, "contract_summary": {"$ref": "#/$defs/contract_summary"}, "created_at": {"$ref": "#/$defs/timestamp"}, "updated_at": {"$ref": "#/$defs/timestamp"}, "target": {"$ref": "#/$defs/short_text"}, "bound_at": {"$ref": "#/$defs/timestamp"}, "terminal_fact": {"$ref": "#/$defs/terminal_fact"}, "platform_observation": {"$ref": "#/$defs/platform_observation"}, "interrupt_fact": {"$ref": "#/$defs/interrupt_fact"}, "reconcile": {"$ref": "#/$defs/reconcile_fact"}, "unknown_facts": {"$ref": "#/$defs/unknown_facts"}},
+      "dependentRequired": {"unknown_facts": ["target", "bound_at"]},
       "additionalProperties": false
     },
     "task_record": {"oneOf": [{"$ref": "#/$defs/prepared_task"}, {"$ref": "#/$defs/claimed_task"}, {"$ref": "#/$defs/bound_task"}, {"$ref": "#/$defs/terminal_task"}, {"$ref": "#/$defs/closed_task"}, {"$ref": "#/$defs/reconcile_task"}]},
     "session_ledger": {
       "type": "object", "required": ["state_format_version", "session_id", "tasks"],
       "properties": {
-        "state_format_version": {"const": 10},
+        "state_format_version": {"const": 11},
         "session_id": {"type": "string", "minLength": 1, "maxLength": 1024},
         "tasks": {"type": "object", "maxProperties": 512, "propertyNames": {"type": "string", "minLength": 1, "maxLength": 256}, "additionalProperties": {"$ref": "#/$defs/task_record"}}
       },
@@ -272,8 +288,8 @@
     }
   },
   "x-semantics": {
-    "state_format_version": 10,
-    "state_storage_namespace": "state-v10",
+    "state_format_version": 11,
+    "state_storage_namespace": "state-v11",
     "native_interfaces": ["collaboration_turns", "fork_context"],
     "native_spawn_tool_names": ["spawn_agent", "multi_agent_v1.spawn_agent", "multi_agent_v1__spawn_agent", "multi_agent_v1spawn_agent", "collaboration.spawn_agent", "collaborationspawn_agent"],
     "task_contract_wire_version": 2,

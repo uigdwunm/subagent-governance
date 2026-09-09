@@ -62,16 +62,19 @@ python3 scripts/dev_deploy.py \
 
 原生命令失败、target 缺失或摘要不匹配、source/stable 变化、retention 失败都会恢复部署前 stable 与完整 cache 集合。进程在原子切换中断时，下次有写权限的执行只按 transaction manifest 绑定的 staging/backup/recovery path 恢复；存在多个 transaction 或孤立 switch path 时拒绝猜测。
 
-直接管理 Codex 内部 cache 是本机开发测试能力，不是通用产品 API。部署命令成功后当前任务应立即停止，等待用户重启 Codex；真实验证必须在重启后的新任务进行。
+直接管理 Codex 内部 cache 是本机开发测试能力，不是通用产品 API。部署命令无论成功或失败，当前任务都应立即报告并停止，等待用户重启 Codex；真实验证必须在重启后的新任务进行。
 
 ## 真实平台验证
 
-获准部署并重启后，在独立任务按以下顺序验证：
+获准部署并重启后，在独立新任务以显式 `gpt-6-astra/high` 验证；父任务和受测子 Agent 分别核实实际配置，无法确认的项目标为未验证。用户明确指定其他配置时采用用户配置。按以下顺序验证：
 
 - unmanaged spawn fail-open 且零状态；
 - prepare → Pre claim → native spawn → explicit exact-target confirm；
 - wait 与 exact bound-target observation；
-- normal message、terminal notification、minimal interrupt 与 parent close；
+- normal message success/failed 无必需额外记账，一条终态证据只登记一次，minimal interrupt 与 parent close；
+- 实际 unknown 后出现确定状态时，终态可登记，历史 unknown 仍保留；未实际出现该回执则标为未验证；
 - exact-session SessionStart/status 以及用户触发的 restart/compact。
 
 Hook trust、Codex registration、桌面 UI 和 exact session identity 分别记录；文件存在、`installed/enabled` 或本地测试不能替代真实证据。未经授权或尚未重启时一律记为 `not_checked`。
+
+state-v11 与旧 state-v10 隔离，不自动恢复、迁移或删除旧未关闭任务。部署交接说明此边界，不把新 namespace 为空当作旧任务完成。新 runtime 不读取保留的上一版本逻辑或状态。
