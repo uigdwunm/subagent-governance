@@ -1,5 +1,7 @@
 # state-v9 独立重启后真实平台验证
 
+> 本页保留历史版本证据。当前 state-v10 的 2026-09-09 复验见 [Hook 重新信任后的真实验收](state-v10-hook-trust-2026-09-09.md)，下文“最新安装版”均指当时的历史版本。
+
 日期：2026-08-25  
 结论：`passed_with_platform_unknowns`（最新安装版已在独立 `gpt-5.6-terra` / `high` 任务完成 V1–V7；未发现 runtime correctness failure。V4 消息投递与 V5 interrupt 的平台结果均缺少可判定机械回执，治理层按 current-only 协议保留 `unknown`，不把它们改写为成功。）
 

@@ -1,7 +1,7 @@
 # `task_name` claim 修复方案
 
 - 日期：2026-09-07
-- 状态：实现完成，已通过本地门禁，待提交、部署和真实验收
+- 状态：已提交、部署；2026-09-09 重新信任 Hook 后，独立真实验收核心链路通过，中断回执保留平台 unknown 边界
 
 ## 目标
 
@@ -21,4 +21,4 @@
 - unmanaged spawn 保持零状态；
 - 全量 unittest、compileall、Plugin validator、Skill validator 和 diff 检查通过。
 
-部署后需重启 Codex，并在独立的 `gpt-5.6-terra / high` 任务中重新验证真实 claim → confirm → 生命周期链路。
+部署、重启及独立 `gpt-5.6-terra / high` 验收已完成。首次复验缺少 claim；只读 Hook 检查发现 PreToolUse 定义为 modified，用户重新信任后 claim → confirm → 生命周期链路通过。完整证据与未覆盖范围见 [state-v10 真实验收](../validation/state-v10-hook-trust-2026-09-09.md)。本次验收不证明加密正文与 prepare 明文完全一致。
