@@ -6,11 +6,11 @@ import copy
 from typing import Any
 
 try:
-    from scripts.governance_dispatch_identity import MESSAGE_PREFIX, task_name_from_message
+    from scripts.governance_dispatch_identity import task_name_from_message
     from scripts.governance_errors import NativeInputMismatch, NativeInputUnavailable
     from scripts.governance_semantics import NATIVE_INTERFACES
 except ModuleNotFoundError:
-    from governance_dispatch_identity import MESSAGE_PREFIX, task_name_from_message
+    from governance_dispatch_identity import task_name_from_message
     from governance_errors import NativeInputMismatch, NativeInputUnavailable
     from governance_semantics import NATIVE_INTERFACES
 

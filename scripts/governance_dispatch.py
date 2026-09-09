@@ -18,8 +18,6 @@ try:
     from scripts.governance_dispatch_rendering import expected_native_parameters
     from scripts.governance_errors import (
         ContextMaterialConflictError,
-        NativeInputMismatch,
-        NativeInputUnavailable,
         StateConflictError,
     )
     from scripts.governance_lifecycle import enter_reconcile, prune_closed_tasks
@@ -36,8 +34,6 @@ except ModuleNotFoundError:
     from governance_dispatch_rendering import expected_native_parameters
     from governance_errors import (
         ContextMaterialConflictError,
-        NativeInputMismatch,
-        NativeInputUnavailable,
         StateConflictError,
     )
     from governance_lifecycle import enter_reconcile, prune_closed_tasks
