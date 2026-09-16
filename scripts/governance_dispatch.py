@@ -17,7 +17,10 @@ try:
     )
     from scripts.governance_dispatch_rendering import expected_native_parameters
     from scripts.governance_errors import (
+        ClaimFailure,
         ContextMaterialConflictError,
+        NativeInputMismatch,
+        NativeInputUnavailable,
         StateConflictError,
     )
     from scripts.governance_lifecycle import enter_reconcile, prune_closed_tasks
@@ -35,7 +38,10 @@ except ModuleNotFoundError:
     )
     from governance_dispatch_rendering import expected_native_parameters
     from governance_errors import (
+        ClaimFailure,
         ContextMaterialConflictError,
+        NativeInputMismatch,
+        NativeInputUnavailable,
         StateConflictError,
     )
     from governance_lifecycle import enter_reconcile, prune_closed_tasks
@@ -118,7 +124,11 @@ def claim_spawn(
         raise StateConflictError("governed spawn 缺少有效 tool_use_id")
     outcome: dict[str, Any] = {}
 
+    stage = "state"
+
     def claim(state: dict[str, Any]) -> None:
+        nonlocal stage
+        stage = "validation"
         prune_closed_tasks(state)
         task_id, task = _find_by_ref(state, task_ref)
         if task.get("phase") == "claimed":
@@ -129,6 +139,7 @@ def claim_spawn(
                 ):
                     raise StateConflictError("重复 claim 的 native parameters 不一致")
                 outcome.update(result="already_claimed", task_id=task_id, task_ref=task_ref)
+                stage = "commit"
                 return
             raise StateConflictError("prepared capability 已被另一个原生调用消费")
         if task.get("phase") != "prepared":
@@ -145,24 +156,26 @@ def claim_spawn(
         contract = contract_from_input(capability.get("contract"))
         manifest = contract.context.get("verified")
         if manifest is not None:
+            stage = "material"
             try:
                 verification = verify_context_manifest(manifest)
+                if verification != capability.get("context_verification"):
+                    raise ContextMaterialConflictError("verified context 在 prepare 与 claim 之间发生变化")
             except ContextMaterialConflictError as exc:
                 raise StateConflictError(f"声明材料冲突：{exc}") from exc
-            if verification != capability.get("context_verification"):
-                raise StateConflictError("声明材料冲突：verified context 在 prepare 与 claim 之间发生变化")
         task["phase"] = "claimed"
         task["claimed_tool_use_id"] = tool_use_id
         task["claimed_at"] = claimed_at
         task["updated_at"] = claimed_at
         outcome.update(result="claimed", task_id=task_id, task_ref=task_ref)
+        stage = "commit"
 
     try:
         state_store.update(session_id, claim)
-    except Exception:
+    except Exception as exc:
         # Atomic replace can succeed before a readback/fsync error is reported.
         # Only the exact same claim is safe to treat as committed; otherwise the
-        # governed native call remains denied.
+        # original conflict/failure is classified by the Hook, not by recovery.
         try:
             state = state_store.read(session_id)
             task_id, task = _find_by_ref(state, task_ref)
@@ -182,7 +195,9 @@ def claim_spawn(
                 return outcome
         except Exception:
             pass
-        raise
+        if isinstance(exc, (StateConflictError, NativeInputMismatch, NativeInputUnavailable)):
+            raise
+        raise ClaimFailure(stage) from exc
     return outcome
 
 

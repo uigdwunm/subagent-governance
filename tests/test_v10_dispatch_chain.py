@@ -288,7 +288,10 @@ class V10DispatchChainTests(unittest.TestCase):
                 result = hook.handle_hook({"session_id": self.session_id,
                     "hook_event_name": "PreToolUse", "tool_name": "multi_agent_v1__spawn_agent",
                     "tool_use_id": "unavailable-call", "tool_input": args, "now": 101}, self.store)
-                self.assertIn(result["hookSpecificOutput"]["permissionDecision"], {"allow", "deny"})
+                # The previous case consumed this capability with a different call ID.
+                # That known conflict precedes native-shape comparison.
+                self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertIn("code=claim_conflict", result["hookSpecificOutput"]["permissionDecisionReason"])
                 self.assertEqual(self.store.read(self.session_id)["tasks"][prepared["task_id"]]["phase"], "claimed")
 
     def test_message_rewrite_preserves_task_name_claim(self):

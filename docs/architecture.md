@@ -91,7 +91,7 @@ Hook manifest 当前只注册：
 - native spawn 的 PreToolUse matcher；unmanaged task name 在 StateStore 构造前 inert fail-open，governed spawn 验证 exact prepared facts 并原子 claim；
 - read-only SessionStart 始终注入 Hook stdin 提供的当前权威 exact session ID 与当前已安装 CLI entrypoint，并 best-effort 读取当前 exact Session 的未关闭摘要。
 
-Hook router 只接受机器语义源列出的原生 spawn 精确名称。`collaboration_turns` 通过生成的 task_name 定位；`fork_context` 通过可见消息标记定位。claim 校验 task_name、fork_turns、model、reasoning_effort 和声明材料，不逐字匹配平台可能重写的消息正文。存在可见消息标记时，它必须与 task_name 一致。未知形状或不可验证输入 fail-open 且不 claim；明确不一致仍拒绝。父 Agent 必须原样提交 prepare 返回的 spawn_args；插件不宣称在 Pre 边界独立证明实际委派正文。
+Hook router 只接受机器语义源列出的原生 spawn 精确名称。`collaboration_turns` 通过生成的 task_name 定位；`fork_context` 通过可见消息标记定位。claim 校验 task_name、fork_turns、model、reasoning_effort 和声明材料，不逐字匹配平台可能重写的消息正文。存在可见消息标记时，它必须与 task_name 一致。未知形状或不可验证输入 fail-open，不声称校验通过；明确不一致仍拒绝。claim 区分本次未尝试、未确认、结果不确定和已确认；写入报错只有精确回读匹配时才确认。故障分类与证据边界见 [运行时契约](../skills/subagent-governance/references/runtime-boundaries.md#hook-故障分类与证据契约)。父 Agent 必须原样提交 prepare 返回的 spawn_args；插件不宣称在 Pre 边界独立证明实际委派正文。
 
 不存在 PostToolUse、Stop、SessionEnd 或 communication/followup/interrupt PreToolUse。
 

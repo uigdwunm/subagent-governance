@@ -21,6 +21,14 @@ class StateWriteError(StateStoreError):
     """An atomic write or its readback verification failed."""
 
 
+class ClaimFailure(RuntimeError):
+    """Unconfirmed claim with a transient execution stage and chained cause."""
+
+    def __init__(self, stage: str):
+        super().__init__("claim could not be confirmed")
+        self.stage = stage
+
+
 class DispatchPreparationError(RuntimeError):
     """TaskContract v2 could not be prepared in the single ledger."""
 
@@ -46,7 +54,7 @@ class DiagnosticReadError(RuntimeError):
 
 
 __all__ = [
-    "ContextMaterialConflictError", "ContextVerificationError", "DiagnosticReadError", "DispatchPreparationError",
+    "ClaimFailure", "ContextMaterialConflictError", "ContextVerificationError", "DiagnosticReadError", "DispatchPreparationError",
     "StateCapacityError", "StateConflictError", "StateStoreError",
     "NativeInputMismatch", "NativeInputUnavailable", "StateValidationError", "StateWriteError",
 ]

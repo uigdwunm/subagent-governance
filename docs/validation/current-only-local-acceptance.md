@@ -1,3 +1,50 @@
+# D 集成验收
+
+日期：2026-09-16。已将 D 的故障分类、安全诊断与降级指引整合到主开发目录，来源 worktree 保持原样。下方独立工作区记录保留当时状态。
+
+整合前独立复核：174 项测试通过，含分支统计总覆盖率 76%。主目录整合后全量 174 项测试、Ruff、编译、插件/Skill 验证器、development 预检和差异检查通过。本次提交包含集成结果；未推送、部署或发布，真实平台行为及运行缓存一致性未验证。
+
+---
+
+# D 治理故障与降级边界：开发 worktree 验收
+
+日期：2026-09-16。基线 HEAD 为 `4a99428`，包含已完成的 C。本轮用户确认保持“明确冲突拒绝、不可验证或治理故障放行”，不新增严格阻断模式。以下是开发 worktree 的本地结果，未提交或合入主目录。
+
+## 修改与给 E 的语义结论
+
+- 内外层 Hook 共用固定原因码、处理阶段和 claim 证据说明；移除 Hook 异常原文回显，已知 spawn 的不可识别输入不再静默退出。普通 unmanaged 和未知工具／事件保持零账本透传。
+- claim 证据分为本次未尝试、未确认、结果不确定和已确认。这些是瞬时诊断，不是新账本字段或生命周期状态。原生允许、claim 确认、原生创建、业务成功保持独立。
+- claim 的内部故障保留异常链与代码阶段。进入提交阶段后报错且精确回读未确认时，报告 unknown；不能凭写入异常推断未提交。已提交的同一 claim 仍按原有精确回读规则恢复。明确冲突和原生输入异常保持原有异常类型与动作。
+- standard/strict 使用同一故障策略；先发现的明确冲突仍按现有检查顺序处理。例如 capability 已被另一调用消费时先拒绝，不能靠加入未知字段绕过。
+- 故障矩阵、恢复步骤、业务检查前提和 Hook 未运行／传输失败的保证边界已经写入 [运行时契约](../../skills/subagent-governance/references/runtime-boundaries.md#hook-故障分类与证据契约)。E 可复用这些分类和动作；未扩展接口适配器。
+- 新诊断模块加入 runtime allowlist；state-v12、TaskContract v2、operation_inputs、身份权威与 confirm 缺 claim 进入 reconcile 的规则不变。没有新日志存储、重试、重派或模式配置。
+
+## 验证证据
+
+先添加 8 项故障测试，在旧实现上复现静默不可验证输入、缺少分类与外层异常文本回显等问题；实现后扩展至 21 项。总测试从 153 增至 174；另收紧既有“allow 或 deny 均接受”的断言，明确验证已消费 capability 的拒绝优先级。
+
+隔离用例覆盖关键身份缺失、畸形标记／输入、未知字段／账本接口、明确参数冲突、材料变化／缺失／读取失败、损坏与旧格式账本、初始化／锁／读写故障、提交前写失败、提交后报错与回读失败、外层提交后异常、精确同调用回读恢复、其他调用 claim 不可冒用、敏感字符串不回显、strict 同策略及 unmanaged 零存储。既有 1—3/A/B/C 回归同时通过。
+
+| 检查 | 结果 |
+| --- | --- |
+| `python3 -m unittest discover -s tests -v` | Python 3.9.6，174 项通过 |
+| Python 3.11.15 `coverage run -m unittest discover -s tests -v` | 174 项通过 |
+| `coverage report`，含分支统计 | 总覆盖率 76%，达到 70% 门槛；新诊断模块 96% |
+| `python3 -m compileall -q scripts` | 通过 |
+| 系统 plugin-creator `validate_plugin.py .` | 通过 |
+| 系统 skill-creator `quick_validate.py skills/subagent-governance` | 通过 |
+| Ruff 0.16.4 `check scripts tests` | 通过 |
+| `python3 scripts/release_preflight.py --mode development` | passed |
+| `git diff --check` | 通过 |
+
+Ruff 和 coverage 使用已有本机工具，未安装或修改缓存。覆盖率数据与测试日志保存在临时目录。运行包验证仅使用临时隔离夹具，不构成本机插件部署。
+
+## 未验证与授权边界
+
+未提交、合并、推送、部署或发布；未写稳定源、运行缓存、Hook 信任或 Registry。真实平台 Hook 投递、实际执行／中止、跨平台 CI、运行缓存一致性与用户体验效果未验证。本地故障注入只能证明返回动作和账本行为，不能证明平台必定运行 Hook 或遵从其输出。
+
+---
+
 # C 集成验收
 
 日期：2026-09-16。已将 C 的常规流程精简和 operation_inputs 整合到主开发目录，来源 worktree 保持原样。下方独立工作区记录保留当时状态。

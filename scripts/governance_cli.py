@@ -13,6 +13,7 @@ try:
     from scripts.governance_diagnostics import diagnose, status
     from scripts.governance_dispatch import confirm_dispatch, record_dispatch_result
     from scripts.governance_hook import handle_hook
+    from scripts.governance_hook_diagnostics import diagnostic
     from scripts.governance_input import read_json_object
     from scripts.governance_lifecycle import (
         close_task,
@@ -28,6 +29,7 @@ except ModuleNotFoundError:
     from governance_diagnostics import diagnose, status
     from governance_dispatch import confirm_dispatch, record_dispatch_result
     from governance_hook import handle_hook
+    from governance_hook_diagnostics import diagnostic
     from governance_input import read_json_object
     from governance_lifecycle import (
         close_task,
@@ -82,12 +84,12 @@ def _emit(stdout: TextIO, value: object, *, pretty: bool = True) -> None:
 def _hook(stdin: BinaryIO, stdout: TextIO) -> int:
     try:
         payload = read_json_object(stdin)
-    except Exception as exc:
-        _emit(stdout, {"continue": True, "systemMessage": f"Subagent Governance 输入解析失败，已 fail-open：{exc}"}, pretty=False)
+    except Exception:
+        _emit(stdout, {"continue": True, "systemMessage": diagnostic("input_parse_error", stage="parse", claim="not_attempted", action="continue")}, pretty=False)
         return 0
     try:
         result = handle_hook(payload)
-    except Exception as exc:
+    except Exception:
         # The outer transport boundary must never turn a governance/runtime
         # fault into a native-tool denial.  Inner Hook logic classifies known
         # mismatches; anything escaping here is an unverifiable internal fault.
@@ -95,7 +97,7 @@ def _hook(stdin: BinaryIO, stdout: TextIO) -> int:
             stdout,
             {
                 "continue": True,
-                "systemMessage": f"Subagent Governance Hook 内部故障，已 fail-open：{str(exc)[:600]}",
+                "systemMessage": diagnostic("internal_error", stage="outer", claim="unknown", action="continue"),
             },
             pretty=False,
         )

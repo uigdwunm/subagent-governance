@@ -48,7 +48,8 @@ Finite-turn inheritance is supported only by `collaboration_turns`.
 `collaboration_turns` uses the visible generated task_name; a visible message
 marker must agree with it. `fork_context` requires a visible generated message
 header to locate the prepared task. Unknown shapes or unverifiable identity/config
-fail open without a claim; known mismatches are rejected. Exact target binding
+fail open without claiming verification success; known mismatches are rejected.
+A failure does not prove that a claim was never committed; see the failure contract below. Exact target binding
 still requires the current native spawn return and explicit confirm.
 Real Hook delivery and visibility must be checked after installation in a fresh task.
 
@@ -62,7 +63,7 @@ Real Hook delivery and visibility must be checked after installation in a fresh 
 
 ## Pre claim 与声明材料
 
-PreToolUse 按可见 task name 或消息首行 `[subagent-governance:<生成的 task name>]` 定位精确 task ref，校验冻结接口和派发配置后在同一账本认领。当前匹配包括 spawn_agent、multi_agent_v1 形式、collaboration.spawn_agent、collaborationspawn_agent。不可验证标识/配置、未知输入或内部 Hook 故障 fail-open 且不 claim、不声称成功；明确可比的不一致才拒绝。后续 confirm 缺少 claim 进入 reconcile。
+PreToolUse 按可见 task name 或消息首行 `[subagent-governance:<生成的 task name>]` 定位精确 task ref，校验冻结接口和派发配置后在同一账本认领。当前匹配包括 spawn_agent、multi_agent_v1 形式、collaboration.spawn_agent、collaborationspawn_agent。不可验证标识/配置、未知输入或内部 Hook 故障 fail-open，不声称检查成功；明确可比的不一致才拒绝。claim 是否确认按下方故障契约报告，后续 confirm 缺少 claim 进入 reconcile。
 
 需要工作区材料校验时，context.verified 的 declared manifest 形状为：
 
@@ -76,3 +77,36 @@ PreToolUse 按可见 task name 或消息首行 `[subagent-governance:<生成的 
 ```
 
 也可使用 git_commit baseline 并提供 revision；按实际任务声明 required paths。prepare 与 Pre claim 各验证一次，不自动扫描工作区或提供运行期间隔离。business digest 不包含 spawn；spawn config 有独立 digest。
+
+
+## Hook 故障分类与证据契约
+
+standard 与 strict 使用相同故障策略；strict 只加强任务契约要求，不启用故障阻断模式。原生允许、claim 已确认、原生创建成功、业务验收成功是四种独立事实。
+
+程序在既有 additionalContext、permissionDecisionReason 或外层 systemMessage 中输出固定 `code`、`stage`、`claim` 与中文说明；不新增平台字段、持久状态、诊断文件或自动动作。原因不通过解析异常字符串推断，也不回显异常正文、业务正文、未知字段名或材料路径。以下表格同时作为后续接口兼容核对的失败行为契约，不增加接口适配能力。
+
+| 条件 / code | Hook 输出 | claim 证据 |
+| --- | --- | --- |
+| 普通 unmanaged，或不匹配现有工具／事件 | 静默透传，不访问账本 | 不作治理声明 |
+| `input_unavailable`：已知 spawn 输入不可识别、非字符串 task_name | allow，无法验证提示；不冒充已识别 governed | not_attempted |
+| `session_unavailable` / `call_id_unavailable` | allow | not_attempted |
+| `marker_conflict`：畸形治理标记或可比名称冲突 | deny | not_attempted |
+| `input_unavailable`：进入 claim 后发现未知字段或不可比较形态 | allow | unconfirmed |
+| `native_conflict` / `claim_conflict` / `material_conflict` | deny | unconfirmed |
+| `material_unavailable`：材料读取或校验不可完成 | allow | unconfirmed |
+| `state_unavailable`：账本初始化、读取、锁或结构校验失败 | allow | 初始化失败为 not_attempted，其余 unconfirmed |
+| `internal_error`：内部异常 | allow | state_init 为 not_attempted，进入 claim 后为 unconfirmed |
+| `claim_commit_unknown`：进入提交阶段后报错，精确回读未确认同一 claim | allow | unknown |
+| `claimed` / `already_claimed` / `claimed_after_write_error` | allow | confirmed |
+| `input_parse_error`：外层输入解析失败，治理意图不可判定 | continue=true | not_attempted |
+| `internal_error`，stage=outer：异常逃逸至外层 | continue=true | unknown |
+
+按现有检查顺序报告首先确定的条件，不承诺枚举所有输入问题。例如 capability 已被不同 tool_use_id 消费时，先拒绝该已知冲突，即使输入还包含未知字段；不能用未知字段绕过已确定冲突。
+
+`stage` 标识 recognition、identity、state_init、state、validation、material、commit、claim、parse 或 outer 等代码处理边界。`not_attempted` 仅表示本次尚未调用 claim；`unconfirmed` 表示本次未确认，不断言既有 claim 不存在；`unknown` 表示提交或外层处理结果不确定；`confirmed` 只确认账本 claim。
+
+进入提交阶段不等于原子替换已经发生。提交前拒写、替换后报错、回读失败都不能仅凭异常名称区分；精确回读恢复仍要求同一 task ref、tool_use_id、claimed 阶段及匹配参数。未确认时不推断“未提交”，也不自动重试。stage 和诊断均为瞬时结果，不写入 state-v12。
+
+父 Agent 的用户业务前提与 Hook 可用性原则分开：发起调用前若已知“检查通过才能执行”的前提不满足，应停止依赖操作。调用中的降级提示无法撤销已经允许的执行。后续只依据实际原生回执处置；恢复步骤见 [治理降级](recovery.md#治理降级)。
+
+表中动作只证明本地 Hook 生成了对应输出，不证明平台已收到或遵从。Hook 未运行、模块加载失败、输出写入／传输失败时，插件不能保证提示送达或原生被中止；本地模拟测试不证明实际投递。未知工具继续透传，不按名称相似性扩大治理范围。

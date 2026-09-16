@@ -14,11 +14,7 @@ try:
         parse_task_name,
         task_name_from_message,
     )
-    from scripts.governance_errors import (
-        NativeInputMismatch,
-        NativeInputUnavailable,
-        StateConflictError,
-    )
+    from scripts.governance_hook_diagnostics import classify_failure, diagnostic
     from scripts.governance_semantics import (
         NATIVE_SPAWN_TOOL_NAMES,
         SESSION_SUMMARY_CONTEXT_LIMIT,
@@ -31,7 +27,7 @@ except ModuleNotFoundError:
     from governance_diagnostics import project_status
     from governance_dispatch import claim_spawn
     from governance_dispatch_identity import MESSAGE_PREFIX, parse_task_name, task_name_from_message
-    from governance_errors import NativeInputMismatch, NativeInputUnavailable, StateConflictError
+    from governance_hook_diagnostics import classify_failure, diagnostic
     from governance_semantics import (
         NATIVE_SPAWN_TOOL_NAMES,
         SESSION_SUMMARY_CONTEXT_LIMIT,
@@ -72,7 +68,7 @@ def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | N
         return None
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
-        return None
+        return _allow(diagnostic("input_unavailable", stage="recognition", claim="not_attempted", action="allow"))
     message = tool_input.get("message")
     explicit_name = tool_input.get("task_name")
     embedded_name = task_name_from_message(message)
@@ -80,26 +76,28 @@ def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | N
     if explicit_name is None and not has_marker:
         return None
     if explicit_name is not None and not isinstance(explicit_name, str):
-        return None
+        return _allow(diagnostic("input_unavailable", stage="recognition", claim="not_attempted", action="allow"))
     if has_marker and embedded_name is None:
-        return _deny("governed message 标记无效；必须由 prepare-dispatch 生成")
+        return _deny(diagnostic("marker_conflict", stage="recognition", claim="not_attempted", action="deny"))
     if explicit_name is not None and embedded_name is not None and explicit_name != embedded_name:
-        return _deny("governed task_name 与 message 标记不一致")
+        return _deny(diagnostic("marker_conflict", stage="recognition", claim="not_attempted", action="deny"))
     task_name = explicit_name or embedded_name
     parsed = parse_task_name(task_name)
     if parsed is None:
         if not has_marker:
             return None
-        return _deny("governed task_name 无效；必须由 prepare-dispatch 生成")
+        return _deny(diagnostic("marker_conflict", stage="recognition", claim="not_attempted", action="deny"))
     _profile, _semantic_name, task_ref = parsed
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id.strip():
-        return _allow("Subagent Governance 无法验证 exact session_id；已 fail-open 且未 claim。")
+        return _allow(diagnostic("session_unavailable", stage="identity", claim="not_attempted", action="allow"))
     tool_use_id = payload.get("tool_use_id")
     if not isinstance(tool_use_id, str) or not tool_use_id.strip():
-        return _allow("Subagent Governance 无法验证 tool_use_id；已 fail-open 且未 claim。")
+        return _allow(diagnostic("call_id_unavailable", stage="identity", claim="not_attempted", action="allow"))
+    claim_attempted = False
     try:
-        store = state_store or StateStore()
+        store = state_store if state_store is not None else StateStore()
+        claim_attempted = True
         outcome = claim_spawn(
             session_id,
             task_ref,
@@ -108,17 +106,13 @@ def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | N
             state_store=store,
             now=payload.get("now"),
         )
-    except NativeInputUnavailable:
-        return _allow("Subagent Governance 无法验证原生输入；已 fail-open 且未 claim。")
-    except NativeInputMismatch as exc:
-        return _deny(f"governed spawn native input 不一致：{exc}")
-    except StateConflictError as exc:
-        return _deny(f"governed spawn claim 冲突：{exc}")
-    except Exception:
-        return _allow("Subagent Governance 内部故障；已 fail-open 且未声称 claim。")
-    return _allow(
-        f"Subagent Governance 已在 {STATE_STORAGE_NAMESPACE} 单一 ledger 原子 claim task_ref={task_ref}（{outcome['result']}）。原生返回后立即 confirm exact target。"
-    )
+    except Exception as exc:
+        code, stage, claim, action = classify_failure(exc)
+        if not claim_attempted:
+            stage, claim = "state_init", "not_attempted"
+        context = diagnostic(code, stage=stage, claim=claim, action=action)
+        return _deny(context) if action == "deny" else _allow(context)
+    return _allow(diagnostic(outcome["result"], stage="claim", claim="confirmed", action="claimed"))
 
 
 def _session_start(payload: dict[str, Any]) -> dict[str, Any] | None:

@@ -31,6 +31,7 @@ EXPECTED_RUNTIME_FILES = {
     "scripts/governance_dispatch_rendering.py",
     "scripts/governance_errors.py",
     "scripts/governance_hook.py",
+    "scripts/governance_hook_diagnostics.py",
     "scripts/governance_input.py",
     "scripts/governance_lifecycle.py",
     "scripts/governance_native_adapter.py",

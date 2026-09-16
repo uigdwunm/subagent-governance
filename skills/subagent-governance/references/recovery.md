@@ -35,3 +35,15 @@ previous_status 只证明操作前状态；没有明确操作后事实时记录 
 相同终态幂等；独立来源确有新事实可补充，矛盾终态保留首个事实并 reconcile。不为同一通知重复登记不同来源。
 
 reconcile 不提供正常执行参数，也不自动解锁。若父任务明确决定停止跟踪，可使用 `--close-task`，提交 task_id/task_ref 和实际 reason；这不是验收成功。close 保留 unknown_facts、首个 reconcile 原因和既有事实。相同 reason 幂等，不同 reason 不覆盖，closed 不重新开启。
+
+
+## 治理降级
+
+收到 fail-open 或 claim 未确认提示时，先区分 Hook 决定、claim 证据和本次原生回执；原因码与阶段见 [故障契约](runtime-boundaries.md#hook-故障分类与证据契约)。不要将 allow／continue 当作校验通过，也不要将内部异常当作未提交或未创建。
+
+- 仍持有本次原生返回的 exact target 时，按现有 confirm 路径处理；缺 claim 会进入 reconcile，不手工补 claim、不根据通知补绑。
+- 原生机械证明未创建或结果未知时，按“派发回执与缺失绑定”登记实际 failed／unknown；Hook 的拒绝或错误提示本身不是未创建证据。
+- 缺失权威身份或账本不可读取时，停止依赖这些事实的操作，报告原因码和阶段；不跨 Session 扫描、不猜身份、不自动重派，继续其他已授权工作。
+- 用户明确要求检查通过才执行，而父任务在发起调用前已知检查不可完成时，停止依赖该检查的调用。调用中才出现的降级不能通过后续提示撤销原生执行。
+
+诊断不包含业务正文或异常原文；不为补诊断建立另一个账本或自动重试。strict 与 standard 的降级处置相同。

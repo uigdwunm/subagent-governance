@@ -97,6 +97,7 @@ status/diagnose/SessionStart 保持无锁、零写、best-effort，不创建目�
 
 | 触发证据 | 参考 |
 | --- | --- |
+| Hook fail-open、claim 未确认或提交结果不确定 | [治理降级](references/recovery.md#治理降级) |
 | spawn failed/unknown、缺少 claim、未绑定 target | [派发回执与缺失绑定](references/recovery.md#派发回执与缺失绑定) |
 | 消息、中断或平台观察 unknown | [未知消息或观察](references/recovery.md#未知消息或观察) |
 | 已调用原生中断 | [中断回执](references/recovery.md#中断回执) |
