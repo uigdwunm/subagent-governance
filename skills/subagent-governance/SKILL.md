@@ -12,7 +12,7 @@ Codex 原生 Agent 工具是唯一执行通道。本 Skill 明确任务契约、
 - exact Session 只取自 SessionStart 注入的 `当前 Hook 权威 exact session_id（JSON）`，所有治理命令的 `--session` 逐字使用该值。
 - CLI 只取自同次注入的 `当前 Hook 权威 governance CLI entrypoint（JSON）`；解码后的路径作为 Python 的单个脚本参数。不得改用工作区相对脚本、其他 cache 版本或猜测安装路径。
 - `<codex_delegation><source_thread_id>` 是来源任务，不是当前 Session；父任务 ID、任务列表等也不能替代。任一权威值缺失时，在 prepare/spawn 前停止并报告，不猜测或跨 Session 扫描。
-- target 只由父任务依据本次原生 spawn 的机械返回显式绑定；不从 `list_agents`、task name、时间、summary、transcript、child final 或唯一候选推断 identity。
+- target 只由父任务依据本次原生 spawn 的机械返回显式绑定；不从调用前的短 task_name、`list_agents`、时间、summary、transcript、child final 或唯一候选推断 identity；原生返回的完整 canonical task_name 属于返回身份，不在此禁用范围。
 - 治理异常只停止依赖缺失身份或冲突事实的操作；继续其他已授权工作，不用重复 spawn 绕过。每次真正 spawn 都是独立生命周期。
 
 ## 编写任务契约
@@ -45,7 +45,7 @@ TaskContract v2 的最小完整示例：
    ```
 
 2. 用一句话说明派发理由，展示返回的 user_message；未覆盖模型/推理参数按原生配置解析，不冒充已核实配置。把 spawn_args 原样交给当前原生 spawn_agent。collaboration_turns 使用 message/task_name/fork_turns；fork_context 使用 message/fork_context。生成标记与 task name 保持一致。
-3. 读取本次原生返回（当前接口的 agent_id 为 exact target）。取 prepare 返回的 `operation_inputs["--confirm-dispatch"]`，仅补入该 target，立即用权威 CLI 的 `--confirm-dispatch --session <exact-session-id>` 提交 JSON stdin。平台未机械暴露 target 则停止绑定和依赖操作，不补猜身份。
+3. 按当前可见工具契约读取同一次原生返回：collaboration_turns 使用返回的完整 canonical `task_name`（如 `/root/parent/child`）；fork_context 仅在该接口确实返回 `agent_id` 时使用该值。身份原样传递，不用调用前的短名称拼接路径，也不截取末段。取 prepare 返回的 `operation_inputs["--confirm-dispatch"]`，仅补入该 target，立即用权威 CLI 的 `--confirm-dispatch --session <exact-session-id>` 提交 JSON stdin。返回缺少可寻址身份、字段类型不符、仅有无法确认的短名称或候选身份冲突时，停止绑定和依赖操作并报告，不补猜身份、不盲选字段。返回样例与 confirm 输入见 [身份契约样例](references/runtime-boundaries.md#原生返回身份契约样例)。
 4. 首次确认建立 bound，保存 task/ref/target 映射。相同确认幂等，冲突保留首个绑定并 reconcile，不重派。Pre claim 的接口匹配和 fail-open 边界见 [runtime boundaries](references/runtime-boundaries.md)；派发失败、未知或缺少 claim 时走文末异常路由。
 
 `operation_inputs` 的键是现有 CLI 命令，值是已填身份的 JSON stdin。prepare 提供 confirm 输入；confirm、平台观察和终态通知按实际阶段返回后续输入，精确 status 详情可按需恢复。prepared/claimed 的 confirm 输入不证明原生派发成功；bound 提供两种证据登记和 close；terminal/reconcile 仅提供 close；closed 为空。

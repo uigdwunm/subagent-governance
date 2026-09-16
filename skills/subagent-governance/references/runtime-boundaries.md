@@ -13,7 +13,7 @@
 - status、diagnose 和 SessionStart 不创建目录、lock、临时文件或空状态，不 cleanup、rebuild、迁移、自动重试或扫描业务正文。
 - 所有治理 CLI 操作必须使用 SessionStart 注入的已安装 entrypoint，使其与 Hook 解析到同一插件数据根；禁止改用工作区相对脚本、其他 cache 版本或猜测路径。
 - `<codex_delegation><source_thread_id>` 只表示来源任务，不是当前 session ID；缺失任一 SessionStart 权威值时停止 governed dispatch，不从父任务、列表或其他 ID 猜测。
-- transcript、summary、child final、时间邻近、task name 和 `list_agents` 都不是 correctness authority。
+- transcript、summary、child final、时间邻近、调用前的短 task_name 和 `list_agents` 都不是绑定身份的 correctness authority；同次原生返回的完整 canonical task_name 可以作为 exact target。
 - exact platform observation 只作用于已 bound target；unknown 写 unknown_facts，保持 bound，后续确定终态可正常登记。
 - 等待节奏由 Skill 的“等待与通信”定义：短次等待、按 target 静默时间核对、恢复时补核对。时间信息只保留在父任务上下文；wait 不持久化，不增加状态字段或 attempt。Hook 不执行定时巡检，status/diagnose 不读取原生平台状态；超时和静默不是终态证据。
 - normal message success/failed 不要求额外 CLI；显式调用仍只校验 exact identity 且零写入。unknown 写 unknown_facts.delivery_unknown，不自动重发、不保存正文或调用历史。
@@ -66,6 +66,37 @@ Finite turns use 1–12 ASCII digits without a leading zero. Do not infer suppor
 for unknown fields, structured items, tool aliases or model combinations.
 This check cannot establish Hook trust, delivery, marker visibility or execution.
 Real Hook delivery and visibility must be checked after installation in a fresh task.
+
+## 原生返回身份契约样例
+
+以下 JSON 是可校验的文档样例，不是新增 CLI 输入或自动解析规则。`confirmation_target` 为父任务依据可见工具契约选取的值；null 表示不能据该样例绑定。成功时取 prepare 的 confirm 输入，只补入 `target`，保持完整路径或 ID 的原始值。不要把这个样例对象整体传给 CLI。
+
+`collaboration_turns` 完整路径样例形态取自 2026-09-16 两个真实任务，名称已替换为示例值；嵌套路径、fork_context 与所有异常条目为合成边界样例，不能作为这些环境已真实验证的证据。多个身份字段不一致时停止核对，不用字段优先级掩盖冲突。
+
+<!-- native-return-examples:start -->
+```json
+[
+  {"case": "canonical", "origin": "observed_shape", "native_interface": "collaboration_turns", "native_return": {"task_name": "/root/example_child"}, "confirmation_target": "/root/example_child"},
+  {"case": "nested", "origin": "synthetic", "native_interface": "collaboration_turns", "native_return": {"task_name": "/root/parent/example_child"}, "confirmation_target": "/root/parent/example_child"},
+  {"case": "agent_id", "origin": "synthetic", "native_interface": "fork_context", "native_return": {"agent_id": "019fd6ea-2afb-73e0-810c-0bb2636aeaae"}, "confirmation_target": "019fd6ea-2afb-73e0-810c-0bb2636aeaae"},
+  {"case": "missing", "origin": "synthetic", "native_interface": "collaboration_turns", "native_return": {}, "confirmation_target": null},
+  {"case": "wrong_type", "origin": "synthetic", "native_interface": "collaboration_turns", "native_return": {"task_name": 7}, "confirmation_target": null},
+  {"case": "short_name", "origin": "synthetic", "native_interface": "collaboration_turns", "native_return": {"task_name": "example_child"}, "confirmation_target": null},
+  {"case": "conflict", "origin": "synthetic", "native_interface": "collaboration_turns", "native_return": {"task_name": "/root/example_child", "agent_id": "/root/other_child"}, "confirmation_target": null},
+  {"case": "wrong_interface", "origin": "synthetic", "native_interface": "collaboration_turns", "native_return": {"agent_id": "019fd6ea-2afb-73e0-810c-0bb2636aeaae"}, "confirmation_target": null}
+]
+```
+<!-- native-return-examples:end -->
+
+例如 canonical 条目的 confirm stdin 是（task_id/task_ref 必须替换为本次 prepare 的值）：
+
+<!-- native-confirm-example:start -->
+```json
+{"task_id": "<prepare.task_id>", "task_ref": "<prepare.task_ref>", "target": "/root/example_child"}
+```
+<!-- native-confirm-example:end -->
+
+样例验证只覆盖说明中的字段对应关系及运行时 confirm 相容性，不证明 Agent 遵循了说明。真实验收必须记录原生返回与 confirm 输入；如果测试者需要自行纠正文档才能走通，应报告说明缺陷，不能只凭最终 closed 判通过。
 
 ## 后续 CLI 输入投影
 

@@ -74,7 +74,7 @@ python3 scripts/dev_deploy.py \
 
 ## 真实平台验证
 
-获准部署并重启后，在独立新任务以显式 `gpt-6-astra/high` 验证；父任务和受测子 Agent 分别核实实际配置，无法确认的项目标为未验证。用户明确指定其他配置时采用用户配置。按以下顺序验证：
+获准部署并重启后，在独立新任务以显式 `gpt-5.6-terra/high` 验证；父任务和受测子 Agent 分别核实实际配置，无法确认的项目标为未验证。用户明确指定其他配置时采用用户配置。按以下顺序验证：
 
 - unmanaged spawn fail-open 且零状态；
 - prepare → Pre claim → native spawn → explicit exact-target confirm；
@@ -82,6 +82,8 @@ python3 scripts/dev_deploy.py \
 - normal message success/failed 无必需额外记账，一条终态证据只登记一次，minimal interrupt 与 parent close；
 - 实际 unknown 后出现确定状态时，终态可登记，历史 unknown 仍保留；未实际出现该回执则标为未验证；
 - exact-session SessionStart/status 以及用户触发的 restart/compact。
+
+身份契约回归至少覆盖 standard 只读任务和 strict 通信收尾任务。测试者先读新版 Skill，不额外提示应选择哪个返回字段；逐项记录同次 spawn 的原生返回、confirm target 与最终状态。完整 canonical task_name 与输入短名称必须区分，嵌套路径不得重建或截断；其他接口只有实际可用时才验证，不可用标为未验证。若需要自行纠正文档或额外提示才能完成，即使最终 closed 也不能将说明一致性判为通过。文档样例本地检查不能替代这项真实验证。
 
 Hook trust、Codex registration、桌面 UI 和 exact session identity 分别记录；文件存在、`installed/enabled` 或本地测试不能替代真实证据。未经授权或尚未重启时一律记为 `not_checked`。
 

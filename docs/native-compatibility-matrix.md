@@ -69,7 +69,7 @@ PreToolUse 正常输出为 hookSpecificOutput 的 allow/deny 和安全诊断；�
 | state-v9 历史真实链路 | H；V4/V5 的 unknown 不升级为投递或中断成功 |
 | state-v12 Hook/native 链路 | P 未执行；临时 bundle 测试只算 L |
 
-官方文档要求信任当前 Hook 定义，installed/enabled 不等于 trusted；部分工具路径可能跳过 Hook。当前工具声明只说明 spawn 返回 agent ID 或 canonical task name 的使用约定，不证明某次返回。插件不新增回执解析器：父任务只取本次返回的 exact target 显式 confirm。wait、消息、中断和 terminal 仍按现有 exact-target 事实契约处理，缺少确定回执保持 unknown。
+官方文档要求信任当前 Hook 定义，installed/enabled 不等于 trusted；部分工具路径可能跳过 Hook。当前工具声明只说明 spawn 返回 agent ID 或 canonical task name 的使用约定，不证明某次返回。插件不新增回执解析器：父任务只取本次返回的 exact target 显式 confirm。collaboration_turns 返回的完整 canonical task_name 与调用前提交的短名称不同，前者可以原样绑定；fork_context 仅在可见契约和实际返回提供 agent_id 时使用该值，不跨接口猜字段。具体示例见[返回身份契约](../skills/subagent-governance/references/runtime-boundaries.md#原生返回身份契约样例)。wait、消息、中断和 terminal 仍按现有 exact-target 事实契约处理，缺少确定回执保持 unknown。
 
 ## 派发前、运行时与 F 交接
 

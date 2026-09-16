@@ -5,7 +5,7 @@
 ## 派发回执与缺失绑定
 
 - 原生调用明确 failed 且机械证明 Agent 未创建时，用 `--record-dispatch-result` 提交 `{"task_id":"...","task_ref":"...","result":"failed"}`。结果 unknown 时改用 `result=unknown`；success 必须走 confirm 并携带本次原生返回的 exact target。
-- spawn 返回后、confirm 前父任务中断，记录保持 claimed/unbound。只有仍持有本次原生返回的 exact target 才能 confirm；不能从列表、名称、时间、通知或唯一候选恢复身份。
+- spawn 返回后、confirm 前父任务中断，记录保持 claimed/unbound。只有仍持有本次原生返回的 exact target 才能 confirm；不能从列表、调用前的短名称、时间、通知或唯一候选恢复身份。仍持有的同次原生返回完整 canonical task_name 可以原样使用，不属于按名称推断；字段选择见根 Skill 的派发步骤。
 - 缺少 claim、派发 unknown、身份或终态冲突进入 reconcile。不得通过后续通知补绑、自动解锁、重派或创建 attempt 绕过。
 - 同一 exact target confirm 重放幂等，first bind 保留；terminal/closed 后相同 confirm 不重新开启执行。不同 target 或 task/ref 按既有冲突规则处理。生成参数不改变这些规则。
 
