@@ -9,6 +9,7 @@ Without ``--execute`` it is a strictly read-only dry run.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -24,12 +25,12 @@ from typing import Any, Iterator
 
 try:
     from scripts.runtime_bundle import (
-        bundle_digest,
+        runtime_files,
         stage_runtime_bundle,
         verify_runtime_bundle,
     )
 except ModuleNotFoundError:
-    from runtime_bundle import bundle_digest, stage_runtime_bundle, verify_runtime_bundle
+    from runtime_bundle import runtime_files, stage_runtime_bundle, verify_runtime_bundle
 
 
 if os.name == "nt":
@@ -176,7 +177,7 @@ def manifest_version(root: Path) -> str:
 
 
 def _version_name(value: str, label: str) -> str:
-    if not value or value in {".", ".."} or Path(value).name != value:
+    if not isinstance(value, str) or not value or value in {".", ".."} or Path(value).name != value:
         raise ValueError(f"{label} 必须是单个非空版本目录名：{value!r}")
     return value
 
@@ -232,6 +233,66 @@ def _clean_exact_head(source: Path, expected_head: str) -> str:
     if _git(source, "status", "--porcelain=v1", "--untracked-files=all"):
         raise RuntimeError("Git source 必须是干净 worktree（含未跟踪文件）")
     return actual
+
+
+def _git_object(source: Path, *arguments: str) -> bytes:
+    """Read original object bytes, without replacement objects or content filters."""
+    try:
+        return subprocess.check_output(
+            ["git", "--no-optional-locks", "--no-replace-objects", "-C", str(source),
+             *arguments], stderr=subprocess.PIPE,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError(f"Git commit object 校验失败：{source}") from exc
+
+
+def _commit_bundle_digest(source: Path, expected_head: str, root: Path) -> str:
+    """Bind projection bytes and executable identity to an exact commit.
+
+    The digest retains full filesystem modes. Git records only the owner
+    executable bit, not all filesystem permissions.
+    """
+    if _git_object(source, "cat-file", "-t", expected_head).strip() != b"commit":
+        raise RuntimeError("expected head 必须指向 commit object")
+    entries = {}
+    records = _git_object(source, "ls-tree", "-rz", "--full-tree", expected_head)
+    for record in records.split(b"\0"):
+        if record:
+            metadata, name = record.split(b"\t", 1)
+            mode, kind, oid = metadata.split()
+            entries[os.fsdecode(name)] = (mode, kind, oid.decode("ascii"))
+
+    def committed_bytes(relative: str) -> tuple[bytes, bytes]:
+        entry = entries.get(relative)
+        if entry is None or entry[0] not in (b"100644", b"100755") or entry[1] != b"blob":
+            raise RuntimeError(f"发布文件必须是 commit 中的普通文件：{relative}")
+        return entry[0], _git_object(source, "cat-file", "blob", entry[2])
+
+    manifest_relative = ".codex-plugin/runtime-bundle.json"
+    _, manifest_bytes = committed_bytes(manifest_relative)
+    files = runtime_files(root)
+    if (root / manifest_relative).read_bytes() != manifest_bytes:
+        raise RuntimeError(f"发布文件字节与 expected commit 不一致：{manifest_relative}")
+    committed_manifest = json.loads(manifest_bytes)
+    if list(files) != committed_manifest.get("files"):
+        raise RuntimeError("runtime allowlist 与 expected commit 不一致")
+    digest = hashlib.sha256()
+    for relative in files:
+        mode, expected_bytes = committed_bytes(relative)
+        path = root / relative
+        metadata = path.stat()
+        content = path.read_bytes()
+        if content != expected_bytes:
+            raise RuntimeError(f"发布文件字节与 expected commit 不一致：{relative}")
+        if os.name != "nt" and bool(metadata.st_mode & stat.S_IXUSR) != (mode == b"100755"):
+            raise RuntimeError(f"发布文件可执行位与 expected commit 不一致：{relative}")
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(oct(stat.S_IMODE(metadata.st_mode)).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(content)
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _marketplace_spec(marketplace: str) -> str:
@@ -322,7 +383,7 @@ def _switch_paths(stable: Path, transaction_id: str) -> tuple[Path, Path, Path]:
 def _safe_remove_tree(path: Path, parent: Path, prefix: str, label: str) -> None:
     if path.parent != parent or not path.name.startswith(prefix):
         raise RuntimeError(f"{label} 路径无法安全绑定：{path}")
-    _safe_tree_digest(path)
+    _validate_removable_tree(path)
     shutil.rmtree(path)
 
 
@@ -353,17 +414,36 @@ def _live_cache_matches(cache_parent: Path, expected: list[dict[str, str]]) -> b
         return False
 
 
+def _validate_removable_tree(root: Path) -> None:
+    """Check safety, not package completeness; installation may be partial."""
+    _ordinary_directory(root, "事务残留目录")
+    for path in root.iterdir():
+        metadata = path.lstat()
+        if stat.S_ISDIR(metadata.st_mode):
+            _validate_removable_tree(path)
+        elif stat.S_ISREG(metadata.st_mode):
+            _ordinary_file(path, "事务残留文件")
+        else:
+            raise RuntimeError(f"事务残留只允许普通文件和目录，不允许符号链接：{path}")
+
+
 def _restore_cache_snapshot(
-    transaction: Path, cache_parent: Path, expected: list[dict[str, str]]
+    transaction: Path, cache_parent: Path, expected: list[dict[str, str]],
+    target_version: str,
 ) -> None:
     snapshot = transaction / CACHE_SNAPSHOT
     _ordinary_directory(snapshot, "cache snapshot")
     snapshot_facts = _cache_facts(snapshot)
     if snapshot_facts != expected:
         raise RuntimeError("cache snapshot facts 与 transaction manifest 不一致")
-    for entry in list(cache_parent.iterdir()):
-        _ordinary_directory(entry, "回滚前 cache")
-        _safe_tree_digest(entry)
+    allowed_names = {target_version, *(fact["name"] for fact in expected)}
+    entries = list(cache_parent.iterdir())
+    # Validate the entire deletion set before touching any cache entry.
+    for entry in entries:
+        if entry.parent != cache_parent or entry.name not in allowed_names:
+            raise RuntimeError(f"回滚 cache 路径无法绑定到 transaction：{entry}")
+        _validate_removable_tree(entry)
+    for entry in entries:
         shutil.rmtree(entry)
     for fact in expected:
         source = snapshot / fact["name"]
@@ -371,6 +451,8 @@ def _restore_cache_snapshot(
         shutil.copytree(source, target, copy_function=shutil.copy2)
         if _safe_tree_digest(target) != fact["digest"]:
             raise RuntimeError(f"回滚后的 cache digest 不匹配：{target}")
+    if not _live_cache_matches(cache_parent, expected):
+        raise RuntimeError("回滚后的 cache 集合与 snapshot 不一致")
 
 
 def _restore_stable_snapshot(
@@ -449,13 +531,18 @@ def _recover_transaction(
     ):
         raise RuntimeError("transaction pre_caches 无效")
 
+    target_version = _version_name(manifest.get("expected_version"), "transaction target version")
+    names = [_version_name(item["name"], "transaction cache name") for item in expected_caches]
+    if len(set(names)) != len(names) or target_version in names:
+        raise RuntimeError("transaction cache names 无效")
+
     state = manifest.get("state")
     if state == "snapshot_started":
         if _safe_tree_digest(stable) != manifest.get("pre_stable_digest") or not _live_cache_matches(cache_parent, expected_caches):
             raise RuntimeError("未完成 snapshot 且 live roots 已变化，拒绝猜测恢复")
     else:
         _restore_stable_snapshot(transaction, manifest, stable, backup, recovery)
-        _restore_cache_snapshot(transaction, cache_parent, expected_caches)
+        _restore_cache_snapshot(transaction, cache_parent, expected_caches, target_version)
     if staging.exists() or staging.is_symlink():
         _safe_remove_tree(staging, stable.parent, STAGING_PREFIX, "staging")
     if backup.exists() or backup.is_symlink():
@@ -592,7 +679,7 @@ def deploy(
         expected_version = _version_name(expected_version, "expected version")
         if manifest_version(source) != expected_version:
             raise RuntimeError("source Manifest version 与 expected version 不一致")
-        source_digest = bundle_digest(source)
+        source_digest = _commit_bundle_digest(source, expected_head, source)
         spec = _marketplace_spec(marketplace)
         pending = _transaction_directories(transactions)
         report["source_bundle_digest"] = source_digest
@@ -616,7 +703,7 @@ def deploy(
                 report["recovered_interrupted_transaction"] = recovered
                 # Recovery can change live roots back to their exact pre-transaction facts.
                 _clean_exact_head(source, expected_head)
-                if bundle_digest(source) != source_digest:
+                if _commit_bundle_digest(source, expected_head, source) != source_digest:
                     raise RuntimeError("source bundle 在 admission 后发生变化")
                 pre_stable_digest = _safe_tree_digest(stable)
                 pre_caches = _cache_facts(cache)
@@ -650,7 +737,10 @@ def deploy(
                 _create_snapshot(transaction, manifest, stable, cache)
                 _failpoint("after_snapshot")
                 staged_digest = stage_runtime_bundle(source, staging)
-                if staged_digest != source_digest or manifest_version(staging) != expected_version:
+                if (staged_digest != source_digest
+                        or _commit_bundle_digest(source, expected_head, staging) != source_digest
+                        or verify_runtime_bundle(staging) != source_digest
+                        or manifest_version(staging) != expected_version):
                     raise RuntimeError("staged bundle version/digest 不匹配")
                 manifest["state"] = "stage_complete"
                 _write_json_atomic(transaction / TRANSACTION_MANIFEST, manifest)
@@ -696,9 +786,13 @@ def deploy(
                 if target_digest != source_digest or stable_digest != source_digest:
                     report["failed_stage"] = "post_install_verification"
                     raise RuntimeError("stable/target runtime bundle digest 不匹配")
-                if bundle_digest(source) != source_digest or _clean_exact_head(source, expected_head) != expected_head:
+                try:
+                    if (_commit_bundle_digest(source, expected_head, source) != source_digest
+                            or _clean_exact_head(source, expected_head) != expected_head):
+                        raise RuntimeError("source 在 native install 期间发生变化")
+                except Exception:
                     report["failed_stage"] = "source_post_install"
-                    raise RuntimeError("source 在 native install 期间发生变化")
+                    raise
 
                 keep = {expected_version}
                 if previous is not None:

@@ -3,6 +3,7 @@ import unittest
 from tests.support import ROOT
 
 VALIDATION_DOCUMENTS = {
+    "docs/validation/J-deployment-recovery-source-consistency.md",
     "docs/validation/current-only-local-acceptance.md",
     "docs/validation/native-compatibility-2026-09-16.md",
     "docs/validation/current-only-real-platform-validation.md",

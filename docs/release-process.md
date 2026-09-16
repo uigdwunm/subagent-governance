@@ -51,6 +51,10 @@ python3 scripts/dev_deploy.py \
 3. 普通、非符号链接、owner/permission 安全且互不重叠的 source/stable/cache/transaction roots；
 4. 操作者从原生状态机械取得的 exact previous version；不按目录时间、版本语义或唯一候选推断；被选中的 previous 必须在调用原生安装前通过精确 runtime bundle 校验。
 
+来源证明直接读取 `expected-head` 的原始 Git tree/blob，禁用 replacement objects，不依赖 index 的 `skip-worktree`、`assume-unchanged` 或再次检查 `git status` 来证明内容。allowlist 自身及全部发布文件必须属于该提交，且实际字节逐项一致；提交中的符号链接和 submodule 不能作为发布文件。准入、锁内恢复之后、staging 激活之前及安装后分别核对相应 source/staging 内容。
+
+此入口采用原始提交字节语义：CRLF、smudge filter 等 checkout 转换导致字节不同，即使 Git 认为工作区干净也拒绝，不自动转换或执行 filter。POSIX 上另核对 Git 记录的 owner executable bit；Windows 不据此声称 POSIX 执行权限已验证。Git 提交身份与 `bundle_digest` 是两类证据：前者绑定原始字节与 Git 文件模式，后者继续比较安装投影的完整文件权限位与字节。此校验不能观察两次检查之间发生又被撤销的全部工作区编辑，也不提供针对同一用户并发篡改文件系统的隔离保证。
+
 入口在同一 operation lock 内恢复精确绑定的未完成 transaction，然后：
 
 1. 快照 stable 和完整安装前 cache 集合及 digest；
@@ -62,7 +66,9 @@ python3 scripts/dev_deploy.py \
 
 部署、最终校验、成功清理及失败回滚连续持有同一 operation lock；回滚完成或失败退出后才释放锁。竞争进程拿锁失败时不执行恢复或安装，也不解锁。
 
-原生命令失败、target 缺失或摘要不匹配、source/stable 变化、retention 失败都会恢复部署前 stable 与完整 cache 集合。进程在原子切换中断时，下次有写权限的执行只按 transaction manifest 绑定的 staging/backup/recovery path 恢复；存在多个 transaction 或孤立 switch path 时拒绝猜测。
+原生命令失败、target 缺失或摘要不匹配、source/stable 变化、retention 失败都会尝试恢复部署前 stable 与完整 cache 集合。cache 快照仍须通过完整校验；清理对象仅限 transaction 中的目标版本与部署前 cache 名称，允许空目录或部分安装残留。删除任何 cache 前先检查整组对象及其后代的普通文件/目录类型、所有权和权限，拒绝未知版本目录、符号链接与特殊文件。恢复复制失败后留下的部分目录也按同一规则在下次执行时处理。
+
+进程在原子切换中断时，下次有写权限的执行只按 transaction manifest 绑定的 staging/backup/recovery path 恢复；存在多个 transaction 或孤立 switch path 时拒绝猜测。恢复失败保留 transaction 快照及原错误和恢复错误，不报告已回滚；只有恢复后的 cache 集合和摘要精确匹配才完成回滚。
 
 直接管理 Codex 内部 cache 是本机开发测试能力，不是通用产品 API。部署命令无论成功或失败，当前任务都应立即报告并停止，等待用户重启 Codex；真实验证必须在重启后的新任务进行。
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -117,6 +118,254 @@ class DevDeployTests(unittest.TestCase):
             return SimpleNamespace(returncode=returncode)
 
         return run
+
+    def test_install_residue_rolls_back_and_can_recover_on_reentry(self):
+        for previous_present, partial, interrupted in (
+            (False, False, False), (True, False, False),
+            (True, True, False), (True, True, True), (False, False, True),
+        ):
+            with self.subTest(previous=previous_present, partial=partial, interrupted=interrupted):
+                case = DevDeployTests()
+                case.setUp()
+                try:
+                    previous = "0.3.0+codex.previous" if previous_present else None
+                    if previous:
+                        case.cache(previous)
+                    before = dev_deploy._cache_facts(case.cache_parent)
+                    stable_before = dev_deploy._safe_tree_digest(case.stable)
+
+                    def failed_install(*args, **kwargs):
+                        for entry in case.cache_parent.iterdir():
+                            shutil.rmtree(entry)
+                        residue = case.cache_parent / case.version
+                        residue.mkdir()
+                        if partial:
+                            (residue / "partial").write_bytes(b"partial install")
+                            (residue / "empty").mkdir()
+                        if interrupted:
+                            raise KeyboardInterrupt("interrupted install")
+                        return SimpleNamespace(returncode=1)
+
+                    if interrupted:
+                        with self.assertRaises(KeyboardInterrupt):
+                            dev_deploy.deploy(**case.arguments(previous_version=previous),
+                                              runner=failed_install)
+                        with dev_deploy._operation_lock(case.transactions):
+                            dev_deploy._recover_interrupted(
+                                case.transactions, case.stable, case.cache_parent)
+                    else:
+                        code, report = dev_deploy.deploy(
+                            **case.arguments(previous_version=previous), runner=failed_install)
+                        self.assertEqual(code, 2)
+                        self.assertEqual(report["state"], "deploy_failed_rolled_back", report)
+                    self.assertEqual(dev_deploy._cache_facts(case.cache_parent), before)
+                    self.assertEqual(dev_deploy._safe_tree_digest(case.stable), stable_before)
+                    self.assertEqual(list(case.transactions.glob("transaction-*")), [])
+                finally:
+                    case.tearDown()
+
+    def test_hidden_uncommitted_projection_is_rejected_without_writes(self):
+        for flag in ("--skip-worktree", "--assume-unchanged"):
+            for relative in ("scripts/governance_errors.py", ".codex-plugin/runtime-bundle.json",
+                             ".codex-plugin/plugin.json"):
+                for execute in (False, True):
+                    with self.subTest(flag=flag, relative=relative, execute=execute):
+                        case = DevDeployTests()
+                        case.setUp()
+                        try:
+                            subprocess.run(["git", "-C", str(case.source), "update-index",
+                                            flag, relative], check=True)
+                            path = case.source / relative
+                            path.write_bytes(path.read_bytes() + b"\n")
+                            self.assertEqual(dev_deploy._git(case.source, "status", "--porcelain"), "")
+                            stable_before = dev_deploy._safe_tree_digest(case.stable)
+                            runner = mock.Mock()
+                            code, report = dev_deploy.deploy(
+                                **case.arguments(execute=execute), runner=runner)
+                            self.assertEqual(code, 2, report)
+                            self.assertEqual(report["failed_stage"], "admission")
+                            runner.assert_not_called()
+                            self.assertEqual(dev_deploy._safe_tree_digest(case.stable), stable_before)
+                            self.assertEqual(list(case.transactions.iterdir()), [])
+                            self.assertEqual(list(case.cache_parent.iterdir()), [])
+                        finally:
+                            case.tearDown()
+
+    def test_rollback_refuses_unbound_or_unsafe_residue_before_deleting_caches(self):
+        kinds = ["unknown", "symlink", "root_symlink", "file", "wrong_owner"]
+        if os.name != "nt":
+            kinds += ["fifo", "writable_directory", "writable_file"]
+        for kind in kinds:
+            with self.subTest(kind=kind):
+                case = DevDeployTests()
+                case.setUp()
+                try:
+                    previous = "0.3.0+codex.previous"
+                    case.cache(previous)
+                    previous_digest = dev_deploy._safe_tree_digest(case.cache_parent / previous)
+                    unsafe_inode = None
+                    owns = dev_deploy._owned_by_current_user
+
+                    def ownership(metadata):
+                        return metadata.st_ino != unsafe_inode and owns(metadata)
+
+                    def failed_install(*args, **kwargs):
+                        nonlocal unsafe_inode
+                        target = case.cache_parent / case.version
+                        target.mkdir()
+                        (target / "partial").write_bytes(b"partial")
+                        if kind == "unknown":
+                            (case.cache_parent / "unrelated").mkdir()
+                        elif kind == "symlink":
+                            (target / "link").symlink_to(case.source)
+                        elif kind == "root_symlink":
+                            shutil.rmtree(target)
+                            target.symlink_to(case.source, target_is_directory=True)
+                        elif kind == "wrong_owner":
+                            unsafe_inode = (target / "partial").stat().st_ino
+                        elif kind == "file":
+                            shutil.rmtree(target)
+                            target.write_bytes(b"not directory")
+                        elif kind == "fifo":
+                            os.mkfifo(target / "fifo")
+                        elif kind == "writable_directory":
+                            (target / "nested").mkdir(mode=0o777)
+                            (target / "nested").chmod(0o777)
+                        else:
+                            (target / "partial").chmod(0o666)
+                        return SimpleNamespace(returncode=1)
+
+                    with mock.patch.object(dev_deploy, "_owned_by_current_user",
+                                           side_effect=ownership):
+                        code, report = dev_deploy.deploy(
+                            **case.arguments(previous_version=previous), runner=failed_install)
+                    self.assertEqual(code, 2)
+                    self.assertEqual(report["state"], "rollback_failed", report)
+                    self.assertIn("返回 1", report["error"])
+                    self.assertEqual(dev_deploy._safe_tree_digest(case.cache_parent / previous),
+                                     previous_digest)
+                    self.assertEqual(len(list(case.transactions.glob("transaction-*"))), 1)
+                finally:
+                    case.tearDown()
+
+    @unittest.skipIf(os.name == "nt", "POSIX executable bits")
+    def test_executable_bit_mismatch_is_rejected_even_when_git_ignores_filemode(self):
+        subprocess.run(["git", "-C", str(self.source), "config", "core.filemode", "false"],
+                       check=True)
+        path = self.source / "scripts/governance_errors.py"
+        path.chmod(path.stat().st_mode ^ 0o100)
+        code, report = dev_deploy.deploy(**self.arguments(execute=False))
+        self.assertEqual(code, 2, report)
+        self.assertEqual(report["failed_stage"], "admission")
+
+    def test_staged_bytes_must_match_commit_before_activation(self):
+        original = dev_deploy.stage_runtime_bundle
+
+        def stage_then_tamper(source, target):
+            digest = original(source, target)
+            path = target / "scripts/governance_errors.py"
+            path.write_bytes(path.read_bytes() + b"\n# staged tampering\n")
+            return digest
+
+        runner = mock.Mock()
+        before = dev_deploy._safe_tree_digest(self.stable)
+        with mock.patch.object(dev_deploy, "stage_runtime_bundle", side_effect=stage_then_tamper):
+            code, report = dev_deploy.deploy(**self.arguments(), runner=runner)
+        self.assertEqual(code, 2, report)
+        runner.assert_not_called()
+        self.assertEqual(report["state"], "deploy_failed_rolled_back", report)
+        self.assertEqual(dev_deploy._safe_tree_digest(self.stable), before)
+
+    def test_partial_cache_restore_failure_is_recoverable_on_next_deploy(self):
+        previous = "0.3.0+codex.previous"
+        self.cache(previous)
+        digest = dev_deploy._safe_tree_digest(self.cache_parent / previous)
+        original = shutil.copytree
+
+        def fail_restore(source, target, *args, **kwargs):
+            if Path(target) == self.cache_parent / previous:
+                Path(target).mkdir()
+                raise OSError("injected partial restore")
+            return original(source, target, *args, **kwargs)
+
+        with mock.patch.object(dev_deploy.shutil, "copytree", side_effect=fail_restore):
+            code, report = dev_deploy.deploy(
+                **self.arguments(previous_version=previous),
+                runner=self.native_runner(returncode=1))
+        self.assertEqual(code, 2)
+        self.assertEqual(report["state"], "rollback_failed", report)
+        self.assertIn("返回 1", report["error"])
+        self.assertIn("injected partial restore", report["rollback_error"])
+        code, report = dev_deploy.deploy(
+            **self.arguments(previous_version=previous), runner=self.native_runner())
+        self.assertEqual(code, 0, report)
+        self.assertTrue(report["recovered_interrupted_transaction"])
+        self.assertEqual(dev_deploy._safe_tree_digest(self.cache_parent / previous), digest)
+
+    def test_hidden_source_change_during_install_rolls_back(self):
+        relative = "scripts/governance_errors.py"
+        subprocess.run(["git", "-C", str(self.source), "update-index",
+                        "--skip-worktree", relative], check=True)
+        native = self.native_runner()
+        before = dev_deploy._safe_tree_digest(self.stable)
+
+        def install_and_mutate(*args, **kwargs):
+            result = native(*args, **kwargs)
+            path = self.source / relative
+            path.write_bytes(path.read_bytes() + b"\n# changed during install\n")
+            return result
+
+        code, report = dev_deploy.deploy(**self.arguments(), runner=install_and_mutate)
+        self.assertEqual(code, 2)
+        self.assertEqual(report["state"], "deploy_failed_rolled_back", report)
+        self.assertEqual(dev_deploy._safe_tree_digest(self.stable), before)
+        self.assertEqual(list(self.cache_parent.iterdir()), [])
+
+    def test_source_change_before_staging_cannot_be_installed(self):
+        before = dev_deploy._safe_tree_digest(self.stable)
+
+        def mutate(stage):
+            if stage == "after_snapshot":
+                path = self.source / "scripts/governance_errors.py"
+                path.write_bytes(path.read_bytes() + b"\n# changed before staging\n")
+
+        runner = mock.Mock()
+        with mock.patch.object(dev_deploy, "_failpoint", side_effect=mutate):
+            code, report = dev_deploy.deploy(**self.arguments(), runner=runner)
+        self.assertEqual(code, 2)
+        runner.assert_not_called()
+        self.assertEqual(report["state"], "deploy_failed_rolled_back", report)
+        self.assertEqual(dev_deploy._safe_tree_digest(self.stable), before)
+
+    def test_git_clean_crlf_conversion_is_rejected_as_different_raw_bytes(self):
+        relative = "scripts/governance_errors.py"
+        (self.source / ".gitattributes").write_text(f"{relative} text eol=crlf\n")
+        subprocess.run(["git", "-C", str(self.source), "add", ".gitattributes"], check=True)
+        subprocess.run(["git", "-C", str(self.source), "commit", "-qm", "CRLF checkout"],
+                       check=True)
+        self.head = dev_deploy._git(self.source, "rev-parse", "HEAD").strip()
+        path = self.source / relative
+        path.unlink()
+        subprocess.run(["git", "-C", str(self.source), "checkout", "--", relative], check=True)
+        self.assertIn(b"\r\n", path.read_bytes())
+        self.assertEqual(dev_deploy._git(self.source, "status", "--porcelain"), "")
+        code, report = dev_deploy.deploy(**self.arguments(execute=False))
+        self.assertEqual(code, 2, report)
+        self.assertIn(relative, report["error"])
+
+    def test_replacement_blob_cannot_override_expected_commit_bytes(self):
+        relative = "scripts/governance_errors.py"
+        old_oid = dev_deploy._git(self.source, "rev-parse", f"HEAD:{relative}").strip()
+        path = self.source / relative
+        path.write_bytes(path.read_bytes() + b"\n# replacement content\n")
+        new_oid = subprocess.check_output(
+            ["git", "-C", str(self.source), "hash-object", "-w", str(path)], text=True).strip()
+        subprocess.run(["git", "-C", str(self.source), "replace", old_oid, new_oid], check=True)
+        subprocess.run(["git", "-C", str(self.source), "update-index", "--assume-unchanged",
+                        relative], check=True)
+        code, report = dev_deploy.deploy(**self.arguments(execute=False))
+        self.assertEqual(code, 2, report)
+        self.assertIn(relative, report["error"])
 
     def test_dry_run_verifies_clean_exact_source_and_is_zero_write(self):
         def deployment_paths():
