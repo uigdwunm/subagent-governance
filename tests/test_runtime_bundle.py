@@ -6,6 +6,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -34,6 +35,7 @@ EXPECTED_RUNTIME_FILES = {
     "scripts/governance_lifecycle.py",
     "scripts/governance_native_adapter.py",
     "scripts/governance_protocol.py",
+    "scripts/governance_operation_inputs.py",
     "scripts/governance_semantics.py",
     "scripts/governance_state.py",
     "scripts/governance_state_store.py",
@@ -45,11 +47,30 @@ EXPECTED_RUNTIME_FILES = {
     "skills/subagent-governance/agents/openai.yaml",
     "skills/subagent-governance/references/governance-profiles.md",
     "skills/subagent-governance/references/runtime-boundaries.md",
+    "skills/subagent-governance/references/recovery.md",
     "skills/subagent-governance/references/task-handoff.md",
 }
 
 
 class RuntimeBundleTests(unittest.TestCase):
+    def test_packaged_skill_links_resolve_inside_runtime_bundle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = Path(directory) / "bundle"
+            runtime_bundle.stage_runtime_bundle(ROOT, bundle)
+            for source in (bundle / "skills").rglob("*.md"):
+                for link in re.findall(r"\[[^\]]*\]\(([^)]+)\)", source.read_text()):
+                    if "://" in link:
+                        continue
+                    relative, _, anchor = link.partition("#")
+                    target = (source.parent / relative).resolve() if relative else source
+                    self.assertTrue(target.is_relative_to(bundle.resolve()), (source, link))
+                    self.assertTrue(target.is_file(), (source, link))
+                    if anchor:
+                        headings = re.findall(r"^#+ (.+)$", target.read_text(), re.MULTILINE)
+                        anchors = {re.sub(r"[^\w\- ]", "", h.lower()).replace(" ", "-")
+                                   for h in headings}
+                        self.assertIn(anchor, anchors, (source, link))
+
     def test_machine_allowlist_is_exact_minimal_and_all_files_exist(self):
         manifest = json.loads(
             (ROOT / ".codex-plugin/runtime-bundle.json").read_text(encoding="utf-8")
@@ -211,7 +232,7 @@ class RuntimeBundleTests(unittest.TestCase):
             self.assertEqual(task["phase"], "claimed")
 
             bound = run(["--confirm-dispatch", "--session", session_id], {
-                "task_id": prepared_value["task_id"], "task_ref": prepared_value["task_ref"],
+                **prepared_value["operation_inputs"]["--confirm-dispatch"],
                 "target": "/root/bundle-fixture",
             })
             self.assertEqual(bound.returncode, 0, bound.stderr)
@@ -224,6 +245,18 @@ class RuntimeBundleTests(unittest.TestCase):
             snapshot = json.loads(recovered.stdout)["tasks"][0]["contract_summary"]
             self.assertEqual(snapshot["completion"], ["Report name and version"])
             self.assertEqual(snapshot["scope"], [".codex-plugin/plugin.json"])
+
+            recovered_inputs = json.loads(recovered.stdout)["tasks"][0]["operation_inputs"]
+            terminal = run(["--record-terminal-notification", "--session", session_id], {
+                **recovered_inputs["--record-terminal-notification"], "status": "completed",
+            })
+            self.assertEqual(terminal.returncode, 0, terminal.stderr)
+            closed = run(["--close-task", "--session", session_id], {
+                **json.loads(terminal.stdout)["operation_inputs"]["--close-task"],
+                "reason": "parent verified fixture",
+            })
+            self.assertEqual(closed.returncode, 0, closed.stderr)
+            self.assertEqual(json.loads(closed.stdout)["operation_inputs"], {})
 
     def test_allowlisted_python_imports_are_closed_over_runtime_modules(self):
         allowed = set(runtime_bundle.runtime_files(ROOT))

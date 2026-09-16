@@ -51,3 +51,28 @@ header to locate the prepared task. Unknown shapes or unverifiable identity/conf
 fail open without a claim; known mismatches are rejected. Exact target binding
 still requires the current native spawn return and explicit confirm.
 Real Hook delivery and visibility must be checked after installation in a fresh task.
+
+## 后续 CLI 输入投影
+
+`operation_inputs` 仅生成现有命令的部分 JSON stdin，不新增输入协议、状态字段、身份 token 或执行器。prepare、confirm、record-platform-observation、record-terminal-notification、close 的成功返回，以及精确 status 详情携带它；默认 status/diagnose/SessionStart 不展开。各输入在调用时仍须配当前权威 CLI 和 exact Session。
+
+投影依据本次事务内的实际任务记录或精确只读记录，不按 result 字符串猜阶段、不使用冲突请求中的身份、不另读其他 Session。prepared/claimed 提供缺 target 的 confirm；bound 提供缺 status 的两种证据输入和缺 reason 的 close；terminal/reconcile 仅提供 close；closed 返回空对象。所有缺省事实由父任务核对后补入。输入集合不是操作许可或完整接口目录；独立新证据、中断和异常回执仍走原有 CLI。
+
+写操作在原有事务回调内生成投影，生成异常发生在提交前；不新增持久化或额外回读。原子替换后发生回读错误不代表写入未发生，保留各入口原有错误语义及 prepare 的精确已提交回读逻辑，不自动重派或重试。参数不存入账本，不影响 contract_summary/digest 和 state-v12。旧输入仍有效；返回增加字段，消费方应按所需字段读取。
+
+## Pre claim 与声明材料
+
+PreToolUse 按可见 task name 或消息首行 `[subagent-governance:<生成的 task name>]` 定位精确 task ref，校验冻结接口和派发配置后在同一账本认领。当前匹配包括 spawn_agent、multi_agent_v1 形式、collaboration.spawn_agent、collaborationspawn_agent。不可验证标识/配置、未知输入或内部 Hook 故障 fail-open 且不 claim、不声称成功；明确可比的不一致才拒绝。后续 confirm 缺少 claim 进入 reconcile。
+
+需要工作区材料校验时，context.verified 的 declared manifest 形状为：
+
+```json
+{
+  "mode": "declared",
+  "workspace_root": "/absolute/workspace",
+  "baseline": {"kind": "working_tree", "revision": null},
+  "required_paths": [{"path": "design.md", "type": "file"}]
+}
+```
+
+也可使用 git_commit baseline 并提供 revision；按实际任务声明 required paths。prepare 与 Pre claim 各验证一次，不自动扫描工作区或提供运行期间隔离。business digest 不包含 spawn；spawn config 有独立 digest。

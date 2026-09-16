@@ -22,6 +22,7 @@ try:
     )
     from scripts.governance_lifecycle import enter_reconcile, prune_closed_tasks
     from scripts.governance_native_adapter import normalize_native_spawn
+    from scripts.governance_operation_inputs import operation_inputs
     from scripts.governance_semantics import TARGET_OWNING_PHASES
 except ModuleNotFoundError:
     from governance_context import verify_context_manifest
@@ -39,6 +40,7 @@ except ModuleNotFoundError:
     )
     from governance_lifecycle import enter_reconcile, prune_closed_tasks
     from governance_native_adapter import normalize_native_spawn
+    from governance_operation_inputs import operation_inputs
     from governance_semantics import TARGET_OWNING_PHASES
 
 
@@ -268,7 +270,13 @@ def confirm_dispatch(
         )
         outcome.update(result="bound", task_id=task_id, task_ref=task_ref, target=target)
 
-    state_store.update(session_id, confirm)
+    def confirm_with_inputs(state: dict[str, Any]) -> None:
+        confirm(state)
+        # Render before persistence and from the actual phase, including replay
+        # and conflict branches. Never reuse a conflicting submitted identity.
+        outcome["operation_inputs"] = operation_inputs(task_id, state["tasks"][task_id])
+
+    state_store.update(session_id, confirm_with_inputs)
     return outcome
 
 

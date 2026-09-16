@@ -8,6 +8,7 @@ from typing import Any
 
 try:
     from scripts.governance_errors import StateConflictError
+    from scripts.governance_operation_inputs import operation_inputs
     from scripts.governance_semantics import (
         CALL_RESULTS,
         CLOSED_TASK_RETENTION,
@@ -18,6 +19,7 @@ try:
     )
 except ModuleNotFoundError:
     from governance_errors import StateConflictError
+    from governance_operation_inputs import operation_inputs
     from governance_semantics import (
         CALL_RESULTS,
         CLOSED_TASK_RETENTION,
@@ -245,6 +247,7 @@ def record_platform_observation(
                 result="recorded", task_id=task_id, task_ref=task_ref,
                 target=target, status=status,
             )
+        outcome["operation_inputs"] = operation_inputs(task_id, task)
         prune_closed_tasks(state)
 
     state_store.update(session_id, record)
@@ -353,6 +356,7 @@ def record_terminal_notification(
                 result="terminal", task_id=task_id, task_ref=task_ref,
                 target=sender, status=status,
             )
+        outcome["operation_inputs"] = operation_inputs(task_id, task)
         prune_closed_tasks(state)
 
     state_store.update(session_id, record)
@@ -490,6 +494,7 @@ def close_task(
                 result="closed", task_id=task_id, task_ref=task_ref,
                 target=task.get("target"),
             )
+        outcome["operation_inputs"] = operation_inputs(task_id, task)
         outcome["pruned_task_ids"] = list(prune_closed_tasks(state))
 
     state_store.update(session_id, close)

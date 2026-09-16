@@ -9,10 +9,12 @@ from typing import Any
 
 try:
     from scripts.governance_errors import StateConflictError
+    from scripts.governance_operation_inputs import operation_inputs
     from scripts.governance_semantics import STATE_FORMAT_VERSION, TASK_REF_LENGTHS
     from scripts.governance_state_store import read_ledger_readonly
 except ModuleNotFoundError:
     from governance_errors import StateConflictError
+    from governance_operation_inputs import operation_inputs
     from governance_semantics import STATE_FORMAT_VERSION, TASK_REF_LENGTHS
     from governance_state_store import read_ledger_readonly
 
@@ -69,6 +71,7 @@ def status(
             raise StateConflictError("status 详情 task_id/task_ref 不存在于当前 exact Session 或不匹配")
         result = project_status({"tasks": {task_id: task}}, session_id)
         result["tasks"][0]["contract_summary"] = copy.deepcopy(task["contract_summary"])
+        result["tasks"][0]["operation_inputs"] = operation_inputs(task_id, task)
         return result
     if state is None:
         return {"state_format_version": STATE_FORMAT_VERSION, "session_id": session_id, "tasks": []}

@@ -23,6 +23,7 @@ try:
     from scripts.governance_errors import DispatchPreparationError
     from scripts.governance_lifecycle import prune_closed_tasks
     from scripts.governance_native_adapter import normalize_native_spawn, validate_native_spawn
+    from scripts.governance_operation_inputs import operation_inputs
     from scripts.governance_semantics import PREPARED_EXPIRY_SECONDS
     from scripts.governance_state_store import StateStore
 except ModuleNotFoundError:
@@ -38,6 +39,7 @@ except ModuleNotFoundError:
     from governance_errors import DispatchPreparationError
     from governance_lifecycle import prune_closed_tasks
     from governance_native_adapter import normalize_native_spawn, validate_native_spawn
+    from governance_operation_inputs import operation_inputs
     from governance_semantics import PREPARED_EXPIRY_SECONDS
     from governance_state_store import StateStore
 
@@ -108,6 +110,7 @@ def prepare_dispatch(
             user_message=render_dispatch_user_message(contract, verification) + f"\n原生接口：{native_interface}",
             dispatch_prompt=native["message"],
             spawn_args=native,
+            operation_inputs=operation_inputs(task_id, record),
         )
 
     try:

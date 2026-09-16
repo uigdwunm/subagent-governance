@@ -1,3 +1,56 @@
+# C 集成验收
+
+日期：2026-09-16。已将 C 的常规流程精简和 operation_inputs 整合到主开发目录，来源 worktree 保持原样。下方独立工作区记录保留当时状态。
+
+整合前独立复核：153 项测试通过，含分支统计总覆盖率 75%；全量 lint、编译、插件/Skill 验证器、development 预检及差异检查通过。主目录整合后再次运行全量测试和相关检查；本次提交包含集成结果。未推送、部署或发布，真实插件流程和效果仍未验证。
+
+---
+
+# C 组常规阅读与参数复用本地验收
+
+日期：2026-09-16。开发基线：`d0e4f0ed42a236807affd2aa29d05a653a94d509`。本节仅描述隔离 worktree 中的 C 第 7、8 项实现；未提交、未整合到 main、未推送或部署。下方 A/B 和更早记录保留各自当时状态。
+
+## 实际变更
+
+- 根 Skill 按身份、契约、派发、等待、验收和恢复组织；异常回执、冲突、中断及丢失计时的恢复步骤放入 `references/recovery.md`，通过触发证据路由。A 的恢复入口和 B 的交接原则及唯一示例来源保留。
+- 根 Skill 从 16,813 缩至 10,978 UTF-8 字节，减少约 35%。这是入口阅读量变化，不代表所有文档总量同幅减少或实际返工减少。
+- 新增纯函数生成 `operation_inputs`，按现有 CLI 命令提供已知身份的部分 stdin。prepare、confirm、平台观察、终态通知、close 返回中携带；精确 status 详情可重建，默认 status/diagnose/SessionStart 不展开。
+- 只依据实际记录和 phase 生成，不根据 `already_bound` 等结果名称猜阶段；confirm 冲突使用保留身份。缺少的 target/status/reason 必须由父任务按原生返回、证据和决定补入，现有 CLI 继续严格校验。
+- 生成发生在原有事务回调内或已验证的只读详情中，无额外账本、写入、自动工具调用或生命周期层级。终态登记与父任务关闭继续分开；state-v12、TaskContract v2、unknown/reconcile 和 current-only 语义不变。
+- runtime allowlist 从 30 增至 32 个文件，加入纯生成模块及恢复参考。临时 runtime 包中的导入、相对文档链接及锚点均可解析，独立进程可复用生成输入完成绑定、详情恢复、终态登记和关闭。
+
+## 收益与开销
+
+正常成功路径仍为 prepare、confirm、登记终态、close 四次治理 CLI 调用。后三步原本需组装 8 个身份字段值，生成输入提供其中 7 个；首次 target 仍须来自本次原生返回。实际 sender/target 归属核对、状态选择、业务验收和关闭理由不省略。Session 和权威 CLI 仍由当前 Hook 注入值提供，不增加另一份权威来源。
+
+新增输出有体积成本：以 35 字符 task_id、8 字符 task_ref、`/root/example` target 为例，bound 阶段单独序列化 `{"operation_inputs": ...}` 为 368 字节紧凑 JSON 或 473 字节缩进 JSON；实际增量随身份长度和完整返回格式变化。仅输出常用命令，异常接口不为形式统一扩展模板。
+
+## 验证证据
+
+新增行为测试先在旧实现上失败（缺少 operation_inputs），随后完成实现。新增 12 项参数行为测试和 1 项打包文档引用检查，总测试数从 140 增至 153。
+
+覆盖正常链路、精确只读恢复、输入副本隔离、缺字段/多字段、错 sender/ref、跨 Session、过期输入、unknown 重放、终态冲突、terminal/closed 后 confirm 重放、同 Session target 占用、inactive 后明确终态、生成失败和提交前写失败不半提交、prepare 已提交但报告错误后的精确恢复。既有 1—3/A/B 测试同时通过，包括 B 示例经 A 接口恢复。
+
+| 检查 | 结果 |
+| --- | --- |
+| `python3 -m unittest discover -s tests -v` | Python 3.9，153 项通过 |
+| `python3.11 -m coverage run -m unittest discover -s tests -v` | 153 项通过 |
+| `python3.11 -m coverage report` | 含分支统计总覆盖率 75%，门槛 70%；新生成模块 92% |
+| `python3 -m compileall -q scripts` | 通过 |
+| 系统 plugin-creator 的 `validate_plugin.py .` | 通过 |
+| 系统 skill-creator 的 `quick_validate.py skills/subagent-governance` | 通过 |
+| Ruff 0.16.4 `check scripts tests` | 通过 |
+| `python3 scripts/release_preflight.py --mode development` | passed |
+| `git diff --check` | 通过 |
+
+Ruff 和 coverage 使用本机已有缓存，未安装或修改依赖。覆盖率数据和测试日志在临时目录。测试中的 runtime 和账本均为临时隔离夹具，不构成本机插件部署或真实原生派发证据。
+
+## 未验证与交付边界
+
+未部署、未发布、未修改稳定源/运行缓存/Hook 信任/Registry。运行缓存一致性、跨平台 CI、重启后真实插件流程、实际阅读与返工效果均未验证。模板仅提供预期身份，不能证明通知来源或平台状态；这一边界由父任务核对实际原生证据，程序测试不替代该判断。
+
+---
+
 # A+B 集成本地验收
 
 日期：2026-09-16。开发基线：`1f9d905`。A 的 state-v12 验收契约恢复和 B 的任务交接／自主权说明已整合到主开发目录；两个来源 worktree 保持原样。下方各阶段记录保留当时状态，本节描述最新集成结果。
