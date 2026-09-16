@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from scripts.governance_context import verification_deadline
     from scripts.governance_diagnostics import project_status
     from scripts.governance_dispatch import claim_spawn
     from scripts.governance_dispatch_identity import (
@@ -24,6 +25,7 @@ try:
     from scripts.governance_state_store import StateStore, read_ledger_readonly
     from scripts.governance_store_support import data_root_path
 except ModuleNotFoundError:
+    from governance_context import verification_deadline
     from governance_diagnostics import project_status
     from governance_dispatch import claim_spawn
     from governance_dispatch_identity import MESSAGE_PREFIX, parse_task_name, task_name_from_message
@@ -63,6 +65,7 @@ def _deny(reason: str) -> dict[str, Any]:
 
 
 def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | None:
+    deadline = verification_deadline()
     tool_name = str(payload.get("tool_name") or "")
     if tool_kind(tool_name) != "spawn":
         return None
@@ -105,6 +108,7 @@ def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | N
             tool_input,
             state_store=store,
             now=payload.get("now"),
+            deadline=deadline,
         )
     except Exception as exc:
         code, stage, claim, action = classify_failure(exc)

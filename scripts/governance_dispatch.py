@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 try:
-    from scripts.governance_context import verify_context_manifest
+    from scripts.governance_context import verification_deadline, verify_context_manifest
     from scripts.governance_contracts import (
         TaskContract,
         contract_digest,
@@ -28,7 +28,7 @@ try:
     from scripts.governance_operation_inputs import operation_inputs
     from scripts.governance_semantics import TARGET_OWNING_PHASES
 except ModuleNotFoundError:
-    from governance_context import verify_context_manifest
+    from governance_context import verification_deadline, verify_context_manifest
     from governance_contracts import (
         TaskContract,
         contract_digest,
@@ -118,7 +118,9 @@ def claim_spawn(
     *,
     state_store: Any,
     now: int | None = None,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
+    deadline = verification_deadline() if deadline is None else deadline
     claimed_at = _now(now)
     if not isinstance(tool_use_id, str) or not tool_use_id.strip() or len(tool_use_id) > 1024:
         raise StateConflictError("governed spawn 缺少有效 tool_use_id")
@@ -158,7 +160,7 @@ def claim_spawn(
         if manifest is not None:
             stage = "material"
             try:
-                verification = verify_context_manifest(manifest)
+                verification = verify_context_manifest(manifest, deadline=deadline)
                 if verification != capability.get("context_verification"):
                     raise ContextMaterialConflictError("verified context 在 prepare 与 claim 之间发生变化")
             except ContextMaterialConflictError as exc:

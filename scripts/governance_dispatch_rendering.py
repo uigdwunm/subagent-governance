@@ -27,7 +27,13 @@ def render_dispatch_prompt(contract: TaskContract, verification: dict[str, Any] 
     if verification is not None:
         sections.append((
             "已验证材料",
-            f"{verification['workspace_root']}（{len(verification['required_paths'])} 项已验证材料）",
+            "\n".join([
+                f"工作区：{verification['workspace_root']}",
+                "基线：" + verification["baseline"]["kind"]
+                + (f" {verification['baseline']['revision']}" if verification["baseline"]["revision"] else ""),
+                *[f"- {item['path']} ({item['type']})" for item in verification["required_paths"]],
+                "仅覆盖校验时点的声明材料；不保证执行期间不变，不提供工作区隔离。",
+            ]),
         ))
     sections.extend([
         ("完成条件", _list(contract.completion)),

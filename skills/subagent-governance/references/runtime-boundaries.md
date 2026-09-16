@@ -86,6 +86,12 @@ PreToolUse 按可见 task name 或消息首行 `[subagent-governance:<生成的 
 
 也可使用 git_commit baseline 并提供 revision；按实际任务声明 required paths。prepare 与 Pre claim 各验证一次，不自动扫描工作区或提供运行期间隔离。business digest 不包含 spawn；spawn config 有独立 digest。
 
+Git 材料要求实际普通文件字节与提交 blob 相同，目录覆盖该提交的受跟踪后代。稀疏检出、skip-worktree 或干净 status 不证明文件实际存在或可读；CRLF、LFS 等转换后的不同字节不能通过。Git 范围内的符号链接（含父目录链接）和子模块不支持，报无法完成验证；working_tree 保留工作区内链接目标的逐文件 SHA-256。
+
+每次材料验证共享 5 秒预算，claim 从 Pre 处理入口计时，账本访问后不重置。Git 命令共享剩余时间，文件逐块哈希检查截止时间；预算耗尽保持 material_unavailable / allow / unconfirmed，不标验证成功，也不伪装成材料不存在。操作系统阻塞 I/O、锁等待和平台 Hook 投递不受该预算硬保证。
+
+派发正文自动传递 verified 的工作区根目录、基线种类、commit OID（如有）及全部路径与类型；不要求重复填写定位提示 context.paths，不展开逐文件哈希或材料正文。原有契约 65,536 字节、消息 65,536 字符、Hook 输入 2 MiB 和账本准入／硬容量限制仍同时适用，不截断材料列表。
+
 
 ## Hook 故障分类与证据契约
 

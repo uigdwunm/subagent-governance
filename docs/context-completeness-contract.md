@@ -8,8 +8,8 @@ TaskContract v2 把“帮助 Agent 定位”和“机械证明材料未变化”
 
 `context.verified` 沿用 declared manifest：absolute workspace root、`working_tree|git_commit` baseline 和 non-empty required paths。
 
-- working tree 只接受逐文件 SHA-256；
-- Git commit 使用完整 commit OID，要求 current HEAD 与声明 commit 一致，并验证声明 blob/tree；
+- working tree 只接受逐文件 SHA-256，保留解析工作区内符号链接目标的行为；
+- Git commit 使用完整 commit OID，要求 current HEAD 与声明 commit 一致，并验证声明 blob/tree 和实际文件字节；
 - prepare 和 governed spawn Pre claim 各校验一次；
 - runtime 只读取声明材料，不扫描其他路径或业务正文；
 - 校验只覆盖上述时点的声明材料，不保证运行期间材料不变，不锁定文件或隔离工作区；并行修改的归属、共享接口和集成责任仍由任务交接明确；
@@ -17,7 +17,19 @@ TaskContract v2 把“帮助 Agent 定位”和“机械证明材料未变化”
 
 business contract digest 包含 context，因为它会改变任务含义；model、reasoning effort 和 fork turns 位于 spawn config，不进入 business digest。
 
-派发正文保留非空背景、路径、禁止范围和验收证据，省略空区块；目标、工作范围和完成条件始终保留。提示精简不改变 declared manifest 的 prepare/claim 双重验证，也不证明父 Agent 已声明全部必要材料。
+派发正文保留非空背景、路径、禁止范围和验收证据，省略空区块；目标、工作范围和完成条件始终保留。提供 verified 时，正文自动包含解析后的工作区根目录、基线种类、commit OID（如有），以及全部声明路径和类型，无需在 context.paths 重复填写。逐文件摘要和目录 object ID 留在验证记录中，不展开材料正文。提示精简不改变 declared manifest 的 prepare/claim 双重验证，也不证明父 Agent 已声明全部必要材料。
+
+## 实际材料与时间预算
+
+`git_commit` 使用实际普通文件字节计算 Git blob identity，不执行内容转换来认定字节等价。CRLF、LFS 或其他过滤器产生的不同字节不会通过，即使 Git status 显示干净；需要校验本地实际内容时可改用 `working_tree`。符号链接（包括路径中的目录链接）、子模块和非普通文件不受 Git 材料验证支持，不跟随到其他工作区或自动获取内容。
+
+声明目录覆盖提交中的该目录及全部受跟踪后代；重叠声明不重复读取同一文件。缺失、实际类型或字节不匹配属于已确认材料冲突。稀疏检出、skip-worktree、assume-unchanged 不能替代实际读取：只有声明范围实际存在且匹配才能通过。不读取未声明子树的文件；保留声明范围内暂存修改和未忽略新增文件的冲突检查，忽略文件不纳入提交材料证明。
+
+prepare 和 claim 各有共享的 5 秒材料验证预算，覆盖 Git 命令、目录条目处理和逐块文件哈希。claim 使用进入 Pre 处理时建立的截止时间，包含已消耗的账本访问时间；取得锁后不重置预算。Git 调用使用剩余时间，批量取得声明范围对象和 status，避免逐路径启动多个命令。
+
+预算耗尽、读取失败、读取过程中观察到不稳定或不支持的材料均不得标记成功。prepare 报错且不创建 capability；claim 保持既有 `material_unavailable`、allow（fail-open）、unconfirmed 语义。已确定的 Git 材料冲突及 prepare/claim 验证记录不一致走 `material_conflict`，不消费 capability。超时不转成“材料缺失”，也不因 strict 改成 deny。
+
+该预算是尽力而为的执行边界，为 10 秒 Hook 留出余量，不是对操作系统 I/O、账本锁等待、进程启动或平台投递的硬中断保证。阻塞操作返回后才可能检查到超时；本地时钟及 subprocess 超时模拟不证明真实 Hook 超时或投递行为。材料验证不锁定工作区，也不保证整组文件的原子快照或后续执行期间不变。
 
 ## 上下文恢复后的验收
 

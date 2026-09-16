@@ -7,8 +7,11 @@ filesystem or Git work.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+import stat
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -147,34 +150,164 @@ def validate_context_verification_record(manifest: Any, verification: Any) -> li
     return errors
 
 
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while True:
-            chunk = handle.read(1024 * 1024)
-            if not chunk:
-                break
-            digest.update(chunk)
+VERIFICATION_BUDGET_SECONDS = 5.0
+
+
+def verification_deadline() -> float:
+    return time.monotonic() + VERIFICATION_BUDGET_SECONDS
+
+
+def remaining_time(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise ContextVerificationError("声明材料校验时间预算耗尽，未完成验证")
+    return remaining
+
+
+def _file_identity(value: os.stat_result) -> tuple[int, ...]:
+    return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+
+def _file_digest(path: Path, deadline: float, *, git_algorithm: str | None = None) -> str:
+    """Read regular files and detect observable changes; no lock or hard I/O deadline."""
+    remaining_time(deadline)
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        with os.fdopen(os.open(path, flags), "rb") as handle:
+            before = os.fstat(handle.fileno())
+            if not stat.S_ISREG(before.st_mode):
+                raise ContextVerificationError(f"必需上下文不是普通文件：{path}")
+            digest = hashlib.new(git_algorithm or "sha256")
+            if git_algorithm:
+                digest.update(f"blob {before.st_size}\0".encode("ascii"))
+            while True:
+                remaining_time(deadline)
+                chunk = handle.read(1024 * 1024)
+                remaining_time(deadline)
+                if not chunk:
+                    break
+                digest.update(chunk)
+            after = os.fstat(handle.fileno())
+            current = path.stat()
+            if _file_identity(before) != _file_identity(after) or _file_identity(after) != _file_identity(current):
+                raise ContextVerificationError(f"读取期间必需上下文发生变化，无法完成验证：{path}")
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise ContextMaterialConflictError(f"必需上下文实际文件缺失：{path}") from exc
+    except OSError as exc:
+        raise ContextVerificationError(f"必需上下文无法读取：{path}") from exc
+    remaining_time(deadline)
     return digest.hexdigest()
 
 
-def run_git(workspace_root: Path, *arguments: str) -> str:
+def sha256_file(path: Path, *, deadline: float | None = None) -> str:
+    return _file_digest(path, verification_deadline() if deadline is None else deadline)
+
+
+def run_git(workspace_root: Path, *arguments: str, deadline: float | None = None) -> str:
+    deadline = verification_deadline() if deadline is None else deadline
     try:
-        result = subprocess.run(["git", "-C", str(workspace_root), *arguments], check=True, capture_output=True, text=True, timeout=15)
+        result = subprocess.run(
+            ["git", "--no-replace-objects", "--literal-pathspecs", "-C", str(workspace_root), *arguments],
+            check=True, capture_output=True,
+            timeout=remaining_time(deadline),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ContextVerificationError("声明材料校验时间预算耗尽，Git 验证未完成") from exc
     except (OSError, subprocess.SubprocessError) as exc:
-        detail = (exc.stderr or exc.stdout or "").strip() if isinstance(exc, subprocess.CalledProcessError) else ""
-        suffix = f"：{detail[:600]}" if detail else ""
-        raise ContextVerificationError(f"Git 上下文校验失败（{' '.join(arguments)}）{suffix}") from exc
-    return result.stdout.strip()
+        operation = arguments[0] if arguments else "unknown"
+        raise ContextVerificationError(f"Git 上下文校验无法完成（{operation}）") from exc
+    remaining_time(deadline)
+    return os.fsdecode(result.stdout)
 
 
-def verify_context_manifest(value: Any) -> dict[str, Any]:
+def _git_candidate(root: Path, relative: str, object_type: str, deadline: float) -> Path:
+    candidate = root
+    try:
+        for part in relative.split("/"):
+            remaining_time(deadline)
+            candidate = candidate / part
+            metadata = candidate.lstat()
+            if stat.S_ISLNK(metadata.st_mode):
+                raise ContextVerificationError(f"git_commit 不支持符号链接材料：{relative}")
+        if not (stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode)):
+            raise ContextVerificationError(f"git_commit 不支持非普通文件材料：{relative}")
+        actual_type = stat.S_ISREG(metadata.st_mode) if object_type == "blob" else stat.S_ISDIR(metadata.st_mode)
+        if not actual_type:
+            raise ContextMaterialConflictError(f"必需上下文实际类型与 Git baseline 不一致：{relative}")
+        if object_type == "tree":
+            # Check directory readability without enumerating ignored/untracked contents.
+            with os.scandir(candidate):
+                remaining_time(deadline)
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise ContextMaterialConflictError(f"必需上下文实际路径缺失：{relative}") from exc
+    except OSError as exc:
+        raise ContextVerificationError(f"必需上下文无法读取：{relative}") from exc
+    return candidate
+
+
+def _verify_git(root: Path, baseline: dict[str, Any], paths: list[dict[str, Any]],
+                deadline: float) -> list[dict[str, Any]]:
+    repository_root = Path(run_git(root, "rev-parse", "--show-toplevel", deadline=deadline).rstrip("\n")).resolve()
+    if repository_root != root:
+        raise ContextVerificationError("context_manifest.workspace_root 必须是 Git 仓库根目录")
+    revision = str(baseline["revision"])
+    run_git(root, "cat-file", "-e", f"{revision}^{{commit}}", deadline=deadline)
+    if run_git(root, "rev-parse", "--verify", "HEAD", deadline=deadline).strip() != revision:
+        raise ContextMaterialConflictError("Git 工作区 HEAD 与声明 baseline 不一致")
+    names = [item["path"] for item in paths]
+    # NUL records preserve special filenames. Only selected subtrees and their
+    # ancestor tree entries are listed, not the entire repository.
+    listing = run_git(root, "ls-tree", "-r", "-t", "-z", "--full-tree", revision, "--", *names,
+                      deadline=deadline)
+    entries: dict[str, tuple[str, str, str]] = {}
+    for record in listing.split("\0"):
+        remaining_time(deadline)
+        if record:
+            metadata, path = record.split("\t", 1)
+            mode, object_type, oid = metadata.split(" ")
+            entries[path] = (mode, object_type, oid)
+    verified = []
+    for item in paths:
+        remaining_time(deadline)
+        path, expected = item["path"], item["type"]
+        entry = entries.get(path)
+        if entry is None:
+            raise ContextMaterialConflictError(f"Git baseline 缺少必需上下文：{path}")
+        if entry[0] in {"120000", "160000"}:
+            raise ContextVerificationError(f"git_commit 不支持符号链接或子模块材料：{path}")
+        if entry[1] != ("blob" if expected == "file" else "tree"):
+            raise ContextMaterialConflictError(f"必需上下文类型与 Git baseline 不一致：{path}")
+        verified.append({"path": path, "type": expected, "object_id": entry[2]})
+    directories = [item["path"] + "/" for item in paths if item["type"] == "directory"]
+    for path, (mode, object_type, oid) in entries.items():
+        remaining_time(deadline)
+        if path not in names and not any(path.startswith(prefix) for prefix in directories):
+            continue
+        if mode not in {"100644", "100755", "040000"} or object_type not in {"blob", "tree"}:
+            raise ContextVerificationError(f"git_commit 不支持符号链接或子模块材料：{path}")
+        candidate = _git_candidate(root, path, object_type, deadline)
+        if object_type == "blob":
+            algorithm = "sha1" if len(oid) == 40 else "sha256"
+            if _file_digest(candidate, deadline, git_algorithm=algorithm) != oid:
+                raise ContextMaterialConflictError(f"必需上下文工作区内容与 Git baseline 不一致：{path}")
+    # Retain staged/mode changes and non-ignored untracked additions as conflicts.
+    # Status alone cannot prove availability or bytes (skip-worktree, filters).
+    if run_git(root, "status", "--porcelain=v1", "--untracked-files=all", "--", *names, deadline=deadline):
+        raise ContextMaterialConflictError("必需上下文工作区内容与 Git baseline 不一致")
+    if run_git(root, "rev-parse", "--verify", "HEAD", deadline=deadline).strip() != revision:
+        raise ContextMaterialConflictError("校验期间 Git 工作区 HEAD 与声明 baseline 不一致")
+    return verified
+
+
+def verify_context_manifest(value: Any, *, deadline: float | None = None) -> dict[str, Any]:
     errors = validate_context_manifest(value)
     if errors:
         raise ContextVerificationError("；".join(errors))
     assert isinstance(value, dict)
     if value["mode"] == "none":
         return {"mode": "none"}
+    deadline = verification_deadline() if deadline is None else deadline
+    remaining_time(deadline)
     workspace_root = Path(str(value["workspace_root"])).resolve()
     if not workspace_root.is_dir():
         raise ContextVerificationError(f"必需上下文工作区不存在或不是目录：{workspace_root}")
@@ -183,32 +316,11 @@ def verify_context_manifest(value: Any) -> dict[str, Any]:
     baseline_kind = str(baseline["kind"])
     verified_paths: list[dict[str, Any]] = []
     if baseline_kind == "git_commit":
-        repository_root = Path(run_git(workspace_root, "rev-parse", "--show-toplevel")).resolve()
-        if repository_root != workspace_root:
-            raise ContextVerificationError("context_manifest.workspace_root 必须是 Git 仓库根目录：" f"声明 {workspace_root}，实际 {repository_root}")
-        revision = str(baseline["revision"])
-        run_git(workspace_root, "cat-file", "-e", f"{revision}^{{commit}}")
-        current_head = run_git(workspace_root, "rev-parse", "--verify", "HEAD")
-        if current_head != revision:
-            raise ContextMaterialConflictError(f"Git 工作区 HEAD 与声明 baseline 不一致：HEAD={current_head}，baseline={revision}")
-        for item in value["required_paths"]:
-            path_value, expected_type = str(item["path"]), str(item["type"])
-            object_spec = f"{revision}:{path_value}"
-            try:
-                object_type = run_git(workspace_root, "cat-file", "-t", object_spec)
-                object_id = run_git(workspace_root, "rev-parse", "--verify", object_spec)
-            except ContextVerificationError as exc:
-                raise ContextVerificationError(f"Git baseline {revision} 缺少必需上下文 {path_value}") from exc
-            expected_object_type = "blob" if expected_type == "file" else "tree"
-            if object_type != expected_object_type:
-                raise ContextVerificationError(f"必需上下文类型不匹配：{path_value} 声明为 {expected_type}，Git 对象类型为 {object_type}")
-            dirty = run_git(workspace_root, "status", "--porcelain=v1", "--untracked-files=all", "--", path_value)
-            if dirty:
-                raise ContextMaterialConflictError(f"必需上下文工作区内容与 Git baseline 不一致：{path_value}")
-            verified_paths.append({"path": path_value, "type": expected_type, "object_id": object_id})
-        verified_baseline = {"kind": "git_commit", "revision": revision}
+        verified_paths = _verify_git(workspace_root, baseline, value["required_paths"], deadline)
+        verified_baseline = {"kind": "git_commit", "revision": str(baseline["revision"])}
     else:
         for item in value["required_paths"]:
+            remaining_time(deadline)
             path_value, expected_type = str(item["path"]), str(item["type"])
             candidate = (workspace_root / Path(path_value)).resolve()
             try:
@@ -219,12 +331,13 @@ def verify_context_manifest(value: Any) -> dict[str, Any]:
                 raise ContextVerificationError(f"必需上下文不存在：{path_value}")
             if not candidate.is_file():
                 raise ContextVerificationError(f"必需上下文不是文件：{path_value}")
-            verified_paths.append({"path": path_value, "type": expected_type, "sha256": sha256_file(candidate)})
+            verified_paths.append({"path": path_value, "type": expected_type, "sha256": sha256_file(candidate, deadline=deadline)})
         verified_baseline = {"kind": "working_tree", "revision": None}
     result = {"mode": "declared", "workspace_root": str(workspace_root), "baseline": verified_baseline, "required_paths": verified_paths}
     verification_errors = validate_context_verification_record(value, result)
     if verification_errors:
         raise ContextVerificationError("；".join(verification_errors))
+    remaining_time(deadline)
     return result
 
 
