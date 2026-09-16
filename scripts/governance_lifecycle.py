@@ -1,4 +1,4 @@
-"""Minimal exact-identity lifecycle transitions for the state-v11 ledger."""
+"""Minimal exact-identity lifecycle transitions for the state-v12 ledger."""
 
 from __future__ import annotations
 

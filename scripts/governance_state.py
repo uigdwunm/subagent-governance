@@ -1,4 +1,4 @@
-"""Strict runtime validation for the sole supported state-v11 Session ledger."""
+"""Strict runtime validation for the sole supported state-v12 Session ledger."""
 
 from __future__ import annotations
 
@@ -12,7 +12,9 @@ try:
         contract_digest,
         contract_from_input,
         contract_summary,
+        contract_summary_digest,
         spawn_digest,
+        validate_contract_summary,
     )
     from scripts.governance_errors import StateValidationError
     from scripts.governance_native_adapter import validate_native_spawn
@@ -24,8 +26,8 @@ try:
         PHASES,
         RECONCILE_CODES,
         STATE_FORMAT_VERSION,
-        TASK_REF_LENGTHS,
         TARGET_OWNING_PHASES,
+        TASK_REF_LENGTHS,
         TERMINAL_FACT_SOURCES,
         TERMINAL_FACT_STATUSES,
         UNKNOWN_FACT_CODES,
@@ -36,7 +38,9 @@ except ModuleNotFoundError:
         contract_digest,
         contract_from_input,
         contract_summary,
+        contract_summary_digest,
         spawn_digest,
+        validate_contract_summary,
     )
     from governance_errors import StateValidationError
     from governance_native_adapter import validate_native_spawn
@@ -48,8 +52,8 @@ except ModuleNotFoundError:
         PHASES,
         RECONCILE_CODES,
         STATE_FORMAT_VERSION,
-        TASK_REF_LENGTHS,
         TARGET_OWNING_PHASES,
+        TASK_REF_LENGTHS,
         TERMINAL_FACT_SOURCES,
         TERMINAL_FACT_STATUSES,
         UNKNOWN_FACT_CODES,
@@ -209,11 +213,11 @@ def _validate_task(task_id: str, value: Any, path: str, issues: list[StateFormat
     if not _digest(value.get("contract_digest")):
         _issue(issues, f"{path}.contract_digest", "digest 无效")
     summary = value.get("contract_summary")
-    if not isinstance(summary, dict) or set(summary) != {"profile", "objective"}:
-        _issue(issues, f"{path}.contract_summary", "summary 字段集合无效")
-    else:
-        if summary.get("profile") not in {"standard", "strict"} or not _text(summary.get("objective"), 8192):
-            _issue(issues, f"{path}.contract_summary", "summary 内容无效")
+    summary_errors = validate_contract_summary(summary)
+    for error in summary_errors:
+        _issue(issues, f"{path}.contract_summary", error)
+    if not summary_errors and value.get("contract_digest") != contract_summary_digest(summary):
+        _issue(issues, f"{path}.contract_digest", "与 contract_summary business contract 不一致")
     created_at, updated_at = value.get("created_at"), value.get("updated_at")
     if not _timestamp(created_at) or not _timestamp(updated_at) or (
         _timestamp(created_at) and _timestamp(updated_at) and updated_at < created_at

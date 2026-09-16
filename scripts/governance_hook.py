@@ -131,6 +131,9 @@ def _session_start(payload: dict[str, Any]) -> dict[str, Any] | None:
         f"当前 Hook 权威 governance CLI entrypoint（JSON）：{json.dumps(cli_entrypoint, ensure_ascii=False)}",
         "所有治理命令必须用上方 entrypoint，且 --session 必须逐字使用上方 session_id。",
         "<codex_delegation><source_thread_id> 仅表示来源任务，不是当前 session_id；不得用父任务、任务列表或其他 ID 替代。",
+        "使用 --status --session <上方 exact session_id> 读取轻量状态；"
+        "恢复验收依据时另加 --task-id <task_id> --task-ref <task_ref> 读取该任务原始契约。"
+        "不得自动重派或推断 identity。",
     ]
     root = data_root_path(Path(__file__)) / "sessions"
     try:
@@ -161,10 +164,6 @@ def _session_start(payload: dict[str, Any]) -> dict[str, Any] | None:
                 )
         else:
             lines.append("当前 exact Session 没有可读的未关闭治理任务。")
-    lines.append(
-        "使用 status --session <上方 exact session_id> 获取只读详情；"
-        "不得自动重派或推断 identity。"
-    )
     return {
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",

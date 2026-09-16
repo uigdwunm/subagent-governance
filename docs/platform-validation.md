@@ -1,6 +1,6 @@
 # 平台验证摘要（state-v9 真实验证；历史 v8 证据）
 
-> 当前开发线已切换 state-v11，尚未部署或执行真实验收。以下保留历史平台记录；新版本地结果见[当前本地验收](validation/current-only-local-acceptance.md)，后续真实验证按[发布与部署流程](release-process.md)采用显式 gpt-6-astra/high。
+> 当前开发线已切换 state-v12，尚未部署或执行真实验收。以下保留历史平台记录；新版本地结果见[当前本地验收](validation/current-only-local-acceptance.md)，后续真实验证按[发布与部署流程](release-process.md)采用显式 gpt-6-astra/high。
 
 > 本文保留导致减法收口决策的历史 v8 证据，并记录当前 state-v9 的独立重启后真实验证。历史结果不描述或替代 state-v9 runtime 能力。
 

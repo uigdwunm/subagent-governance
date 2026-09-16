@@ -12,19 +12,25 @@ from typing import Any
 try:
     from scripts.governance_context import validate_context_manifest
     from scripts.governance_semantics import (
+        CONTRACT_SUMMARY_FIELDS,
         MAX_BUSINESS_TEXT,
+        MAX_CONTRACT_SUMMARY_BYTES,
         MAX_CONTRACT_TEXT,
         PROFILES,
         REASONING_EFFORTS,
+        SEMANTIC_DEFINITIONS,
         TASK_CONTRACT_FIELDS,
     )
 except ModuleNotFoundError:
     from governance_context import validate_context_manifest
     from governance_semantics import (
+        CONTRACT_SUMMARY_FIELDS,
         MAX_BUSINESS_TEXT,
+        MAX_CONTRACT_SUMMARY_BYTES,
         MAX_CONTRACT_TEXT,
         PROFILES,
         REASONING_EFFORTS,
+        SEMANTIC_DEFINITIONS,
         TASK_CONTRACT_FIELDS,
     )
 
@@ -70,26 +76,30 @@ def _text(value: Any, field: str, *, maximum: int) -> list[str]:
     return []
 
 
-def _text_list(value: Any, field: str, *, minimum: int = 0) -> list[str]:
+def _text_list(
+    value: Any, field: str, *, minimum: int = 0, maximum: int = MAX_CONTRACT_TEXT,
+) -> list[str]:
     if not isinstance(value, list):
         return [f"字段 {field} 必须是数组"]
     errors: list[str] = []
     if len(value) < minimum:
         errors.append(f"字段 {field} 至少需要 {minimum} 项")
-    if len(value) > 64:
-        errors.append(f"字段 {field} 不能超过 64 项")
+    maximum_items = SEMANTIC_DEFINITIONS["text_list"]["maxItems"]
+    if len(value) > maximum_items:
+        errors.append(f"字段 {field} 不能超过 {maximum_items} 项")
     for index, item in enumerate(value):
-        errors.extend(_text(item, f"{field}[{index}]", maximum=MAX_CONTRACT_TEXT))
+        errors.extend(_text(item, f"{field}[{index}]", maximum=maximum))
     return errors
 
 
 def _validate_paths(value: Any) -> list[str]:
-    errors = _text_list(value, "context.paths")
+    maximum = SEMANTIC_DEFINITIONS["context_path_list"]["items"]["maxLength"]
+    errors = _text_list(value, "context.paths", maximum=maximum)
     if not isinstance(value, list):
         return errors
     seen: set[str] = set()
     for index, item in enumerate(value):
-        if not isinstance(item, str) or _text(item, f"context.paths[{index}]", maximum=1000):
+        if not isinstance(item, str) or _text(item, f"context.paths[{index}]", maximum=maximum):
             continue
         parts = item.split("/")
         if item.startswith("/") or "\\" in item or any(
@@ -170,6 +180,15 @@ def validate_task_contract(value: Any) -> list[str]:
         effort = spawn.get("reasoning_effort")
         if effort is not None and effort not in REASONING_EFFORTS:
             errors.append("字段 spawn.reasoning_effort 枚举无效")
+    if not errors:
+        business = {field: value[field] for field in CONTRACT_SUMMARY_FIELDS}
+        try:
+            size = len(_canonical_bytes(business))
+        except UnicodeEncodeError:
+            errors.append("contract_summary 必须可编码为有效 UTF-8")
+        else:
+            if size > MAX_CONTRACT_SUMMARY_BYTES:
+                errors.append(f"contract_summary 为 {size} 字节，不能超过 {MAX_CONTRACT_SUMMARY_BYTES} 字节")
     return errors
 
 
@@ -204,9 +223,12 @@ def contract_from_input(value: Any) -> TaskContract:
     return TaskContract(**{field: raw[field] for field in TASK_CONTRACT_FIELDS})
 
 
+def _canonical_bytes(value: dict[str, Any]) -> bytes:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
 def _digest(value: dict[str, Any]) -> str:
-    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return hashlib.sha256(_canonical_bytes(value)).hexdigest()
 
 
 def contract_digest(contract: TaskContract) -> str:
@@ -217,8 +239,23 @@ def spawn_digest(contract: TaskContract) -> str:
     return _digest(contract.spawn)
 
 
-def contract_summary(contract: TaskContract) -> dict[str, str]:
-    return {"profile": contract.profile, "objective": contract.objective}
+def contract_summary(contract: TaskContract) -> dict[str, Any]:
+    """Exact bounded business snapshot, never a generated or truncated summary."""
+    return contract.business_record()
 
 
-__all__ = ["TaskContract", "contract_digest", "contract_from_input", "contract_summary", "spawn_digest", "validate_task_contract"]
+def validate_contract_summary(value: Any) -> list[str]:
+    if not isinstance(value, dict) or set(value) != set(CONTRACT_SUMMARY_FIELDS):
+        return ["contract_summary 字段集合无效"]
+    # Share structural and byte validation with the normalized contract. Spawn
+    # is not part of the snapshot and is supplied only to reuse that validator.
+    return validate_task_contract({**value, "spawn": {
+        "fork_turns": "none", "model": None, "reasoning_effort": None,
+    }})
+
+
+def contract_summary_digest(summary: dict[str, Any]) -> str:
+    return _digest(summary)
+
+
+__all__ = ["TaskContract", "contract_digest", "contract_from_input", "contract_summary", "contract_summary_digest", "spawn_digest", "validate_contract_summary", "validate_task_contract"]

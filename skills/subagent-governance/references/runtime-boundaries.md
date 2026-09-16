@@ -1,6 +1,6 @@
 # Runtime boundaries
 
-- 唯一当前持久格式是 `state_format_version=11`、namespace `state-v11`。v10 及更早状态不读取、不迁移、不修复、不写回、不删除。
+- 唯一当前持久格式是 `state_format_version=12`、namespace `state-v12`。v11 及更早状态不读取、不迁移、不修复、不写回、不删除。
 - 每个 exact Session 只有一个 ledger，根字段精确为 `state_format_version`、`session_id`、`tasks`。
 - 一个 task 对应一个原生 Agent lifecycle，不存在 attempt。
 - phase 只有 `prepared|claimed|bound|terminal|closed|reconcile`。
@@ -21,9 +21,23 @@
 
 新 namespace 不恢复旧账本，新摘要为空不代表旧任务已完成。diagnose issues=[] 只表示账本可读且结构有效。
 
+## 原始验收快照与容量
+
+`contract_summary` 是规范化 TaskContract 去掉 `spawn` 后的精确结构化快照：`profile`、`objective`、`scope`、`forbidden_scope`、`completion`、`evidence` 和完整 `context`（summary、paths、verified）。它不重新概括、排序列表或截断约束，不记录实际业务结果。prepare/claimed 时与 capability contract 精确一致；所有阶段校验其 business digest，跨绑定、失败、对账、终态和关闭保留。digest 只校验一致性，不证明业务完成或防止同用户进程篡改。
+
+- objective 和 context.summary 各最多 8,192 字符；scope、forbidden_scope、completion、evidence 各最多 64 项，每项最多 1,024 字符。
+- context.paths 最多 64 项，每项最多 1,000 字符；verified 沿用最多 64 条 required_paths、每条路径最多 1,000 字符、workspace_root 最多 4,000 字符和原有 baseline 结构。
+- 快照整体最多 65,536 字节，按 `json.dumps(ensure_ascii=False, sort_keys=True, separators=(",", ":"))` 的 UTF-8 编码计数，不含尾部换行，含键名、标点和转义；这些上限同时适用。标准 JSON Schema 检查结构和字符限制；运行时额外执行机器语义源中的字节预算。
+- 每个 exact Session 最多 512 条任务；新增任务预计落盘超过 3 MiB 时拒绝准入，所有落盘写入硬上限 4 MiB。按实际账本序列化字节计算，包含 prepared 阶段的契约与派发正文副本；不承诺能同时存放 512 条最大契约。
+- 超限拒绝且不覆盖原账本，不自动删减约束或另建正文存储；closed 仍只保留最近 64 条，由真实写操作惰性淘汰。未关闭任务不因容量自动清除。
+
+精确 `--status --task-id ... --task-ref ... --session ...` 返回单个任务及快照，无锁零写。默认 status/diagnose 和 SessionStart 只给轻量状态；后者仅提示按需读取方法。恢复不访问材料文件，也不保留原 prepared 校验产生的文件哈希；`context.verified` 保留的是材料声明，不保证之后的文件存在或内容不变。
+
+原始证据要求与实际执行证据分开：evidence/completion 中的报告要求可以恢复，通知正文、工具日志、业务结果和后续消息正文不持久化。不要向契约写入凭据或无关敏感正文；没有自动语义摘要或脱敏改写。
+
 ## Current native adapter
 
-TaskContract v2 and the state-v11 capability retain semantic `task_name` and
+TaskContract v2 and the state-v12 capability retain semantic `task_name` and
 `fork_turns` fields internally. A frozen `native_interface` selects either
 `collaboration_turns` (message/task_name/fork_turns) or `fork_context`
 (message/fork_context); the two shapes are never mixed. Claim normalizes the

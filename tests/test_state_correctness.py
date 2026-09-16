@@ -10,9 +10,9 @@ from scripts import governance_dispatch as dispatch
 from scripts import governance_lifecycle as lifecycle
 from scripts import governance_protocol as protocol
 from scripts import governance_semantics as semantics
+from scripts.governance_errors import StateConflictError, StateValidationError
 from scripts.governance_state import validate_current_state_format
 from scripts.governance_state_store import StateStore
-from scripts.governance_errors import StateConflictError, StateValidationError
 from tests.schema_validation import validate_instance
 
 

@@ -77,4 +77,4 @@ python3 scripts/dev_deploy.py \
 
 Hook trust、Codex registration、桌面 UI 和 exact session identity 分别记录；文件存在、`installed/enabled` 或本地测试不能替代真实证据。未经授权或尚未重启时一律记为 `not_checked`。
 
-state-v11 与旧 state-v10 隔离，不自动恢复、迁移或删除旧未关闭任务。部署交接说明此边界，不把新 namespace 为空当作旧任务完成。新 runtime 不读取保留的上一版本逻辑或状态。
+state-v12 与旧 state-v11 隔离，不自动恢复、迁移或删除旧未关闭任务。部署交接说明此边界，不把新 namespace 为空当作旧任务完成。新 runtime 不读取保留的上一版本逻辑或状态。

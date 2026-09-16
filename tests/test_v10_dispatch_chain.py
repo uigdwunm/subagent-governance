@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Vertical acceptance coverage for the state-v11 dispatch cutover."""
+"""Vertical acceptance coverage for the state-v12 dispatch cutover."""
 
 from __future__ import annotations
 
@@ -197,13 +197,13 @@ class V10DispatchChainTests(unittest.TestCase):
                 )
             )
 
-    def test_prepare_writes_one_strict_v11_ledger_and_schema_accepts_it(self):
+    def test_prepare_writes_one_strict_v12_ledger_and_schema_accepts_it(self):
         prepared = self.prepare()
         state = self.store.read(self.session_id)
         self.assertEqual(
             set(state), {"state_format_version", "session_id", "tasks"}
         )
-        self.assertEqual(state["state_format_version"], 11)
+        self.assertEqual(state["state_format_version"], 12)
         task = state["tasks"][prepared["task_id"]]
         self.assertEqual(task["phase"], "prepared")
         self.assertEqual(task["task_ref"], prepared["task_ref"])
@@ -684,7 +684,7 @@ class V10DispatchChainTests(unittest.TestCase):
             store_support.data_root_path(installed_cli),
         )
 
-    def test_default_namespace_is_state_v11_and_previous_namespace_is_untouched(self):
+    def test_default_namespace_is_state_v12_and_previous_namespace_is_untouched(self):
         with tempfile.TemporaryDirectory() as directory:
             plugin_root = Path(directory)
             old_root = plugin_root / "state-v10"
@@ -698,9 +698,9 @@ class V10DispatchChainTests(unittest.TestCase):
             ):
                 self.assertEqual(
                     store_support.data_root_path(state_store_module.__file__),
-                    plugin_root / "state-v11",
+                    plugin_root / "state-v12",
                 )
-                state_store_module.StateStore().read("current-v11")
+                state_store_module.StateStore().read("current-v12")
             self.assertEqual(
                 (old_file.read_bytes(), old_file.stat().st_mtime_ns), before
             )

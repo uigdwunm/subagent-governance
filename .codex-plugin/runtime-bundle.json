@@ -29,6 +29,7 @@
     "skills/subagent-governance/SKILL.md",
     "skills/subagent-governance/agents/openai.yaml",
     "skills/subagent-governance/references/governance-profiles.md",
-    "skills/subagent-governance/references/runtime-boundaries.md"
+    "skills/subagent-governance/references/runtime-boundaries.md",
+    "skills/subagent-governance/references/task-handoff.md"
   ]
 }

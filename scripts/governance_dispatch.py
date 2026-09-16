@@ -1,4 +1,4 @@
-"""Single-ledger prepare/claim/confirm dispatch transitions for state-v11."""
+"""Single-ledger prepare/claim/confirm dispatch transitions for state-v12."""
 
 from __future__ import annotations
 
@@ -20,9 +20,9 @@ try:
         ContextMaterialConflictError,
         StateConflictError,
     )
-    from scripts.governance_semantics import TARGET_OWNING_PHASES
     from scripts.governance_lifecycle import enter_reconcile, prune_closed_tasks
     from scripts.governance_native_adapter import normalize_native_spawn
+    from scripts.governance_semantics import TARGET_OWNING_PHASES
 except ModuleNotFoundError:
     from governance_context import verify_context_manifest
     from governance_contracts import (
@@ -37,9 +37,9 @@ except ModuleNotFoundError:
         ContextMaterialConflictError,
         StateConflictError,
     )
-    from governance_semantics import TARGET_OWNING_PHASES
     from governance_lifecycle import enter_reconcile, prune_closed_tasks
     from governance_native_adapter import normalize_native_spawn
+    from governance_semantics import TARGET_OWNING_PHASES
 
 
 def _now(value: int | None) -> int:

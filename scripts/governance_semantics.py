@@ -1,4 +1,4 @@
-"""Machine-readable constants for the current-only state-v11 runtime."""
+"""Machine-readable constants for the current-only state-v12 runtime."""
 
 from __future__ import annotations
 
@@ -57,6 +57,8 @@ MAX_HOOK_INPUT_BYTES = int(SEMANTIC_RULES["max_hook_input_bytes"])
 MAX_PREPARED_BYTES = MAX_HOOK_INPUT_BYTES
 NEW_TASK_SOFT_LIMIT_BYTES = int(SEMANTIC_RULES["new_task_soft_limit_bytes"])
 MAX_STATE_BYTES = int(SEMANTIC_RULES["max_state_bytes"])
+MAX_CONTRACT_SUMMARY_BYTES = int(SEMANTIC_RULES["max_contract_summary_bytes"])
+CONTRACT_SUMMARY_FIELDS = tuple(SEMANTIC_DEFINITIONS["contract_summary"]["required"])
 
 TASK_NAME_MAX_LENGTH = 64
 TASK_NAME_PATTERN = r"^sg_(standard|strict)_([a-z0-9]+(?:_[a-z0-9]+)*)_t_([a-f0-9]{12}|[a-f0-9]{20})$"
@@ -96,6 +98,8 @@ __all__ = [
     "MAX_HOOK_INPUT_BYTES",
     "MAX_PREPARED_BYTES",
     "MAX_STATE_BYTES",
+    "MAX_CONTRACT_SUMMARY_BYTES",
+    "CONTRACT_SUMMARY_FIELDS",
     "MAX_TASKS_PER_SESSION",
     "NEW_TASK_SOFT_LIMIT_BYTES",
     "NATIVE_INTERFACES",

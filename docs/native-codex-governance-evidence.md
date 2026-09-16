@@ -4,7 +4,7 @@ Subagent Governance keeps native Codex as the execution channel and adds a local
 
 OpenAI's current guidance for Codex-oriented agent work recommends stating the goal, relevant context, constraints, required evidence, success criteria, and output format. Subagent Governance turns those task inputs and the surrounding lifecycle into explicit, locally checked records; it does not replace native Codex execution or model judgment. See [OpenAI's model and prompting guidance](https://developers.openai.com/api/docs/guides/latest-model).
 
-The current development runtime is state-v11. Its [local acceptance](validation/current-only-local-acceptance.md) is separate from the historical real-platform results cited below; state-v11 has not been deployed or verified on the real platform.
+The current development runtime is state-v12. Its [local acceptance](validation/current-only-local-acceptance.md) is separate from the historical real-platform results cited below; state-v12 has not been deployed or verified on the real platform.
 
 ## Evidence summary
 
@@ -67,7 +67,7 @@ Native Codex still creates, runs, and reports every child. The plugin governs th
 
 A bound task receives an indeterminate message, interruption, or platform observation result. Separately, a dispatch can have an unknown outcome before any target is bound.
 
-State-v11 stores bound-call uncertainty in unknown_facts, with only the first timestamp for each of delivery_unknown, interrupt_unknown, and platform_observation_unknown. The task stays bound and can accept later exact terminal evidence without rewriting the earlier receipt as success. Dispatch uncertainty and identity or terminal conflicts still reconcile. No path automatically resends or respawns.
+State-v12 stores bound-call uncertainty in unknown_facts, with only the first timestamp for each of delivery_unknown, interrupt_unknown, and platform_observation_unknown. The task stays bound and can accept later exact terminal evidence without rewriting the earlier receipt as success. Dispatch uncertainty and identity or terminal conflicts still reconcile. No path automatically resends or respawns.
 
 ### Evidence
 

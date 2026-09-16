@@ -56,11 +56,11 @@ class PluginStructureTests(unittest.TestCase):
         )
         self.assertLess(disable, first_runtime_import)
 
-    def test_current_schemas_are_v11_and_task_contract_v2(self):
+    def test_current_schemas_are_v12_and_task_contract_v2(self):
         semantics = json.loads((ROOT / "schemas/governance-semantics.schema.json").read_text(encoding="utf-8"))
         contract = json.loads((ROOT / "schemas/task-contract-v2.schema.json").read_text(encoding="utf-8"))
         assert_schema_supported(semantics)
-        self.assertEqual(semantics["x-semantics"]["state_format_version"], 11)
+        self.assertEqual(semantics["x-semantics"]["state_format_version"], 12)
         self.assertEqual(contract["$ref"], "governance-semantics.schema.json#/$defs/task_contract_input")
         self.assertFalse((ROOT / "schemas/task-contract-v1.schema.json").exists())
 

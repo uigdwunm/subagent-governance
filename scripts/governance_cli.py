@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Thin CLI transport for the current state-v11 governance runtime."""
+"""Thin CLI transport for the current state-v12 governance runtime."""
 
 from __future__ import annotations
 
@@ -61,6 +61,8 @@ def _parser() -> NonExitingArgumentParser:
     modes.add_argument("--diagnose", action="store_true")
     parser.add_argument("--session")
     parser.add_argument("--native-interface")
+    parser.add_argument("--task-id")
+    parser.add_argument("--task-ref")
     parser.add_argument("--data-root", type=Path)
     return parser
 
@@ -126,8 +128,9 @@ def main(
         args.close_task, args.status, args.diagnose,
     ))
     if not selected:
-        if args.session or args.data_root or args.native_interface:
-            print("--session/--data-root/--native-interface require an explicit command", file=stderr)
+        if (args.session or args.data_root or args.native_interface
+                or args.task_id is not None or args.task_ref is not None):
+            print("--session/--data-root/--native-interface/--task-id/--task-ref require an explicit command", file=stderr)
             return 2
         return _hook(stdin, stdout)
     if not args.session:
@@ -139,10 +142,14 @@ def main(
     if args.prepare_dispatch and args.native_interface is None:
         print("--prepare-dispatch requires --native-interface", file=stderr)
         return 2
+    if args.task_id is not None or args.task_ref is not None:
+        if not args.status or args.task_id is None or args.task_ref is None:
+            print("--task-id 和 --task-ref 必须成对且只可配合 --status 使用", file=stderr)
+            return 2
     root = _data_root(args.data_root)
     try:
         if args.status:
-            result = status(args.session, root)
+            result = status(args.session, root, task_id=args.task_id, task_ref=args.task_ref)
         elif args.diagnose:
             result = diagnose(args.session, root)
         else:

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+import json
+import re
 import subprocess
 import tempfile
 import unittest
@@ -7,6 +9,9 @@ from pathlib import Path
 
 from scripts import governance_semantics as semantics
 from scripts.governance_contracts import contract_from_input
+from scripts.governance_diagnostics import status
+from scripts.governance_dispatch import claim_spawn, confirm_dispatch
+from scripts.governance_dispatch_rendering import spawn_args
 from scripts.governance_errors import DispatchPreparationError
 from scripts.governance_hook import handle_hook
 from scripts.governance_protocol import prepare_dispatch
@@ -15,6 +20,52 @@ from tests.schema_validation import validate_instance
 
 
 class ContextContractV2Tests(unittest.TestCase):
+    def test_documented_handoffs_validate_and_reach_native_spawn_message(self):
+        reference = Path(__file__).resolve().parents[1] / (
+            "skills/subagent-governance/references/task-handoff.md"
+        )
+        examples = re.findall(r"```json\n(.*?)\n```", reference.read_text(encoding="utf-8"), re.S)
+        self.assertTrue(examples, "交接参考缺少可验证的契约示例")
+        for example in examples:
+            raw = json.loads(example)
+            with self.subTest(objective=raw.get("objective")):
+                self.assertEqual(validate_instance(
+                    raw, semantics.SEMANTIC_DEFINITIONS["task_contract_input"],
+                    root_schema=semantics.MACHINE_SEMANTICS,
+                ), [])
+                contract = contract_from_input(raw)
+                for interface in ("collaboration_turns", "fork_context"):
+                    message = spawn_args(
+                        contract, "sg_standard_handoff_t_abcdefabcdef", None,
+                        native_interface=interface,
+                    )["message"]
+                    self.assertIn(contract.objective, message)
+                    if contract.context["summary"]:
+                        self.assertIn(contract.context["summary"], message)
+                    for field in ("scope", "forbidden_scope", "completion", "evidence"):
+                        for item in getattr(contract, field):
+                            self.assertIn(item, message, (interface, field))
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    store = StateStore(root / "sessions")
+                    prepared = prepare_dispatch(
+                        raw, "handoff-recovery", native_interface="collaboration_turns",
+                        state_store=store, now=100,
+                    )
+                    claim_spawn(
+                        "handoff-recovery", prepared["task_ref"], "handoff-call",
+                        prepared["spawn_args"], state_store=store, now=101,
+                    )
+                    identity = {key: prepared[key] for key in ("task_id", "task_ref")}
+                    confirm_dispatch(
+                        "handoff-recovery", {**identity, "target": "/root/handoff"},
+                        state_store=store, now=102,
+                    )
+                    del store, prepared, raw
+                    recovered = status("handoff-recovery", root, **identity)["tasks"][0]
+                    self.assertEqual(recovered["phase"], "bound")
+                    self.assertEqual(recovered["contract_summary"], contract.business_record())
+
     @staticmethod
     def verified_contract(workspace: Path, baseline: dict, required_paths: list[dict]) -> dict:
         return {

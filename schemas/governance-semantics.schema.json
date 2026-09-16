@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/uigdwunm/subagent-governance/schemas/governance-semantics.schema.json",
-  "title": "Subagent Governance current-only v10 semantics",
+  "title": "Subagent Governance current-only v12 semantics",
   "$defs": {
     "nonempty_text": {"type": "string", "minLength": 1, "maxLength": 8192, "pattern": ".*\\S.*"},
     "short_text": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": ".*\\S.*"},
@@ -100,6 +100,7 @@
       "additionalProperties": false
     },
     "task_contract_input": {
+      "$comment": "After normalization, runtime additionally bounds the business projection by x-semantics.max_contract_summary_bytes. Standard JSON Schema validates structure and character counts, not this UTF-8 byte budget.",
       "type": "object", "required": ["objective", "scope", "completion"],
       "properties": {
         "profile": {"$ref": "#/$defs/profile"},
@@ -124,6 +125,7 @@
       "additionalProperties": false
     },
     "task_contract": {
+      "$comment": "Runtime additionally enforces the contract_summary UTF-8 byte budget on all fields except spawn.",
       "type": "object", "required": ["profile", "objective", "scope", "forbidden_scope", "completion", "evidence", "context", "spawn"],
       "properties": {
         "profile": {"$ref": "#/$defs/profile"},
@@ -135,15 +137,7 @@
         "context": {"$ref": "#/$defs/contract_context"},
         "spawn": {"$ref": "#/$defs/spawn_config"}
       },
-      "allOf": [{
-        "if": {"properties": {"profile": {"const": "strict"}}},
-        "then": {
-          "properties": {
-            "forbidden_scope": {"type": "array", "minItems": 1},
-            "evidence": {"type": "array", "minItems": 1}
-          }
-        }
-      }],
+      "allOf": [{"$ref": "#/$defs/strict_business_requirements"}],
       "additionalProperties": false
     },
     "context_verification_path": {
@@ -192,9 +186,28 @@
       },
       "additionalProperties": false
     },
+    "strict_business_requirements": {
+      "if": {"properties": {"profile": {"const": "strict"}}},
+      "then": {
+        "properties": {
+          "forbidden_scope": {"type": "array", "minItems": 1},
+          "evidence": {"type": "array", "minItems": 1}
+        }
+      }
+    },
     "contract_summary": {
-      "type": "object", "required": ["profile", "objective"],
-      "properties": {"profile": {"$ref": "#/$defs/profile"}, "objective": {"$ref": "#/$defs/nonempty_text"}},
+      "$comment": "Exact normalized business contract, excluding spawn. Runtime additionally enforces x-semantics.max_contract_summary_bytes on compact sorted-key JSON (ensure_ascii=false, UTF-8, no trailing newline) and equality to contract_digest; this is not a generated summary or actual delivery evidence.",
+      "type": "object", "required": ["profile", "objective", "scope", "forbidden_scope", "completion", "evidence", "context"],
+      "properties": {
+        "profile": {"$ref": "#/$defs/task_contract/properties/profile"},
+        "objective": {"$ref": "#/$defs/task_contract/properties/objective"},
+        "scope": {"$ref": "#/$defs/task_contract/properties/scope"},
+        "forbidden_scope": {"$ref": "#/$defs/task_contract/properties/forbidden_scope"},
+        "completion": {"$ref": "#/$defs/task_contract/properties/completion"},
+        "evidence": {"$ref": "#/$defs/task_contract/properties/evidence"},
+        "context": {"$ref": "#/$defs/task_contract/properties/context"}
+      },
+      "allOf": [{"$ref": "#/$defs/strict_business_requirements"}],
       "additionalProperties": false
     },
     "unknown_fact": {
@@ -282,7 +295,7 @@
       "$comment": "Runtime additionally enforces unique task_ref and unique target among target_owning_phases within a Session; closed records do not reserve targets.",
       "type": "object", "required": ["state_format_version", "session_id", "tasks"],
       "properties": {
-        "state_format_version": {"const": 11},
+        "state_format_version": {"const": 12},
         "session_id": {"type": "string", "minLength": 1, "maxLength": 1024},
         "tasks": {"type": "object", "maxProperties": 512, "propertyNames": {"type": "string", "minLength": 1, "maxLength": 256}, "additionalProperties": {"$ref": "#/$defs/task_record"}}
       },
@@ -290,8 +303,8 @@
     }
   },
   "x-semantics": {
-    "state_format_version": 11,
-    "state_storage_namespace": "state-v11",
+    "state_format_version": 12,
+    "state_storage_namespace": "state-v12",
     "native_interfaces": ["collaboration_turns", "fork_context"],
     "native_spawn_tool_names": ["spawn_agent", "multi_agent_v1.spawn_agent", "multi_agent_v1__spawn_agent", "multi_agent_v1spawn_agent", "collaboration.spawn_agent", "collaborationspawn_agent"],
     "task_contract_wire_version": 2,
@@ -310,6 +323,7 @@
     "interrupt_results": ["failed", "inactive", "unknown"],
     "max_hook_input_bytes": 2097152,
     "new_task_soft_limit_bytes": 3145728,
-    "max_state_bytes": 4194304
+    "max_state_bytes": 4194304,
+    "max_contract_summary_bytes": 65536
   }
 }

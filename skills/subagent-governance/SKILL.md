@@ -15,7 +15,7 @@ description: 治理 Codex 原生子 Agent 的派发、等待、通信、中断�
 - 治理异常只停止依赖缺失身份或冲突事实的操作；继续其他不依赖它的已授权工作，不用重复 spawn 绕过异常。
 - 不修改或要求其他 Skill 采用本协议；真正调用 `spawn_agent` 的每个任务都是一个独立 governed lifecycle。
 
-当前 runtime 已实现 state-v11 的 `prepare → Pre claim → explicit exact-target confirm → minimal lifecycle → parent close`。等待和普通消息仍使用原生工具；治理层只记录下述会改变后续决策的最小事实。v10 及更早账本不读取、迁移或清理。
+当前 runtime 已实现 state-v12 的 `prepare → Pre claim → explicit exact-target confirm → minimal lifecycle → parent close`。等待和普通消息仍使用原生工具；治理层保留原始验收契约和下述会改变后续决策的最小事实。v11 及更早账本不读取、迁移或清理。
 
 ## TaskContract v2
 
@@ -49,10 +49,20 @@ description: 治理 Codex 原生子 Agent 的派发、等待、通信、中断�
 - `spawn.fork_turns` 接受 `none|all` 或 1–12 位正整数字符串。先核对当前任务可见的原生工具说明，再在 prepare 时显式选择 `collaboration_turns` 或 `fork_context`；不得猜测或混用接口。
 - business contract digest 不包含 `spawn`；spawn config 有独立 digest。
 - `context.paths` 只是定位提示，不建立文件存在或内容正确的事实。
+- 除 `spawn` 外的规范化契约原样保存在单一账本的 `contract_summary`，最多 65,536 个 UTF-8 字节（含紧凑 JSON 编码开销）；超限明确拒绝 prepare，不截断。只写必要约定，不放凭据、完整聊天、日志或业务结果；详细字段边界见 [runtime-boundaries](references/runtime-boundaries.md)。
 
 需要机械验证工作区材料时，在 `context.verified` 显式提供 declared manifest。它沿用 absolute workspace root、`working_tree|git_commit` baseline 和 required paths；prepare 与 Pre claim 各验证一次。普通 standard 任务只有显式提供该字段才 opt in；strict 也不自动扫描工作区。
 
 profile 与状态边界见 [references/governance-profiles.md](references/governance-profiles.md) 和 [references/runtime-boundaries.md](references/runtime-boundaries.md)。
+
+### 交接内容与自主权
+
+- 按任务需要，用现有字段说明已定设计、可自主决定的细节、必须保持的约束和可验证结果；不要求每项长篇填写。把对子 Agent 执行有影响的边界写进契约正文，不能仅留在父任务历史或参考文件中。结构校验通过不证明设计意图充分或结果质量。
+- 边界明确的任务直接完成实现、必要验证及本次引入的问题修复。只有重大设计未决或需要改变既定接口、数据库、鉴权、架构边界等实际相关情形，才尽早对齐关键方案；跨文件修改本身不是触发条件，已授权的自主判断无需重复审批。
+- 对齐时说明事实、受影响约束、推荐方案及代价、需要的决定和可继续的工作。普通方案沟通是进度消息；确实无法继续交付、需要交还决定时才按现有终态流程报告，不新增审批阶段或终态后恢复路径。父任务在已有授权内决定，仅将超出授权或需用户选择的问题交给用户。
+- 确需并行修改时，明确各自修改归属、共享接口负责人、集成负责人和必要顺序；父任务验收组合结果。材料校验不提供运行期间工作区隔离，不为简单任务强制拆分。
+
+编写设计边界不清或涉及并行写入的契约时，按需阅读 [任务交接示例](references/task-handoff.md)；示例是填写指导，不增加 Schema 必填字段。
 
 ## Exact Session identity
 
@@ -135,6 +145,16 @@ spawn 返回后、confirm 前如果父任务中断，记录保持 `claimed/unbou
 ## 只读恢复与状态
 
 `--status --session <exact-session-id>` 和 `--diagnose --session <exact-session-id>` 只读 exact Session；缺失目录时不创建目录、lock 或空状态。SessionStart 始终注入当前 Hook 提供的权威 exact session ID 与 CLI entrypoint；后者保证 CLI 与真实 Hook 使用同一安装版本和插件数据根。状态摘要仍是 best-effort、无锁只读，不 cleanup、rebuild、reconcile、自动关闭、自动调用工具或扫描其他 Session。
+
+上下文恢复后，先用轻量 status 恢复身份映射；需要验收某个任务而原约定不在上下文时，按需读取该任务的完整验收快照：
+
+```bash
+python3 "<authoritative-cli-entrypoint>" --status --session <exact-session-id> --task-id <task_id> --task-ref <task_ref>
+```
+
+两个选择参数必须成对，取自该 exact Session 的 status；不存在或不匹配会报错，不能换身份试探。返回单个任务及 `contract_summary`：目标、范围、禁止范围、完成条件、证据要求和完整 context。按这些原始约定核对实际交付；`evidence` 是派发时要求提供的证据，不是已经通过的检查，证据要求也可能在 `completion` 中。收到 completed 不代表验收通过。后续消息改变的要求不自动写入原始快照，仍须依据实际消息核对，缺失时说明证据不足。
+
+默认 status、diagnose 和 SessionStart 不输出完整快照，也不读取材料正文。材料路径和声明不保证外部内容仍可恢复；快照随任务跨阶段保留，closed 被现有保留策略淘汰后不可恢复。不因摘要缺失或详情读取失败自动重派、验收或关闭。
 
 只在平台继续提供同一 exact Session identity 时显示未关闭摘要。新 Session 不跨目录扫描或猜测旧任务。
 

@@ -1,4 +1,4 @@
-"""Composition service for preparing a state-v11 governed native dispatch."""
+"""Composition service for preparing a state-v12 governed native dispatch."""
 
 from __future__ import annotations
 

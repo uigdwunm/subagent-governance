@@ -1,6 +1,6 @@
 # 中断、unknown 与 reconcile 边界
 
-当前 state-v11 沿用 prepare → Pre claim → exact-target confirm → 生命周期 → parent close。
+当前 state-v12 沿用 prepare → Pre claim → exact-target confirm → 生命周期 → parent close。
 
 ## 派发与身份冲突
 
@@ -26,4 +26,4 @@ first bind wins。派发结果未知、missing claim、身份或终态冲突仍�
 
 close 不调用 interrupt，不证明业务成功或资源释放。status/diagnose 单独呈现历史 unknown，closed 的 next_action 为 none；issues=[] 只说明账本可读且结构有效。
 
-state-v11 不读取、迁移或清理 state-v10。新版本摘要为空不证明旧任务已完成；当前实现尚未部署或真实复验。
+state-v12 不读取、迁移或清理 state-v11。新版本摘要为空不证明旧任务已完成；当前实现尚未部署或真实复验。

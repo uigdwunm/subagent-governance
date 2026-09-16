@@ -2,7 +2,7 @@
 
 Subagent Governance 是 Codex 原生子 Agent 的本地生命周期治理层。它继续使用原生 Agent 工具，不替代平台调度、权限、Hook trust、沙箱或父 Agent 的业务判断。
 
-当前开发实现沿用 [减法收口 cutover](improvement-plans/reduction-cutover.md)，并按 [GPT-6 流程精简方案](improvement-plans/gpt6-workflow-simplification-2026-09-09.md) 分离 unknown 与生命周期：state-v11 单一 Session ledger、TaskContract v2、prepare、显式冻结的 governed spawn Pre claim、父 Agent explicit exact-target confirm，以及 observation/terminal/interrupt/close 已落地。当前代码不保留旧机制作为兼容 fallback。
+当前开发实现沿用 [减法收口 cutover](improvement-plans/reduction-cutover.md)，并按 [GPT-6 流程精简方案](improvement-plans/gpt6-workflow-simplification-2026-09-09.md) 分离 unknown 与生命周期：state-v12 单一 Session ledger、TaskContract v2、prepare、显式冻结的 governed spawn Pre claim、父 Agent explicit exact-target confirm，以及 observation/terminal/interrupt/close 已落地。当前代码不保留旧机制作为兼容 fallback。
 
 ## TaskContract v2
 
@@ -25,7 +25,7 @@ spawn(fork_turns, model, reasoning_effort)
 - semantic name、task ref 和 task name 由 runtime 派生。
 - business contract digest 排除 spawn config；spawn config 使用独立 digest。
 
-## state-v11 单一 ledger
+## state-v12 单一 ledger
 
 每个 exact Session 只有一份 JSON ledger，根字段精确为：
 
@@ -43,7 +43,9 @@ prepared | claimed | bound | terminal | closed | reconcile
 
 prepared capability 位于 task record 内，和 lifecycle state 共享同一 lock 与原子写边界。当前持久状态没有 PreparedContractStore、agents index、Post receipt/index、pending action、tombstone 或 Group。
 
-StateStore 只接受严格 `state_format_version=11`，默认 namespace 为 `state-v11`。v10 及更早状态不读取、不迁移、不修复、不写回、不删除。
+`contract_summary` 是规范化 business contract 的精确快照，保留除 spawn 外的全部字段，包括 context.summary、paths 和 verified 声明。它在 prepare 生成，跨所有 phase 保留；prepared/claimed 阶段与 capability contract 精确相等，所有阶段校验 business digest。绑定或失败时可删除 capability，不删除验收约定。没有另一份模型生成摘要、结果正文存储或外部材料副本。字节预算和字段语义以 governance-semantics.schema.json 为源，详见 [验收快照边界](../skills/subagent-governance/references/runtime-boundaries.md#原始验收快照与容量)。
+
+StateStore 只接受严格 `state_format_version=12`，默认 namespace 为 `state-v12`。v11 及更早状态不读取、不迁移、不修复、不写回、不删除。
 
 ## 派发与 identity
 
@@ -76,7 +78,7 @@ identity 的唯一权威是父 Agent 对当前原生 spawn 返回 exact target �
 - `record-interrupt-result` 保存明确 failed/inactive 机械结果；inactive 建立 terminal fact，unknown 只写 `unknown_facts.interrupt_unknown`，保持 bound。它不依赖 Hook settlement。
 - `close-task` 是父 Agent 显式判断，不自动调用 interrupt。close 后 capability 被收缩，保留 unknown_facts、首个 reconcile 原因及既有事实；closed 不重新开启；ledger 只保留最新 64 条 closed task，并在后续真实写操作中惰性裁剪。
 
-allowed next action 由 phase 与上述可靠事实派生，不持久化 parent action。所有输入使用关闭字段集合，正文、summary、transcript 和 child final 不进入 lifecycle state。
+allowed next action 由 phase 与上述可靠事实派生，不持久化 parent action。所有输入使用关闭字段集合，执行结果正文、transcript 和 child final 不进入 lifecycle facts；原始 context.summary 仅作为验收契约的一部分保留。
 
 unknown_facts 是最多三项的可选对象，键为 delivery_unknown、platform_observation_unknown、interrupt_unknown，值只含首次 observed_at。它可随 bound → terminal → closed 保留，也可保留在有绑定身份的冲突记录中；不保存调用历史，不把原回执倒改为成功。同一证据只按实际来源登记一次；独立来源有新事实时才补充。
 
@@ -93,9 +95,11 @@ Hook router 只接受机器语义源列出的原生 spawn 精确名称。`collab
 
 不存在 PostToolUse、Stop、SessionEnd 或 communication/followup/interrupt PreToolUse。
 
-SessionStart、`status` 和 `diagnose` 使用无锁只读 reader；缺失目录时不创建目录、lock、临时文件或空状态，不 cleanup、rebuild、migrate、reconcile、自动关闭、自动重试、扫描其他 Session 或读取业务正文。治理命令必须使用 SessionStart 注入的已安装 CLI entrypoint，确保与 Hook 解析到同一插件数据根；工作区相对脚本和其他 cache 版本都不是 authority。`<codex_delegation><source_thread_id>` 只表示来源任务，不得替代当前 Hook 的 session ID。
+SessionStart、`status` 和 `diagnose` 使用无锁只读 reader；缺失目录时不创建目录、lock、临时文件或空状态，不 cleanup、rebuild、migrate、reconcile、自动关闭、自动重试、扫描其他 Session 或读取外部材料正文。治理命令必须使用 SessionStart 注入的已安装 CLI entrypoint，确保与 Hook 解析到同一插件数据根；工作区相对脚本和其他 cache 版本都不是 authority。`<codex_delegation><source_thread_id>` 只表示来源任务，不得替代当前 Hook 的 session ID。
 
-status、diagnose、SessionStart 共享 projection：phase 决定 next_action，unknown_facts 单独呈现。issues=[] 只证明账本可读且结构有效。新 namespace 不恢复 state-v10 的未关闭任务；新摘要为空不能证明旧任务完成。当前 state-v11 尚未部署或做真实平台验收。
+默认 status/diagnose 和 SessionStart 仍为轻量 projection；`--status --task-id <task_id> --task-ref <task_ref>` 在 exact Session 内精确选取单条任务，并额外返回完整 contract_summary。选择参数缺一、身份不匹配或记录已淘汰均明确失败。SessionStart 只提示按需读取，不自动注入完整契约；读取不证明交付合格，不重读 verified 材料。
+
+status、diagnose、SessionStart 共享 projection：phase 决定 next_action，unknown_facts 单独呈现。issues=[] 只证明账本可读且结构有效。新 namespace 不恢复 state-v11 的未关闭任务；新摘要为空不能证明旧任务完成。当前 state-v12 尚未部署或做真实平台验收。
 
 ## 安全存储边界
 
@@ -113,10 +117,10 @@ wait 不持久化。business resume、managed followup、多 attempt、复杂 re
 
 ## 文件所有权
 
-- `schemas/governance-semantics.schema.json`：state-v11、TaskContract v2、冻结 native interface 和 phase-specific closed Schema。
+- `schemas/governance-semantics.schema.json`：state-v12、TaskContract v2、冻结 native interface 和 phase-specific closed Schema。
 - `schemas/task-contract-v2.schema.json`：TaskContract v2 模型输入 wire schema。
 - `scripts/governance_contracts.py`：v2 normalization 与 business/spawn digest。
-- `scripts/governance_state.py`：strict state-v11 runtime validator。
+- `scripts/governance_state.py`：strict state-v12 runtime validator。
 - `scripts/governance_state_store.py`：单 ledger 安全存储和无锁只读 reader。
 - `scripts/governance_protocol.py`：prepare composition。
 - `scripts/governance_dispatch.py`：claim/confirm/dispatch-result transitions。

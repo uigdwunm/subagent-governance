@@ -17,7 +17,7 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 
 当前稳定版为 `v0.4.0`，Marketplace 入口固定到相同的不可变标签。该版本收录了候选发布阶段完成并验证的生命周期与身份修复，以及自然语言快速上手体验。
 
-以下运行说明对应尚未发布的 state-v11 开发线；稳定标签仍为 v0.4.0。state-v11 尚未部署或真实验收，不自动读取旧账本；新摘要为空不证明旧任务已完成。
+以下运行说明对应尚未发布的 state-v12 开发线；稳定标签仍为 v0.4.0。state-v12 尚未部署或真实验收，不自动读取旧账本；新摘要为空不证明旧任务已完成。
 
 ## 它为原生 Codex 增加了什么？
 
@@ -40,6 +40,7 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 - **可选材料验证**：可以在 prepare 和 claim 阶段验证声明的工作树文件或 Git 对象。
 - **最小本地状态**：一个当前 Session ledger，不保存 prompt 档案或终态正文，已关闭任务有界保留。
 - **只读恢复视图**：SessionStart 摘要、`status` 和 `diagnose` 不创建或修复状态。
+- **可恢复的验收依据**：开发运行时有界保留原始业务契约，包括设计背景和证据要求；上下文丢失后可按精确任务读取，仍由父任务核对实际结果是否合格。
 
 ## 有证据支持的保护
 
@@ -132,7 +133,7 @@ Skill 会生成契约、说明派发信息、把生成参数交给原生 `spawn_
 
 ## 工作原理
 
-每个 exact Codex Session 只有一个 `state-v11` ledger。一个受治理任务代表一个原生 Agent 生命周期，phase 只有：
+每个 exact Codex Session 只有一个 `state-v12` ledger。一个受治理任务代表一个原生 Agent 生命周期，phase 只有：
 
 ```text
 prepared | claimed | bound | terminal | closed | reconcile
@@ -164,7 +165,7 @@ Subagent Governance **不是**沙箱、权限系统、远程控制平面、Hook 
 
 ## 验证情况
 
-既有验证覆盖以下范围；state-v11 的本地结果与未验证边界见[当前本地验收](docs/validation/current-only-local-acceptance.md)，历史真实验收不替代新版本证据：
+既有验证覆盖以下范围；state-v12 的本地结果与未验证边界见[当前本地验收](docs/validation/current-only-local-acceptance.md)，历史真实验收不替代新版本证据：
 
 - 协议、状态、并发、生命周期、存储安全、打包和部署事务自动化测试；
 - Ubuntu、macOS 和 Windows 上的 Python 3.11、3.12 CI；

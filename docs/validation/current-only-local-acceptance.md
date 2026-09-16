@@ -1,3 +1,45 @@
+# A+B 集成本地验收
+
+日期：2026-09-16。开发基线：`1f9d905`。A 的 state-v12 验收契约恢复和 B 的任务交接／自主权说明已整合到主开发目录；两个来源 worktree 保持原样。下方各阶段记录保留当时状态，本节描述最新集成结果。
+
+- 合并 Skill 入口、上下文边界说明和打包测试，保留 B 的交接参考并加入 runtime allowlist。
+- 将 B 的三份交接示例经过 prepare、claim、confirm 后，通过 A 的只读详情接口从落盘状态恢复，逐字段核对完整业务约定；两种原生接口的派发正文检查仍保留。
+- 修正 5 处导入排序告警，涉及治理派发、状态校验和既有状态正确性测试；没有改变相应运行逻辑。
+- Python 3.9 全量 140 项测试通过；Python 3.11 覆盖率运行全量 140 项通过。启用分支统计后的总覆盖率 75%，通过项目 70% 门槛。
+- Ruff 0.16.4 全量检查、编译、插件验证器、Skill 验证器、development 预检和 git diff --check 通过。检查工具使用本机现有缓存；覆盖率数据与运行日志在临时目录。
+
+本次仅整合开发目录，尚未创建 Git 提交、部署或发布。跨平台 CI、真实 Codex 会话恢复、运行缓存一致性及减少返工效果未验证。state-v12 不读取旧格式任务；未来部署仍需遵循独立授权、事务部署与重启后新任务测试边界。
+
+---
+
+# state-v12 原始验收契约恢复本地验收
+
+日期：2026-09-16。开发基线：`1f9d905`，包含 `62053eb` 的等待／静默核对及后续身份、生命周期修复。本节仅记录 A 第 4 项当前 worktree 的本地结果；B 交接文档改动位于独立 worktree，未搬运、未合入。
+
+## 变更与证据
+
+- 先补回归测试，旧实现在绑定后只留下 profile/objective，无法从落盘状态恢复完整 business contract；修改 objective 也不能在 bound 阶段触发 digest 不一致错误。新增精确详情接口在旧 CLI 不存在，测试先失败后修复。
+- 扩展既有 contract_summary，原样保留规范化契约除 spawn 外的字段和完整 context；没有第二份存储、模型语义摘要或实际业务结果正文。快照跨 claim、绑定、派发失败／未知、对账、终态及关闭保留；prepared 阶段精确校验重复字段，所有阶段核对 business digest。
+- 增加单快照 65,536 字节上限，按紧凑排序 JSON 的 UTF-8 编码计数；保留原字段和列表上限、3 MiB 新任务准入线、4 MiB 落盘硬上限及 512 条记录上限。超限拒绝，不截断、不覆盖原账本。同步修正 context.paths 的 1,000 字符运行时边界，使其与 Schema 一致。
+- 精确 `--status --task-id ... --task-ref ... --session ...` 只读返回单个任务及完整快照；默认 status/diagnose/SessionStart 保持轻量。长任务列表不会挤掉置于列表前的恢复入口提示。
+- state_format_version/namespace 切换 12/state-v12，TaskContract wire 仍为 v2。不读取或迁移旧状态；旧目录保持原样。新格式中只有 profile/objective 的旧摘要不被补造为新契约。
+- `tests/test_acceptance_recovery.py` 的 14 项测试覆盖最小与较完整契约、并行集成责任、多字节和 JSON 转义、字段／列表与字节边界、Schema 和运行时校验、各清理路径、closed 淘汰、只读与身份拒绝，以及旧命名空间隔离。Schema 标准断言不执行 UTF-8 字节扩展，该差异有专门测试。
+- `tests/test_runtime_bundle.py` 额外验证临时 allowlisted bundle 在绑定后，通过新的独立进程读取原始完成条件。runtime 文件集合不变，打包清单无需新增条目；临时 bundle 不属于本机插件安装或真实平台验收。
+
+## 本地检查
+
+- `python3 -m unittest discover -s tests -v`：139 tests passed（Python 3.9.6），包含既有身份、生命周期、并发、存储和打包回归。
+- `python3.11 -m unittest discover -s tests -v`：139 tests passed（Python 3.11.15，项目支持版本）。
+- `python3 -m compileall -q scripts`、Plugin validator、Skill validator、`git diff --check`：通过。
+- `python3 scripts/release_preflight.py --mode development`：通过。没有执行部署或发布。
+- 补充 lint／分支覆盖率未完成：未取得可运行的 ruff/coverage 校验工具，临时环境安装开发依赖超时；不声称全部 CI 门禁通过。
+
+## 集成与未验证边界
+
+修改仅在当前开发 worktree，未提交、合并、安装、部署或发布；稳定发布源、Marketplace、运行缓存、Hook trust 和 Registry 未写入。B 的共享 Skill／文档改动仍需后续协调合并，本次不声称 A+B 已集成。运行缓存一致性、真实 Codex compact/restart 后的恢复、Hook 实际加载、跨平台 CI 和减少返工效果均未验证。后续消息的新要求、实际结果与检查证据不会自动进入原始契约快照；外部材料声明可恢复，不保证材料正文仍存在。收到 completed 不等于业务验收通过。
+
+---
+
 # state-v11 流程精简本地验收
 
 日期：2026-09-09。实施基线：`468dc95`。结论：`passed_functional_checks_with_existing_lint_findings`。本记录对应 state-v11 开发仓库候选；记录时尚未部署、未更改运行缓存或 Hook trust、未创建真实测试任务。

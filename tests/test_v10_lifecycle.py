@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Acceptance coverage for the minimal state-v11 lifecycle slice."""
+"""Acceptance coverage for the minimal state-v12 lifecycle slice."""
 
 from __future__ import annotations
 

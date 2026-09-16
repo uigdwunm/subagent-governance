@@ -40,7 +40,7 @@ class GovernanceCliTests(unittest.TestCase):
         self.assertNotIn("permissionDecision", result.get("hookSpecificOutput", {}))
         self.assertIn("fail-open", result["systemMessage"])
 
-    def test_prepare_confirm_and_status_use_v11_commands(self):
+    def test_prepare_confirm_and_status_use_v12_commands(self):
         contract = {
             "objective": "CLI dispatch",
             "scope": ["tests"],

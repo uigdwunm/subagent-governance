@@ -45,6 +45,7 @@ EXPECTED_RUNTIME_FILES = {
     "skills/subagent-governance/agents/openai.yaml",
     "skills/subagent-governance/references/governance-profiles.md",
     "skills/subagent-governance/references/runtime-boundaries.md",
+    "skills/subagent-governance/references/task-handoff.md",
 }
 
 
@@ -208,6 +209,21 @@ class RuntimeBundleTests(unittest.TestCase):
             task = json.loads(current.stdout)["tasks"][0]
             self.assertEqual(task["task_ref"], prepared_value["task_ref"])
             self.assertEqual(task["phase"], "claimed")
+
+            bound = run(["--confirm-dispatch", "--session", session_id], {
+                "task_id": prepared_value["task_id"], "task_ref": prepared_value["task_ref"],
+                "target": "/root/bundle-fixture",
+            })
+            self.assertEqual(bound.returncode, 0, bound.stderr)
+            # A fresh process in an allowlisted temporary bundle recovers the
+            # original acceptance criteria after capability cleanup.
+            recovered = run(["--status", "--session", session_id,
+                             "--task-id", prepared_value["task_id"],
+                             "--task-ref", prepared_value["task_ref"]], {})
+            self.assertEqual(recovered.returncode, 0, recovered.stderr)
+            snapshot = json.loads(recovered.stdout)["tasks"][0]["contract_summary"]
+            self.assertEqual(snapshot["completion"], ["Report name and version"])
+            self.assertEqual(snapshot["scope"], [".codex-plugin/plugin.json"])
 
     def test_allowlisted_python_imports_are_closed_over_runtime_modules(self):
         allowed = set(runtime_bundle.runtime_files(ROOT))

@@ -17,7 +17,7 @@ Subagent Governance is a local Codex plugin for developers who use native subage
 
 The current stable release is `v0.4.0`. Its Marketplace entry is pinned to the same immutable tag. It consolidates the lifecycle and identity fixes validated across the release-candidate series and includes the natural-language quick start.
 
-The runtime description below covers the unreleased state-v11 development line. The stable tag remains v0.4.0. State-v11 has not been deployed or validated on the real platform; it does not read older ledgers, and an empty new summary does not mean older tasks completed.
+The runtime description below covers the unreleased state-v12 development line. The stable tag remains v0.4.0. State-v12 has not been deployed or validated on the real platform; it does not read older ledgers, and an empty new summary does not mean older tasks completed.
 
 ## What it adds to native Codex
 
@@ -40,6 +40,7 @@ Native Codex continues to create and run every subagent. Subagent Governance add
 - **Optional verified context** — declared working-tree files or Git objects can be checked at prepare and claim time.
 - **Minimal local state** — one current Session ledger, no prompt archive, no terminal body persistence, and bounded closed-task retention.
 - **Read-only recovery views** — SessionStart summaries, `status`, and `diagnose` do not create or repair state.
+- **Recoverable acceptance criteria** — the development runtime retains the original bounded business contract, including design context and required evidence, for exact-task retrieval after context loss. Completion still requires the parent's review of actual results.
 
 ## Evidence-backed protections
 
@@ -133,7 +134,7 @@ Dispatch uncertainty and identity or terminal conflicts enter reconcile. Unknown
 
 ## How it works
 
-Each exact Codex Session has one `state-v11` ledger. One governed task represents one native Agent lifecycle and moves through these phases:
+Each exact Codex Session has one `state-v12` ledger. One governed task represents one native Agent lifecycle and moves through these phases:
 
 ```text
 prepared | claimed | bound | terminal | closed | reconcile
@@ -165,7 +166,7 @@ Subagent Governance is **not** a sandbox, permission system, remote control plan
 
 ## Verification
 
-Existing verification covers the areas below. See [current local acceptance](docs/validation/current-only-local-acceptance.md) for state-v11 results and unverified boundaries; historical platform acceptance does not validate the new runtime:
+Existing verification covers the areas below. See [current local acceptance](docs/validation/current-only-local-acceptance.md) for state-v12 results and unverified boundaries; historical platform acceptance does not validate the new runtime:
 
 - Automated tests for protocol, state, concurrency, lifecycle, storage safety, packaging, and deployment transactions;
 - CI on Ubuntu, macOS, and Windows with Python 3.11 and 3.12;
