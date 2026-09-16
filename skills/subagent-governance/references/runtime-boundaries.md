@@ -13,6 +13,7 @@
 - `<codex_delegation><source_thread_id>` 只表示来源任务，不是当前 session ID；缺失任一 SessionStart 权威值时停止 governed dispatch，不从父任务、列表或其他 ID 猜测。
 - transcript、summary、child final、时间邻近、task name 和 `list_agents` 都不是 correctness authority。
 - exact platform observation 只作用于已 bound target；unknown 写 unknown_facts，保持 bound，后续确定终态可正常登记。
+- 等待节奏由 Skill 的“等待与通信”定义：短次等待、按 target 静默时间核对、恢复时补核对。时间信息只保留在父任务上下文；wait 不持久化，不增加状态字段或 attempt。Hook 不执行定时巡检，status/diagnose 不读取原生平台状态；超时和静默不是终态证据。
 - normal message success/failed 不要求额外 CLI；显式调用仍只校验 exact identity 且零写入。unknown 写 unknown_facts.delivery_unknown，不自动重发、不保存正文或调用历史。
 - terminal notification 保存 exact sender 对应的 status/time，不接收正文。interrupt 只保存明确 failed/inactive 机械结果；unknown 写 unknown_facts.interrupt_unknown，保持 bound。
 - unknown_facts 仅含三类首次时间，最多三项；与 phase 分开呈现，不证明当前状态未知，也不证明旧调用成功。身份／终态冲突及派发未知仍 reconcile，首个阻断原因保留。

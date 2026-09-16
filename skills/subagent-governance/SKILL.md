@@ -93,7 +93,19 @@ spawn 返回后、confirm 前如果父任务中断，记录保持 `claimed/unbou
 
 ## 等待与通信
 
-- bind 后保存 task/ref/exact target 映射，并用原生 `wait_agent` 等待。它是邮箱唤醒接口；超时、邮箱摘要或用户新输入本身不建立 Agent 状态，也不需要额外记账。正常等待不轮询代码、日志或列表。
+- bind 后保存 task/ref/exact target 映射，并用原生 `wait_agent` 等待，单次 `timeout_ms` 不超过 `60000`。它是邮箱唤醒接口；超时、邮箱摘要或用户新输入本身不建立 Agent 状态，也不需要额外记账。每次返回先处理已到达的消息，再决定是否继续等待；明确终态按下节登记并进入验收，结果不足就报告证据不足，不为同一次执行再等一份终态。
+- 对每个尚在等待的 bound target，在父任务上下文保存最后一次收到该 target 消息的时间（尚无消息时以 bind 时间起算）和最近一次状态核对时间。使用实际经过时间，不按 wait 次数估算；其他 Agent 的消息、用户输入和 wait 返回不重置该 target 的静默时间。
+- 连续静默达到 5 分钟时，用原生 `list_agents` 对已绑定 exact target 做一次只读状态核对，并按下表处理。若仍 running，后续核对距上次核对至少 5 分钟，且该 target 仍满足静默条件；其间正常等待。下一次核对时点是最后消息时间与上次核对时间两者较晚者之后 5 分钟。正常等待不轮询代码、日志，也不在每次 timeout 后查询列表。
+
+| exact target 核对结果 | 处置 |
+| --- | --- |
+| 明确 completed/stopped/interrupted | 按平台观察登记终态并退出该次等待；依据实际结果验收，缺少交付证据不等于仍在运行 |
+| 明确 running | 按平台观察登记，继续等待；静默本身不判失败，不自动催促、中断或重派；相同状态不反复播报 |
+| 明确 error | 登记 error 并报告具体错误，停止该 target 的自动等待，按已有授权处理；error 本身不冒充 terminal |
+| target 不可见、工具不可用／报错或状态不可识别 | 报告状态无法确认，停止该 target 的自动等待和定时查询；能归属已绑定 target 的不确定观察按 unknown 登记，不猜终态或重派。只有新的相关证据或用户明确要求再次核实时才重查 |
+
+- 静默阈值只触发核对，不限制任务总运行时长，也不修改 phase。停止某个 target 的自动等待不自动 close/interrupt，继续其他不依赖它的工作。wait 唤醒后即使有其他 target 的消息，也检查是否有 target 已达到核对时点。
+- 上下文恢复时先读 exact-session status 恢复映射；若 bound target 的等待时间信息丢失，先做一次上述状态核对，不重新开始一段未经核对的等待。只有明确 running 才以本次核对时间为新的等待基点；terminal/closed/reconcile 按已有阶段处置。时间信息仅用于当前父任务决策，不写 ledger，不增加 attempt。
 - 原生消息直接使用已保存的 exact target。上下文恢复或映射存疑时先读 exact-session status；不从 `list_agents`、名称或唯一候选补绑，也不在每次发送前增加固定检查。
 - 普通 `send_message` 的 success/failed 不要求额外治理调用。`--record-call-result` 仍可用于显式校验，success/failed 零写；结果 unknown 时必须提交 `{"task_id":"...","task_ref":"...","target":"...","result":"unknown"}`，记录 delivery_unknown，不自动重发。
 - 后续原范围内工作使用同一 exact target 的 `followup_task`；不建立新 identity 或 attempt。终态后不受管恢复。
@@ -116,7 +128,7 @@ spawn 返回后、confirm 前如果父任务中断，记录保持 `claimed/unbou
 
 已绑定且没有冲突的任务，三类 unknown 记录为 `unknown_facts`，phase 保持 bound，命令返回 unknown_recorded；同类重放返回 already_unknown。该对象只保留 delivery_unknown、platform_observation_unknown、interrupt_unknown 各自首次时间，不保存消息历史。
 
-继续等待；有新证据或需要判断能否收尾时，可以对已绑定 exact target 做一次有目的的只读观察，没有新证据不循环查询。后续确定状态或终态可以正常登记，同时保留 unknown；不把旧调用倒改为成功。即使 Agent 已完成，也要核实它是否满足未知投递消息中的新增要求，不能仅凭终态验收。
+消息或中断回执 unknown 本身不停止等待；按“等待与通信”的静默规则执行。有新证据、需要判断能否收尾、达到静默核对时点或恢复时丢失等待信息，才对已绑定 exact target 做一次有目的的只读观察。状态核对本身无法确认时停止该 target 的自动等待和定时查询，不能仅因又过了 5 分钟就重查；后续新证据中的明确状态或终态仍可正常登记，同时保留 unknown，不把旧调用倒改为成功。即使 Agent 已完成，也要核实它是否满足未知投递消息中的新增要求，不能仅凭终态验收。
 
 派发结果未知、缺少 claim、身份或终态冲突仍进入 reconcile，不能通过后续通知补绑或自动解锁。close 保留 unknown_facts 和首个 reconcile 原因；closed 只保留最新 64 条，由后续写操作惰性裁剪。
 
