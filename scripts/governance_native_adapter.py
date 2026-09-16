@@ -27,7 +27,7 @@ def _interface(native_interface: str) -> None:
 
 def _fork_turns(value: Any) -> str:
     if not isinstance(value, str) or value not in {"none", "all"} and not (
-        value.isdigit() and value[0] != "0" and len(value) <= 12
+        value.isascii() and value.isdigit() and value[0] != "0" and len(value) <= 12
     ):
         raise ValueError("spawn.fork_turns 必须是 none、all 或 1-12 位正整数字符串")
     return value

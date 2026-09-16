@@ -46,5 +46,24 @@
       "optional_keys": ["last_assistant_message"],
       "nullable_keys": ["last_assistant_message"]
     }
+  },
+  "registered_events_review": {
+    "checked_date": "2026-09-16",
+    "source_url": "https://learn.chatgpt.com/docs/hooks",
+    "events": [
+      "SessionStart",
+      "PreToolUse"
+    ],
+    "scope": "Documentation review only; not client-version or real-delivery evidence. Historical common/events field inventory above is not a runtime validator.",
+    "runtime_required_for_claim": {
+      "session_id": "nonblank string",
+      "tool_use_id": "nonblank string",
+      "tool_input": "verifiable native object"
+    },
+    "output_notes": {
+      "PreToolUse": "hookSpecificOutput permissionDecision; systemMessage allowed; continue unsupported",
+      "outer_fallback": "systemMessage only, exit 0; event may be unknown after parse failure"
+    },
+    "extensions": "Unknown envelope keys do not establish identity; unknown native input keys remain unverifiable."
   }
 }

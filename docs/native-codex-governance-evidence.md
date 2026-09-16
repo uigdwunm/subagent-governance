@@ -1,5 +1,7 @@
 # Governance evidence for native Codex subagents
 
+> 当前接口与环境证据分层见[兼容矩阵](native-compatibility-matrix.md)；历史真实结果不代表 state-v12 已验证。
+
 Subagent Governance keeps native Codex as the execution channel and adds a local, auditable protocol around handoff and lifecycle actions. This page connects three practical protections to repository evidence and states what each result does—and does not—prove.
 
 OpenAI's current guidance for Codex-oriented agent work recommends stating the goal, relevant context, constraints, required evidence, success criteria, and output format. Subagent Governance turns those task inputs and the surrounding lifecycle into explicit, locally checked records; it does not replace native Codex execution or model judgment. See [OpenAI's model and prompting guidance](https://developers.openai.com/api/docs/guides/latest-model).

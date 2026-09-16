@@ -103,7 +103,7 @@ class NativeAdapterTests(unittest.TestCase):
         self.assertEqual(actual["task_name"], EXPECTED["task_name"])
 
     def test_invalid_turn_strings_are_rejected(self):
-        for value in ("0", "01", "+1", "-1", "1.0", "", 1, True):
+        for value in ("0", "01", "+1", "-1", "1.0", "", "١", "²", "１２", "1٢", "1234567890123", None, 1, True):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     validate_native_spawn("collaboration_turns", {"fork_turns": value})

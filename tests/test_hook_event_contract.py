@@ -58,5 +58,41 @@ class HookEventContractTests(unittest.TestCase):
         )
 
 
+class HookOutputCompatibilityTests(unittest.TestCase):
+    """Supported output subset checked against the 2026-09-16 docs review."""
+
+    def test_pre_outputs_use_event_specific_decisions(self):
+        from scripts.governance_hook import _allow, _deny
+
+        for result, decision, text_field in (
+            (_allow("safe diagnostic"), "allow", "additionalContext"),
+            (_deny("safe diagnostic"), "deny", "permissionDecisionReason"),
+        ):
+            self.assertEqual(set(result), {"hookSpecificOutput"})
+            output = result["hookSpecificOutput"]
+            self.assertEqual(set(output), {"hookEventName", "permissionDecision", text_field})
+            self.assertEqual(output["hookEventName"], "PreToolUse")
+            self.assertEqual(output["permissionDecision"], decision)
+            self.assertIsInstance(output[text_field], str)
+
+    def test_identity_types_fail_open_without_attempting_claim(self):
+        from unittest import mock
+
+        from scripts import governance_hook as hook
+
+        marked = {"task_name": "sg_standard_check_t_aaaaaaaaaaaa", "message": "fixture"}
+        for field in ("session_id", "tool_use_id"):
+            for value in (None, False, 7, [], {}, "", " "):
+                with self.subTest(field=field, value=value):
+                    payload = {"hook_event_name": "PreToolUse", "tool_name": "spawn_agent",
+                               "session_id": "fixture", "tool_use_id": "call", "tool_input": marked,
+                               field: value}
+                    with mock.patch.object(hook, "claim_spawn") as claim:
+                        result = hook.handle_hook(payload)["hookSpecificOutput"]
+                        claim.assert_not_called()
+                    self.assertEqual(result["permissionDecision"], "allow")
+                    self.assertIn("claim=not_attempted", result["additionalContext"])
+
+
 if __name__ == "__main__":
     unittest.main()

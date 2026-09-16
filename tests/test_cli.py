@@ -25,7 +25,7 @@ class GovernanceCliTests(unittest.TestCase):
     def test_hook_parse_failure_is_fail_open(self):
         code, output, error = self.invoke([], b'{"hook_event_name":"PreToolUse"')
         self.assertEqual((code, error), (0, ""))
-        self.assertTrue(json.loads(output)["continue"])
+        self.assertEqual(set(json.loads(output)), {"systemMessage"})
 
     def test_hook_outer_failure_is_fail_open(self):
         with mock.patch.object(
@@ -36,7 +36,7 @@ class GovernanceCliTests(unittest.TestCase):
             )
         self.assertEqual((code, error), (0, ""))
         result = json.loads(output)
-        self.assertTrue(result["continue"])
+        self.assertEqual(set(result), {"systemMessage"})
         self.assertNotIn("permissionDecision", result.get("hookSpecificOutput", {}))
         self.assertIn("fail-open", result["systemMessage"])
 

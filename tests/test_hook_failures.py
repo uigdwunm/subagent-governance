@@ -88,7 +88,7 @@ class HookFailureTests(unittest.TestCase):
         with mock.patch.object(cli, "handle_hook", side_effect=RuntimeError("SECRET")):
             self.assertEqual(cli._hook(io.BytesIO(b'{}'), output), 0)
         result = json.loads(output.getvalue())
-        self.assertTrue(result["continue"])
+        self.assertEqual(set(result), {"systemMessage"})
         self.assertIn("claim=unknown", result["systemMessage"])
         self.assertNotIn("SECRET", output.getvalue())
 
@@ -103,7 +103,7 @@ class HookFailureTests(unittest.TestCase):
                 output = io.StringIO()
                 self.assertEqual(cli._hook(io.BytesIO(raw), output), 0)
                 result = json.loads(output.getvalue())
-                self.assertTrue(result["continue"])
+                self.assertEqual(set(result), {"systemMessage"})
                 self.assertIn("code=input_parse_error", result["systemMessage"])
                 self.assertIn("claim=not_attempted", result["systemMessage"])
                 self.assertNotIn("SECRET", output.getvalue())
@@ -205,7 +205,7 @@ class HookFailureTests(unittest.TestCase):
         with mock.patch.object(cli, "handle_hook", side_effect=handle_then_fail):
             cli._hook(io.BytesIO(json.dumps(self.payload).encode()), output)
         result = json.loads(output.getvalue())
-        self.assertTrue(result["continue"])
+        self.assertEqual(set(result), {"systemMessage"})
         self.assertIn("claim=unknown", result["systemMessage"])
         self.assertNotIn("SECRET", output.getvalue())
         self.assertEqual(self.store.read("test-session")["tasks"]["test-task"]["phase"], "claimed")

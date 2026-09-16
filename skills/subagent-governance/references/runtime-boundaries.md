@@ -51,6 +51,14 @@ header to locate the prepared task. Unknown shapes or unverifiable identity/conf
 fail open without claiming verification success; known mismatches are rejected.
 A failure does not prove that a claim was never committed; see the failure contract below. Exact target binding
 still requires the current native spawn return and explicit confirm.
+Before dispatch, compare the current tool declaration with the selected interface:
+required fields, omitted defaults, inheritance and permitted model/effort overrides.
+TaskContract defaults to none; omitted native fork_turns defaults to all, while
+omitted fork_context defaults to false. Render always supplies the inheritance
+field. Native model/effort null is unverifiable, not equivalent to omission.
+Finite turns use 1–12 ASCII digits without a leading zero. Do not infer support
+for unknown fields, structured items, tool aliases or model combinations.
+This check cannot establish Hook trust, delivery, marker visibility or execution.
 Real Hook delivery and visibility must be checked after installation in a fresh task.
 
 ## 后续 CLI 输入投影
@@ -98,8 +106,8 @@ standard 与 strict 使用相同故障策略；strict 只加强任务契约要�
 | `internal_error`：内部异常 | allow | state_init 为 not_attempted，进入 claim 后为 unconfirmed |
 | `claim_commit_unknown`：进入提交阶段后报错，精确回读未确认同一 claim | allow | unknown |
 | `claimed` / `already_claimed` / `claimed_after_write_error` | allow | confirmed |
-| `input_parse_error`：外层输入解析失败，治理意图不可判定 | continue=true | not_attempted |
-| `internal_error`，stage=outer：异常逃逸至外层 | continue=true | unknown |
+| `input_parse_error`：外层输入解析失败，治理意图不可判定 | systemMessage，exit 0 | not_attempted |
+| `internal_error`，stage=outer：异常逃逸至外层 | systemMessage，exit 0 | unknown |
 
 按现有检查顺序报告首先确定的条件，不承诺枚举所有输入问题。例如 capability 已被不同 tool_use_id 消费时，先拒绝该已知冲突，即使输入还包含未知字段；不能用未知字段绕过已确定冲突。
 

@@ -1,5 +1,7 @@
 # Native context adapter: local verification
 
+> 历史快照，保留当时实现和验收配置。当前消息比较边界、接口证据与真实测试要求以[兼容矩阵](../native-compatibility-matrix.md)为准。
+
 Date: 2026-09-06
 
 ## Change and evidence

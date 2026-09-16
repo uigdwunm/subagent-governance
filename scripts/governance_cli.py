@@ -85,7 +85,7 @@ def _hook(stdin: BinaryIO, stdout: TextIO) -> int:
     try:
         payload = read_json_object(stdin)
     except Exception:
-        _emit(stdout, {"continue": True, "systemMessage": diagnostic("input_parse_error", stage="parse", claim="not_attempted", action="continue")}, pretty=False)
+        _emit(stdout, {"systemMessage": diagnostic("input_parse_error", stage="parse", claim="not_attempted", action="continue")}, pretty=False)
         return 0
     try:
         result = handle_hook(payload)
@@ -96,7 +96,6 @@ def _hook(stdin: BinaryIO, stdout: TextIO) -> int:
         _emit(
             stdout,
             {
-                "continue": True,
                 "systemMessage": diagnostic("internal_error", stage="outer", claim="unknown", action="continue"),
             },
             pretty=False,
