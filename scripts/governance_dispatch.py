@@ -317,7 +317,6 @@ def record_dispatch_result(
     outcome: dict[str, Any] = {}
 
     def record(state: dict[str, Any]) -> None:
-        prune_closed_tasks(state)
         task = state["tasks"].get(task_id)
         if not isinstance(task, dict) or task.get("task_ref") != task_ref:
             raise StateConflictError("dispatch result task identity 不匹配")
@@ -339,6 +338,8 @@ def record_dispatch_result(
                 reconcile={"code": "dispatch_result_unknown", "observed_at": observed_at},
             )
         outcome.update(result=task["phase"], task_id=task_id, task_ref=task_ref)
+        # Include this transition's newly closed task in the retention boundary.
+        prune_closed_tasks(state)
 
     state_store.update(session_id, record)
     return outcome
