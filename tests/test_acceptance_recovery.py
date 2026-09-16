@@ -305,6 +305,96 @@ class AcceptanceRecoveryTests(unittest.TestCase):
         self.assertLessEqual(len(context), semantics.SESSION_SUMMARY_CONTEXT_LIMIT)
         self.assertIn("--task-id <task_id> --task-ref <task_ref>", context)
 
+    def test_prepared_expiry_is_consistent_across_readonly_views(self):
+        prepared = self.prepare(self.complete())
+        identity = {key: prepared[key] for key in ("task_id", "task_ref")}
+        expiry = 100 + semantics.PREPARED_EXPIRY_SECONDS
+        path, lock = self.store._paths(self.session)
+        lock.unlink()
+        (self.root / "design.txt").unlink()  # Recovery must not revalidate materials.
+        before = (path.read_bytes(), path.stat().st_mtime_ns, sorted(self.root.rglob("*")))
+        for now in (expiry - 1, expiry, expiry + 1):
+            with self.subTest(now=now), mock.patch("time.time", return_value=now), \
+                    mock.patch.object(hook, "data_root_path", return_value=self.root), \
+                    mock.patch.object(storage.StateStore, "update", side_effect=AssertionError("write")):
+                summary = diagnostics.status(self.session, self.root)["tasks"][0]
+                detail = self.detail(identity)
+                diagnosed = diagnostics.diagnose(self.session, self.root)
+                context = hook.handle_hook({"hook_event_name": "SessionStart", "session_id": self.session})[
+                    "hookSpecificOutput"]["additionalContext"]
+                expected = ("parent_review_expired_preparation" if now >= expiry
+                            else "invoke_exact_spawn_args")
+                for view in (summary, detail, diagnosed["status"]["tasks"][0]):
+                    self.assertEqual(view["next_action"], expected)
+                    self.assertEqual(view["phase"], "prepared")
+                    self.assertEqual(view["expires_at"], expiry)
+                    self.assertIs(view["expired"], now >= expiry)
+                self.assertEqual(diagnosed["issues"], [])
+                self.assertEqual(detail["operation_inputs"], prepared["operation_inputs"])
+                self.assertIn(f"next_action={expected}", context)
+                self.assertIn(f"expires_at={expiry} expired={str(now >= expiry).lower()}", context)
+                self.assertLessEqual(len(context), semantics.SESSION_SUMMARY_CONTEXT_LIMIT)
+                if now >= expiry:
+                    self.assertNotIn("invoke_exact_spawn_args", context)
+                    self.assertIn("过期不证明原生 Agent 未创建", context)
+        self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns, sorted(self.root.rglob("*"))), before)
+        self.assertFalse(lock.exists())
+
+    def test_projection_uses_one_observation_time_for_all_tasks(self):
+        self.prepare(self.minimal(), "first")
+        self.prepare(self.minimal(), "second")
+        state = self.store.read(self.session)
+        expiry = 100 + semantics.PREPARED_EXPIRY_SECONDS
+        with mock.patch("time.time", side_effect=[expiry - 1, expiry]) as clock:
+            result = diagnostics.project_status(state, self.session)
+        self.assertEqual(clock.call_count, 1)
+        self.assertTrue(all(task["expired"] is False for task in result["tasks"]))
+
+    def test_expiry_does_not_change_claimed_or_later_recovery(self):
+        prepared = self.prepare(self.minimal())
+        identity = {key: prepared[key] for key in ("task_id", "task_ref")}
+        expiry = 100 + semantics.PREPARED_EXPIRY_SECONDS
+        with self.assertRaisesRegex(StateConflictError, "已过期"):
+            dispatch.claim_spawn(self.session, prepared["task_ref"], "call-task",
+                                 prepared["spawn_args"], state_store=self.store, now=expiry)
+        self.claim(prepared)
+        replay = dispatch.claim_spawn(self.session, prepared["task_ref"], "call-task",
+                                      prepared["spawn_args"], state_store=self.store, now=expiry + 1)
+        self.assertEqual(replay["result"], "already_claimed")
+
+        def check(phase, action):
+            with mock.patch("time.time", return_value=expiry + 1), \
+                    mock.patch.object(hook, "data_root_path", return_value=self.root):
+                views = [diagnostics.status(self.session, self.root)["tasks"][0],
+                         self.detail(identity),
+                         diagnostics.diagnose(self.session, self.root)["status"]["tasks"][0]]
+                context = hook.handle_hook({"hook_event_name": "SessionStart", "session_id": self.session})[
+                    "hookSpecificOutput"]["additionalContext"]
+            for view in views:
+                self.assertEqual(view["phase"], phase)
+                self.assertEqual(view["next_action"], action)
+                self.assertNotIn("expired", view)
+                self.assertNotIn("expires_at", view)
+            self.assertNotIn("expired=", context)
+            if phase != "closed":
+                self.assertIn(f"next_action={action}", context)
+
+        check("claimed", "confirm_exact_target")
+        bound = dispatch.confirm_dispatch(self.session, {**identity, "target": "/root/task"},
+                                          state_store=self.store, now=expiry + 1)
+        self.assertEqual(bound["result"], "bound")
+        check("bound", "observe_exact_target")
+        lifecycle.record_terminal_notification(
+            self.session, {**identity, "sender": "/root/task", "status": "completed"},
+            state_store=self.store, now=expiry + 2)
+        check("terminal", "parent_close")
+        dispatch.confirm_dispatch(self.session, {**identity, "target": "/root/conflict"},
+                                  state_store=self.store, now=expiry + 3)
+        check("reconcile", "manual_reconcile")
+        lifecycle.close_task(self.session, {**identity, "reason": "parent ends tracking"},
+                             state_store=self.store, now=expiry + 4)
+        check("closed", "none")
+
     def test_default_views_are_lightweight_and_exact_detail_is_readonly(self):
         prepared = self.prepare(self.complete())
         self.claim(prepared)

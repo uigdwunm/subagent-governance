@@ -148,6 +148,8 @@ def _session_start(payload: dict[str, Any]) -> dict[str, Any] | None:
             ]
         )
         if open_tasks:
+            if any(task.get("expired") for task in open_tasks):
+                lines.append("prepared 已过期：需父任务判断后续处置；过期不证明原生 Agent 未创建，不得自动重派。")
             lines.append(f"Subagent Governance {STATE_STORAGE_NAMESPACE} 当前 exact Session 未关闭任务：")
             for task in open_tasks[:SESSION_SUMMARY_RECORD_LIMIT]:
                 target = f" target={task['target']}" if task.get("target") else ""
@@ -156,9 +158,13 @@ def _session_start(payload: dict[str, Any]) -> dict[str, Any] | None:
                     if task["unknown_facts"] else ""
                 )
                 reconcile = f" reconcile={task['reconcile_reason']}" if task["reconcile_reason"] else ""
+                expiry = (
+                    f" expires_at={task['expires_at']} expired={str(task['expired']).lower()}"
+                    if task["phase"] == "prepared" else ""
+                )
                 lines.append(
                     f"- task_id={task['task_id']} task_ref={task['task_ref']} phase={task['phase']}{target}"
-                    f" next_action={task['next_action']}{unknown}{reconcile}"
+                    f" next_action={task['next_action']}{expiry}{unknown}{reconcile}"
                 )
         else:
             lines.append("当前 exact Session 没有可读的未关闭治理任务。")

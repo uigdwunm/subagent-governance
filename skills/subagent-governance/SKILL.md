@@ -91,6 +91,8 @@ python3 "<authoritative-cli-entrypoint>" --status --session <exact-session-id> -
 
 task_id/task_ref 必须成对且来自该 Session，不存在或不匹配即报错，不换身份试探。详情返回 contract_summary 和 operation_inputs；按目标、范围、禁止范围、completion、evidence 和完整 context 核对交付。evidence 是原始要求，不是已通过的检查；后续消息改变的要求不自动进入快照，缺失时说明证据不足。
 
+prepared 视图显示 expires_at（Unix 秒）和 expired，以本次观察时间大于或等于 expires_at 为过期。expired=true 时 next_action 为 parent_review_expired_preparation：停止依赖旧 capability 的首次派发，由父任务根据实际回执和身份事实判断后续处置；过期不证明原生 Agent 未创建，不自动关闭、重新 prepare 或重派。未过期提示仅反映观察时点，不保证随后 claim 成功。claimed 已消费 capability，不适用此过期提示，仍按既有精确 confirm 和同一 tool_use_id 幂等规则处理。operation_inputs 保持身份部分输入语义，不代表执行许可；过期不作为 diagnose.issues 中的账本错误。
+
 status/diagnose/SessionStart 保持无锁、零写、best-effort，不创建目录或空状态、不自动操作、不跨 Session 扫描。默认视图不展开快照或 operation_inputs，也不读取材料正文。路径声明不保证材料仍可恢复；closed 按现有策略淘汰后快照不可恢复。不因详情失败自动重派、验收或关闭。state-v12 不读取、迁移或清理旧格式；空账本不证明旧任务完成，diagnose.issues=[] 仅证明账本可读且结构有效。
 
 ## 按证据读取异常步骤

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +31,8 @@ NEXT_ACTIONS = {
 
 
 def project_status(state: dict[str, Any], session_id: str) -> dict[str, Any]:
-    return {
+    observed_at = int(time.time())
+    result = {
         "state_format_version": STATE_FORMAT_VERSION,
         "session_id": session_id,
         "tasks": [
@@ -52,6 +54,15 @@ def project_status(state: dict[str, Any], session_id: str) -> dict[str, Any]:
             for task_id, task in sorted(state["tasks"].items())
         ],
     }
+    for view in result["tasks"]:
+        # Expiry gates the first claim only; a consumed capability still permits
+        # the existing exact confirmation and same-call idempotent replay.
+        if view["phase"] == "prepared":
+            expires_at = state["tasks"][view["task_id"]]["prepared"]["expires_at"]
+            view.update(expires_at=expires_at, expired=expires_at <= observed_at)
+            if view["expired"]:
+                view["next_action"] = "parent_review_expired_preparation"
+    return result
 
 
 def status(
