@@ -127,6 +127,7 @@ def _operation_lock(transaction_parent: Path) -> Iterator[None]:
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
     descriptor = os.open(lock_path, flags, 0o600)
+    acquired = False
     try:
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode) or not _owned_by_current_user(metadata):
@@ -147,12 +148,13 @@ def _operation_lock(transaction_parent: Path) -> Iterator[None]:
                 msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
             except OSError as exc:
                 raise RuntimeError(f"已有开发部署事务正在运行：{lock_path}") from exc
+        acquired = True
         yield
     finally:
         try:
-            if os.name != "nt":
+            if acquired and os.name != "nt":
                 fcntl.flock(descriptor, fcntl.LOCK_UN)
-            else:
+            elif acquired:
                 os.lseek(descriptor, 0, os.SEEK_SET)
                 msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
         except OSError:
@@ -609,147 +611,153 @@ def deploy(
             return 0, report
 
         with _operation_lock(transactions):
-            recovered = _recover_interrupted(transactions, stable, cache)
-            report["recovered_interrupted_transaction"] = recovered
-            # Recovery can change live roots back to their exact pre-transaction facts.
-            _clean_exact_head(source, expected_head)
-            if bundle_digest(source) != source_digest:
-                raise RuntimeError("source bundle 在 admission 后发生变化")
-            pre_stable_digest = _safe_tree_digest(stable)
-            pre_caches = _cache_facts(cache)
-            previous = _select_previous(
-                pre_caches, previous_version, expected_version,
-            )
-            previous_digest = _verify_previous_bundle(cache, previous)
-            report["retained_previous_version"] = previous
-            report["retained_previous_bundle_digest"] = previous_digest
-            transaction_id = f"{TRANSACTION_PREFIX}{os.getpid()}-{uuid.uuid4().hex}"
-            transaction = transactions / transaction_id
-            staging, backup, recovery_path = _switch_paths(stable, transaction_id)
-            manifest = {
-                "transaction_id": transaction_id,
-                "state": "snapshot_started",
-                "source_root": str(source),
-                "stable_root": str(stable),
-                "cache_parent": str(cache),
-                "expected_head": expected_head,
-                "expected_version": expected_version,
-                "source_bundle_digest": source_digest,
-                "pre_stable_digest": pre_stable_digest,
-                "pre_caches": pre_caches,
-                "previous_version": previous,
-                "staging_path": str(staging),
-                "backup_path": str(backup),
-                "recovery_path": str(recovery_path),
-                "created_at": _utc_now(),
-                "updated_at": _utc_now(),
-            }
-            _create_snapshot(transaction, manifest, stable, cache)
-            _failpoint("after_snapshot")
-            staged_digest = stage_runtime_bundle(source, staging)
-            if staged_digest != source_digest or manifest_version(staging) != expected_version:
-                raise RuntimeError("staged bundle version/digest 不匹配")
-            manifest["state"] = "stage_complete"
-            _write_json_atomic(transaction / TRANSACTION_MANIFEST, manifest)
-            if _safe_tree_digest(stable) != pre_stable_digest:
-                raise RuntimeError("stable root 在 snapshot 后发生变化")
-            os.replace(stable, backup)
-            _failpoint("after_stable_backup")
-            os.replace(staging, stable)
-            if verify_runtime_bundle(stable) != source_digest:
-                raise RuntimeError("atomic activation 后 stable bundle digest 不匹配")
-            manifest["state"] = "stable_activated"
-            _write_json_atomic(transaction / TRANSACTION_MANIFEST, manifest)
-            _failpoint("after_stable_activation")
-
-            run_command = runner or subprocess.run
-            result = run_command(
-                [codex_command, "plugin", "add", spec], check=False
-            )
-            returncode = int(result.returncode)
-            manifest["state"] = "native_install_returned"
-            manifest["native_returncode"] = returncode
-            _write_json_atomic(transaction / TRANSACTION_MANIFEST, manifest)
-            if returncode != 0:
-                report["failed_stage"] = "codex_command"
-                raise RuntimeError(f"codex plugin add 返回 {returncode}")
-
-            report["previous_cache_restored"] = _restore_previous(
-                transaction, cache, previous, pre_caches
-            )
             try:
-                restored_previous_digest = _verify_previous_bundle(cache, previous)
-            except Exception:
-                report["failed_stage"] = "post_install_verification"
-                raise
-            if restored_previous_digest != previous_digest:
-                report["failed_stage"] = "post_install_verification"
-                raise RuntimeError("retained previous runtime bundle digest 不匹配")
-            target = cache / expected_version
-            if manifest_version(target) != expected_version:
-                raise RuntimeError("target cache Manifest version 不匹配")
-            target_digest = verify_runtime_bundle(target)
-            stable_digest = verify_runtime_bundle(stable)
-            if target_digest != source_digest or stable_digest != source_digest:
-                report["failed_stage"] = "post_install_verification"
-                raise RuntimeError("stable/target runtime bundle digest 不匹配")
-            if bundle_digest(source) != source_digest or _clean_exact_head(source, expected_head) != expected_head:
-                report["failed_stage"] = "source_post_install"
-                raise RuntimeError("source 在 native install 期间发生变化")
+                recovered = _recover_interrupted(transactions, stable, cache)
+                report["recovered_interrupted_transaction"] = recovered
+                # Recovery can change live roots back to their exact pre-transaction facts.
+                _clean_exact_head(source, expected_head)
+                if bundle_digest(source) != source_digest:
+                    raise RuntimeError("source bundle 在 admission 后发生变化")
+                pre_stable_digest = _safe_tree_digest(stable)
+                pre_caches = _cache_facts(cache)
+                previous = _select_previous(
+                    pre_caches, previous_version, expected_version,
+                )
+                previous_digest = _verify_previous_bundle(cache, previous)
+                report["retained_previous_version"] = previous
+                report["retained_previous_bundle_digest"] = previous_digest
+                transaction_id = f"{TRANSACTION_PREFIX}{os.getpid()}-{uuid.uuid4().hex}"
+                transaction = transactions / transaction_id
+                staging, backup, recovery_path = _switch_paths(stable, transaction_id)
+                manifest = {
+                    "transaction_id": transaction_id,
+                    "state": "snapshot_started",
+                    "source_root": str(source),
+                    "stable_root": str(stable),
+                    "cache_parent": str(cache),
+                    "expected_head": expected_head,
+                    "expected_version": expected_version,
+                    "source_bundle_digest": source_digest,
+                    "pre_stable_digest": pre_stable_digest,
+                    "pre_caches": pre_caches,
+                    "previous_version": previous,
+                    "staging_path": str(staging),
+                    "backup_path": str(backup),
+                    "recovery_path": str(recovery_path),
+                    "created_at": _utc_now(),
+                    "updated_at": _utc_now(),
+                }
+                _create_snapshot(transaction, manifest, stable, cache)
+                _failpoint("after_snapshot")
+                staged_digest = stage_runtime_bundle(source, staging)
+                if staged_digest != source_digest or manifest_version(staging) != expected_version:
+                    raise RuntimeError("staged bundle version/digest 不匹配")
+                manifest["state"] = "stage_complete"
+                _write_json_atomic(transaction / TRANSACTION_MANIFEST, manifest)
+                if _safe_tree_digest(stable) != pre_stable_digest:
+                    raise RuntimeError("stable root 在 snapshot 后发生变化")
+                os.replace(stable, backup)
+                _failpoint("after_stable_backup")
+                os.replace(staging, stable)
+                if verify_runtime_bundle(stable) != source_digest:
+                    raise RuntimeError("atomic activation 后 stable bundle digest 不匹配")
+                manifest["state"] = "stable_activated"
+                _write_json_atomic(transaction / TRANSACTION_MANIFEST, manifest)
+                _failpoint("after_stable_activation")
 
-            keep = {expected_version}
-            if previous is not None:
-                keep.add(previous)
-            pre_names = {item["name"] for item in pre_caches}
-            report["removed_cache_entries"] = sorted(pre_names - keep)
-            for entry in list(cache.iterdir()):
-                _ordinary_directory(entry, "安装后 cache")
-                if entry.name not in keep:
-                    _safe_tree_digest(entry)
-                    shutil.rmtree(entry)
-            remaining = _cache_facts(cache)
-            if {item["name"] for item in remaining} != keep or len(remaining) != len(keep):
-                report["failed_stage"] = "cache_retention"
-                raise RuntimeError("安装后 cache 未精确收敛为 target + exact previous")
-            if previous is not None:
-                previous_fact = next(item for item in pre_caches if item["name"] == previous)
-                current_previous = next(item for item in remaining if item["name"] == previous)
-                if current_previous["digest"] != previous_fact["digest"]:
-                    report["failed_stage"] = "cache_retention"
-                    raise RuntimeError("retained previous cache digest 不匹配")
+                run_command = runner or subprocess.run
+                result = run_command(
+                    [codex_command, "plugin", "add", spec], check=False
+                )
+                returncode = int(result.returncode)
+                manifest["state"] = "native_install_returned"
+                manifest["native_returncode"] = returncode
+                _write_json_atomic(transaction / TRANSACTION_MANIFEST, manifest)
+                if returncode != 0:
+                    report["failed_stage"] = "codex_command"
+                    raise RuntimeError(f"codex plugin add 返回 {returncode}")
+
+                report["previous_cache_restored"] = _restore_previous(
+                    transaction, cache, previous, pre_caches
+                )
                 try:
-                    retained_previous_digest = _verify_previous_bundle(cache, previous)
+                    restored_previous_digest = _verify_previous_bundle(cache, previous)
                 except Exception:
-                    report["failed_stage"] = "cache_retention"
+                    report["failed_stage"] = "post_install_verification"
                     raise
-                if retained_previous_digest != previous_digest:
-                    report["failed_stage"] = "cache_retention"
-                    raise RuntimeError("retained previous runtime bundle 不精确")
+                if restored_previous_digest != previous_digest:
+                    report["failed_stage"] = "post_install_verification"
+                    raise RuntimeError("retained previous runtime bundle digest 不匹配")
+                target = cache / expected_version
+                if manifest_version(target) != expected_version:
+                    raise RuntimeError("target cache Manifest version 不匹配")
+                target_digest = verify_runtime_bundle(target)
+                stable_digest = verify_runtime_bundle(stable)
+                if target_digest != source_digest or stable_digest != source_digest:
+                    report["failed_stage"] = "post_install_verification"
+                    raise RuntimeError("stable/target runtime bundle digest 不匹配")
+                if bundle_digest(source) != source_digest or _clean_exact_head(source, expected_head) != expected_head:
+                    report["failed_stage"] = "source_post_install"
+                    raise RuntimeError("source 在 native install 期间发生变化")
 
-            _safe_remove_tree(backup, stable.parent, BACKUP_PREFIX, "stable backup")
-            shutil.rmtree(transaction)
-            report.update(
-                state="deploy_succeeded",
-                stable_bundle_digest=stable_digest,
-                target_cache_digest=target_digest,
-                retained_previous_version=previous,
-            )
-            return 0, report
+                keep = {expected_version}
+                if previous is not None:
+                    keep.add(previous)
+                pre_names = {item["name"] for item in pre_caches}
+                report["removed_cache_entries"] = sorted(pre_names - keep)
+                for entry in list(cache.iterdir()):
+                    _ordinary_directory(entry, "安装后 cache")
+                    if entry.name not in keep:
+                        _safe_tree_digest(entry)
+                        shutil.rmtree(entry)
+                remaining = _cache_facts(cache)
+                if {item["name"] for item in remaining} != keep or len(remaining) != len(keep):
+                    report["failed_stage"] = "cache_retention"
+                    raise RuntimeError("安装后 cache 未精确收敛为 target + exact previous")
+                if previous is not None:
+                    previous_fact = next(item for item in pre_caches if item["name"] == previous)
+                    current_previous = next(item for item in remaining if item["name"] == previous)
+                    if current_previous["digest"] != previous_fact["digest"]:
+                        report["failed_stage"] = "cache_retention"
+                        raise RuntimeError("retained previous cache digest 不匹配")
+                    try:
+                        retained_previous_digest = _verify_previous_bundle(cache, previous)
+                    except Exception:
+                        report["failed_stage"] = "cache_retention"
+                        raise
+                    if retained_previous_digest != previous_digest:
+                        report["failed_stage"] = "cache_retention"
+                        raise RuntimeError("retained previous runtime bundle 不精确")
+
+                _safe_remove_tree(backup, stable.parent, BACKUP_PREFIX, "stable backup")
+                shutil.rmtree(transaction)
+                report.update(
+                    state="deploy_succeeded",
+                    stable_bundle_digest=stable_digest,
+                    target_cache_digest=target_digest,
+                    retained_previous_version=previous,
+                )
+                return 0, report
+            except Exception as exc:
+                if report.get("failed_stage") is None:
+                    report["failed_stage"] = "admission" if transaction is None else str(
+                        manifest.get("state") if manifest else "transaction"
+                    )
+                report["error"] = str(exc)
+                if transaction is not None and transaction.exists():
+                    try:
+                        _recover_transaction(transaction, stable, cache)
+                        report["state"] = "deploy_failed_rolled_back"
+                    except Exception as rollback_exc:
+                        report["state"] = "rollback_failed"
+                        report["rollback_error"] = str(rollback_exc)
+                else:
+                    report["state"] = "deploy_failed"
+                return 2, report
     except Exception as exc:
-        if report.get("failed_stage") is None:
-            report["failed_stage"] = "admission" if transaction is None else str(
-                manifest.get("state") if manifest else "transaction"
-            )
+        report["failed_stage"] = "admission"
         report["error"] = str(exc)
-        if transaction is not None and transaction.exists():
-            try:
-                _recover_transaction(transaction, stable, cache)
-                report["state"] = "deploy_failed_rolled_back"
-            except Exception as rollback_exc:
-                report["state"] = "rollback_failed"
-                report["rollback_error"] = str(rollback_exc)
-        else:
-            report["state"] = "deploy_failed"
+        report["state"] = "deploy_failed"
         return 2, report
 
 

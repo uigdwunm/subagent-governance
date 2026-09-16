@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -132,6 +133,139 @@ class DevDeployTests(unittest.TestCase):
         self.assertEqual(report["state"], "dry_run_passed")
         self.assertEqual(report["source_bundle_digest"], runtime_bundle.bundle_digest(self.source))
         self.assertEqual(before, after)
+
+    def competing_deploy(self):
+        """Probe from another process, stopping before any recovery or install writes."""
+        script = """
+import json
+import sys
+from pathlib import Path
+from unittest import mock
+from scripts import dev_deploy
+
+arguments = json.loads(sys.argv[1])
+for name in ('source_root', 'stable_root', 'cache_parent', 'transaction_parent'):
+    arguments[name] = Path(arguments[name])
+with mock.patch.object(
+    dev_deploy, '_recover_interrupted', side_effect=RuntimeError('probe entered')
+) as recovery, mock.patch.object(dev_deploy, '_recover_transaction') as rollback:
+    runner = mock.Mock()
+    code, report = dev_deploy.deploy(**arguments, runner=runner)
+print(json.dumps(dict(code=code, report=report, entered=recovery.called,
+                     rolled_back=rollback.called, installed=runner.called)))
+"""
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", script, json.dumps(self.arguments(), default=str)],
+            cwd=ROOT, capture_output=True, text=True, check=True, timeout=15,
+        )
+        return json.loads(result.stdout)
+
+    def assert_competitor_blocked(self):
+        result = self.competing_deploy()
+        self.assertFalse(result["entered"], result)
+        self.assertFalse(result["rolled_back"], result)
+        self.assertFalse(result["installed"], result)
+        self.assertEqual(result["code"], 2)
+        self.assertEqual(result["report"]["state"], "deploy_failed")
+        self.assertEqual(result["report"]["failed_stage"], "admission")
+        self.assertIn("已有开发部署事务正在运行", result["report"]["error"])
+
+    def test_deployment_and_success_cleanup_hold_lock_until_return(self):
+        native = self.native_runner()
+        remove = dev_deploy._safe_remove_tree
+        observed = []
+
+        def runner(*args, **kwargs):
+            self.assert_competitor_blocked()
+            self.assert_competitor_blocked()  # Failed acquisition must not unlock the owner.
+            observed.append("install")
+            return native(*args, **kwargs)
+
+        def cleanup(*args, **kwargs):
+            self.assert_competitor_blocked()
+            observed.append("cleanup")
+            return remove(*args, **kwargs)
+
+        with mock.patch.object(dev_deploy, "_safe_remove_tree", side_effect=cleanup):
+            code, report = dev_deploy.deploy(**self.arguments(), runner=runner)
+        self.assertEqual(code, 0, report)
+        self.assertEqual(observed, ["install", "cleanup"])
+        self.assertTrue(self.competing_deploy()["entered"])
+
+    def test_rollback_holds_lock_through_restore_verification_and_cleanup(self):
+        recover = dev_deploy._recover_transaction
+        restore_cache = dev_deploy._restore_cache_snapshot
+        observed = []
+        stable_digest = dev_deploy._safe_tree_digest(self.stable)
+
+        def restoring(*args, **kwargs):
+            self.assert_competitor_blocked()
+            restore_cache(*args, **kwargs)
+            self.assert_competitor_blocked()
+            observed.append("cache_restored")
+
+        def recovering(*args, **kwargs):
+            self.assert_competitor_blocked()
+            recover(*args, **kwargs)
+            self.assert_competitor_blocked()
+            observed.append("rollback_complete")
+
+        with (
+            mock.patch.object(dev_deploy, "_recover_transaction", side_effect=recovering),
+            mock.patch.object(dev_deploy, "_restore_cache_snapshot", side_effect=restoring),
+        ):
+            code, report = dev_deploy.deploy(
+                **self.arguments(), runner=self.native_runner(returncode=1),
+            )
+        self.assertEqual(code, 2, report)
+        self.assertEqual(report["state"], "deploy_failed_rolled_back", report)
+        self.assertEqual(observed, ["cache_restored", "rollback_complete"])
+        self.assertEqual(dev_deploy._safe_tree_digest(self.stable), stable_digest)
+        self.assertEqual(list(self.transactions.glob("transaction-*")), [])
+        self.assertTrue(self.competing_deploy()["entered"])
+
+    def test_rollback_failure_preserves_evidence_and_releases_lock(self):
+        def failed_recovery(*args):
+            self.assert_competitor_blocked()
+            raise RuntimeError("injected recovery failure")
+
+        with mock.patch.object(dev_deploy, "_recover_transaction", side_effect=failed_recovery):
+            code, report = dev_deploy.deploy(
+                **self.arguments(), runner=self.native_runner(returncode=1),
+            )
+        self.assertEqual(code, 2)
+        self.assertEqual(report["state"], "rollback_failed")
+        self.assertEqual(report["failed_stage"], "codex_command")
+        self.assertIn("返回 1", report["error"])
+        self.assertEqual(report["rollback_error"], "injected recovery failure")
+        transactions = list(self.transactions.glob("transaction-*"))
+        self.assertEqual(len(transactions), 1)
+        self.assertTrue((transactions[0] / dev_deploy.TRANSACTION_MANIFEST).is_file())
+        self.assertTrue((transactions[0] / dev_deploy.STABLE_SNAPSHOT).is_dir())
+        self.assertTrue(self.competing_deploy()["entered"])
+
+    @unittest.skipIf(dev_deploy.fcntl is None, "POSIX lock acquisition failure")
+    def test_failed_lock_acquisition_does_not_attempt_unlock(self):
+        with mock.patch.object(
+            dev_deploy.fcntl, "flock", side_effect=BlockingIOError("busy")
+        ) as flock:
+            with self.assertRaisesRegex(RuntimeError, "已有开发部署事务正在运行"):
+                with dev_deploy._operation_lock(self.transactions):
+                    self.fail("lock body must not run")
+        self.assertEqual(flock.call_count, 1)
+
+    def test_invalid_source_admission_has_no_deployment_writes(self):
+        before = dev_deploy._safe_tree_digest(self.stable)
+        runner = mock.Mock()
+        code, report = dev_deploy.deploy(
+            **self.arguments(expected_head="0" * 40), runner=runner,
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(report["failed_stage"], "admission")
+        runner.assert_not_called()
+        self.assertEqual(dev_deploy._safe_tree_digest(self.stable), before)
+        self.assertEqual(list(self.transactions.iterdir()), [])
+        self.assertEqual(list(self.cache_parent.iterdir()), [])
 
     def test_git_observations_disable_optional_repository_writes(self):
         with mock.patch.object(

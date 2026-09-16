@@ -60,6 +60,8 @@ python3 scripts/dev_deploy.py \
 5. 恢复或复核 exact previous，并再次验证其精确文件集合与原 digest；同时验证 stable/target runtime digest 与 source digest 一致；
 6. 精确保留 target 与可选 previous，只有在全部检查通过后删除更早 compatibility cache 和 transaction。
 
+部署、最终校验、成功清理及失败回滚连续持有同一 operation lock；回滚完成或失败退出后才释放锁。竞争进程拿锁失败时不执行恢复或安装，也不解锁。
+
 原生命令失败、target 缺失或摘要不匹配、source/stable 变化、retention 失败都会恢复部署前 stable 与完整 cache 集合。进程在原子切换中断时，下次有写权限的执行只按 transaction manifest 绑定的 staging/backup/recovery path 恢复；存在多个 transaction 或孤立 switch path 时拒绝猜测。
 
 直接管理 Codex 内部 cache 是本机开发测试能力，不是通用产品 API。部署命令无论成功或失败，当前任务都应立即报告并停止，等待用户重启 Codex；真实验证必须在重启后的新任务进行。
