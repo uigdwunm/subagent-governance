@@ -1,24 +1,108 @@
 #!/usr/bin/env python3
 
 import json
-import os
-import subprocess
-import sys
+import multiprocessing
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from io import BytesIO, StringIO
+from multiprocessing.connection import wait
 from pathlib import Path
 from threading import Barrier
+from time import monotonic
+from unittest.mock import patch
 
 from scripts.governance_hook import handle_hook
 from scripts.governance_protocol import prepare_dispatch
 from scripts.governance_state_store import StateStore
-from tests.support import ROOT
 
-SCRIPT = ROOT / "scripts/subagent_governance.py"
+
+def _contending_cli(arguments, payload, connection):
+    """Run the real CLI in a fresh interpreter, observing its first lock attempt."""
+    from scripts import governance_state_store as state_store
+    from scripts.governance_cli import main
+
+    original_lock = state_store.exclusive_file_lock
+    first_attempt = True
+
+    @contextmanager
+    def observed_lock(handle):
+        nonlocal first_attempt
+        if first_attempt:
+            first_attempt = False
+            connection.send(("attempting",))
+        with original_lock(handle):
+            # This must not happen while the parent owns the Session lock.
+            connection.send(("acquired",))
+            yield
+
+    output, errors = StringIO(), StringIO()
+    try:
+        with patch.object(state_store, "exclusive_file_lock", observed_lock):
+            code = main(arguments, stdin=BytesIO(json.dumps(payload).encode()),
+                        stdout=output, stderr=errors)
+        connection.send(("result", code, output.getvalue(), errors.getvalue()))
+    finally:
+        connection.close()
 
 
 class ConcurrencyTests(unittest.TestCase):
+    def _run_contending_cli(self, directory, session, operation, payloads):
+        context = multiprocessing.get_context("spawn")
+        store = StateStore(Path(directory) / "sessions")
+        processes, connections = [], []
+        deadline = monotonic() + 30
+
+        def receive(connection):
+            self.assertTrue(connection.poll(max(0, deadline - monotonic())),
+                            "child timed out before reporting its lock/result")
+            return connection.recv()
+
+        try:
+            with store._lock(session):
+                for payload in payloads:
+                    parent, child = context.Pipe(duplex=False)
+                    connections.append(parent)
+                    arguments = [*operation, "--session", session, "--data-root", directory]
+                    process = context.Process(target=_contending_cli,
+                                              args=(arguments, payload, child))
+                    try:
+                        process.start()
+                    finally:
+                        child.close()
+                    processes.append(process)
+                for connection in connections:
+                    self.assertEqual(receive(connection), ("attempting",))
+                # All children have input and reached the lock boundary. None may
+                # enter while another process owns the same Session lock.
+                self.assertEqual(wait(connections, timeout=0.3), [],
+                                 "a child bypassed the held Session lock")
+            outputs = []
+            for connection, process in zip(connections, processes):
+                message = receive(connection)
+                while message[0] == "acquired":
+                    message = receive(connection)
+                self.assertEqual(message[0], "result")
+                _, code, stdout, stderr = message
+                self.assertEqual(code, 0, stderr)
+                outputs.append(json.loads(stdout))
+                process.join(timeout=max(0, deadline - monotonic()))
+                self.assertEqual(process.exitcode, 0)
+            return outputs
+        finally:
+            # Failure and timeout must not leave writers alive past temp cleanup.
+            for process in processes:
+                if process.is_alive():
+                    process.terminate()
+                process.join(timeout=5)
+                if process.is_alive():
+                    process.kill()
+                    process.join(timeout=5)
+                process.close()
+            for connection in connections:
+                connection.close()
+
     def test_concurrent_unknown_categories_preserve_all_first_receipts(self):
         from scripts import governance_lifecycle as lifecycle
         from scripts.governance_dispatch import confirm_dispatch
@@ -57,25 +141,11 @@ class ConcurrencyTests(unittest.TestCase):
 
     def test_parallel_prepare_keeps_all_tasks_in_one_ledger(self):
         with tempfile.TemporaryDirectory() as directory:
-            environment = {**os.environ, "SUBAGENT_GOVERNANCE_DATA": directory}
-            processes = []
-            for index in range(16):
-                contract = {
-                    "objective": f"Concurrent task {index}",
-                    "scope": ["tests"],
-                    "completion": ["prepared"],
-                }
-                process = subprocess.Popen(
-                    [sys.executable, str(SCRIPT), "--prepare-dispatch", "--native-interface", "fork_context", "--session", "parallel", "--data-root", directory],
-                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    text=True, env=environment,
-                )
-                processes.append((process, json.dumps(contract)))
-            outputs = []
-            for process, payload in processes:
-                stdout, stderr = process.communicate(payload, timeout=15)
-                self.assertEqual(process.returncode, 0, stderr)
-                outputs.append(json.loads(stdout))
+            outputs = self._run_contending_cli(
+                directory, "parallel", ["--prepare-dispatch", "--native-interface", "fork_context"],
+                [{"objective": f"Concurrent task {index}", "scope": ["tests"],
+                  "completion": ["prepared"]} for index in range(16)],
+            )
             state = StateStore(Path(directory) / "sessions").read("parallel")
             self.assertEqual(set(state["tasks"]), {item["task_id"] for item in outputs})
             self.assertEqual(len({item["task_ref"] for item in outputs}), 16)
@@ -98,25 +168,17 @@ class ConcurrencyTests(unittest.TestCase):
                 }, store,
             )
             self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "allow")
-            processes = []
-            for target in ("/root/a", "/root/b"):
-                payload = json.dumps(
-                    {"task_id": prepared["task_id"], "task_ref": prepared["task_ref"], "target": target}
-                )
-                process = subprocess.Popen(
-                    [sys.executable, str(SCRIPT), "--confirm-dispatch", "--session", "confirm-race", "--data-root", directory],
-                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                )
-                processes.append((process, payload))
-            outcomes = []
-            for process, payload in processes:
-                stdout, stderr = process.communicate(payload, timeout=15)
-                self.assertEqual(process.returncode, 0, stderr)
-                outcomes.append(json.loads(stdout)["result"])
+            outputs = self._run_contending_cli(
+                directory, "confirm-race", ["--confirm-dispatch"],
+                [{"task_id": prepared["task_id"], "task_ref": prepared["task_ref"], "target": target}
+                 for target in ("/root/a", "/root/b")],
+            )
+            outcomes = [output["result"] for output in outputs]
             self.assertEqual(sorted(outcomes), ["bound", "reconcile"])
             task = store.read("confirm-race")["tasks"][prepared["task_id"]]
             self.assertEqual(task["phase"], "reconcile")
-            self.assertIn(task["target"], {"/root/a", "/root/b"})
+            winner = ("/root/a", "/root/b")[outcomes.index("bound")]
+            self.assertEqual(task["target"], winner)
             self.assertEqual(task["reconcile"]["code"], "dispatch_target_conflict")
 
 
