@@ -181,7 +181,15 @@ def record_platform_observation(
             terminal = task.get("terminal_fact", {})
             if status not in PLATFORM_TERMINAL_STATUSES:
                 raise StateConflictError("terminal task 不接受 active/error platform observation")
-            if terminal.get("status") != status:
+            if terminal.get("status") == "inactive":
+                task["terminal_fact"] = {
+                    "source": "platform", "status": status, "observed_at": observed_at,
+                }
+                task["platform_observation"] = {"status": status, "observed_at": observed_at}
+                task["updated_at"] = observed_at
+                outcome.update(result="terminal", task_id=task_id, task_ref=task_ref,
+                               target=target, status=status)
+            elif terminal.get("status") != status:
                 enter_reconcile(task, "terminal_status_conflict", observed_at)
                 outcome.update(_reconcile_outcome(task, task_id, task_ref))
             elif task.get("platform_observation", {}).get("status") == status:
@@ -316,7 +324,14 @@ def record_terminal_notification(
             outcome.update(_reconcile_outcome(task, task_id, task_ref))
         elif phase == "terminal":
             terminal = task.get("terminal_fact", {})
-            if terminal.get("status") == status:
+            if terminal.get("status") == "inactive":
+                task["terminal_fact"] = {
+                    "source": "notification", "status": status, "observed_at": observed_at,
+                }
+                task["updated_at"] = observed_at
+                outcome.update(result="terminal", task_id=task_id, task_ref=task_ref,
+                               target=sender, status=status)
+            elif terminal.get("status") == status:
                 outcome.update(
                     result="already_terminal", task_id=task_id,
                     task_ref=task_ref, target=sender, status=status,

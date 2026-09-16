@@ -25,6 +25,7 @@ try:
         RECONCILE_CODES,
         STATE_FORMAT_VERSION,
         TASK_REF_LENGTHS,
+        TARGET_OWNING_PHASES,
         TERMINAL_FACT_SOURCES,
         TERMINAL_FACT_STATUSES,
         UNKNOWN_FACT_CODES,
@@ -48,6 +49,7 @@ except ModuleNotFoundError:
         RECONCILE_CODES,
         STATE_FORMAT_VERSION,
         TASK_REF_LENGTHS,
+        TARGET_OWNING_PHASES,
         TERMINAL_FACT_SOURCES,
         TERMINAL_FACT_STATUSES,
         UNKNOWN_FACT_CODES,
@@ -296,12 +298,21 @@ def validate_current_state_format(value: Any) -> list[StateFormatIssue]:
     if len(tasks) > MAX_TASKS_PER_SESSION:
         _issue(issues, "$.tasks", f"tasks 不能超过 {MAX_TASKS_PER_SESSION} 项")
     refs: set[str] = set()
+    targets: dict[str, str] = {}
     for task_id, task in tasks.items():
         _validate_task(task_id, task, f"$.tasks[{task_id!r}]", issues)
         if isinstance(task, dict) and isinstance(task.get("task_ref"), str):
             if task["task_ref"] in refs:
                 _issue(issues, f"$.tasks[{task_id!r}].task_ref", "task_ref 在 Session 内重复")
             refs.add(task["task_ref"])
+        if (isinstance(task, dict) and task.get("phase") in TARGET_OWNING_PHASES
+                and isinstance(task.get("target"), str)):
+            target = task["target"]
+            if target in targets:
+                _issue(issues, f"$.tasks[{task_id!r}].target",
+                       f"target 已由未关闭任务 {targets[target]!r} 占用")
+            else:
+                targets[target] = task_id
     return issues
 
 

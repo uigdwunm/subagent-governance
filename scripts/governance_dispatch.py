@@ -20,6 +20,7 @@ try:
         ContextMaterialConflictError,
         StateConflictError,
     )
+    from scripts.governance_semantics import TARGET_OWNING_PHASES
     from scripts.governance_lifecycle import enter_reconcile, prune_closed_tasks
     from scripts.governance_native_adapter import normalize_native_spawn
 except ModuleNotFoundError:
@@ -36,6 +37,7 @@ except ModuleNotFoundError:
         ContextMaterialConflictError,
         StateConflictError,
     )
+    from governance_semantics import TARGET_OWNING_PHASES
     from governance_lifecycle import enter_reconcile, prune_closed_tasks
     from governance_native_adapter import normalize_native_spawn
 
@@ -216,9 +218,15 @@ def confirm_dispatch(
             outcome.update(result="reconcile", task_id=task_id, task_ref=task.get("task_ref"))
             return
         phase = task.get("phase")
-        if phase == "bound":
+        if phase == "closed":
+            if task.get("target") != target:
+                raise StateConflictError("closed task 的 confirm target 与历史绑定不匹配")
+            outcome.update(result="already_closed", task_id=task_id, task_ref=task_ref,
+                           target=target, phase=phase)
+            return
+        if phase in {"bound", "terminal"}:
             if task.get("target") == target:
-                outcome.update(result="already_bound", task_id=task_id, task_ref=task_ref, target=target)
+                outcome.update(result="already_bound", task_id=task_id, task_ref=task_ref, target=target, phase=phase)
                 return
             enter_reconcile(task, "dispatch_target_conflict", observed_at)
             outcome.update(result="reconcile", task_id=task_id, task_ref=task_ref, target=task.get("target"))
@@ -234,6 +242,16 @@ def confirm_dispatch(
             enter_reconcile(task, "dispatch_identity_mismatch", observed_at)
             outcome.update(result="reconcile", task_id=task_id, task_ref=task_ref)
             return
+        for owner_id, owner in state["tasks"].items():
+            if (owner_id != task_id and owner.get("phase") in TARGET_OWNING_PHASES
+                    and owner.get("target") == target):
+                enter_reconcile(task, "dispatch_target_already_bound", observed_at)
+                outcome.update(
+                    result="reconcile", task_id=task_id, task_ref=task_ref,
+                    reason="dispatch_target_already_bound", submitted_target=target,
+                    conflicting_task_id=owner_id, conflicting_task_ref=owner["task_ref"],
+                )
+                return
         common = {
             name: copy.deepcopy(task[name])
             for name in (

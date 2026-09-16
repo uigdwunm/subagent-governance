@@ -214,12 +214,13 @@
     "reconcile_fact": {
       "type": "object", "required": ["code", "observed_at"],
       "properties": {
-        "code": {"type": "string", "enum": ["dispatch_target_conflict", "dispatch_identity_mismatch", "dispatch_claim_missing", "dispatch_result_unknown", "terminal_status_conflict"]},
+        "code": {"type": "string", "enum": ["dispatch_target_conflict", "dispatch_target_already_bound", "dispatch_identity_mismatch", "dispatch_claim_missing", "dispatch_result_unknown", "terminal_status_conflict"]},
         "observed_at": {"$ref": "#/$defs/timestamp"}
       },
       "additionalProperties": false
     },
     "terminal_fact": {
+      "$comment": "inactive is non-activity, not business success; either terminal input may refine it to its accepted concrete status while preserving interrupt_fact. Equal status preserves the first terminal receipt; distinct concrete statuses reconcile.",
       "type": "object", "required": ["source", "status", "observed_at"],
       "properties": {
         "source": {"type": "string", "enum": ["platform", "notification", "interrupt"]},
@@ -278,6 +279,7 @@
     },
     "task_record": {"oneOf": [{"$ref": "#/$defs/prepared_task"}, {"$ref": "#/$defs/claimed_task"}, {"$ref": "#/$defs/bound_task"}, {"$ref": "#/$defs/terminal_task"}, {"$ref": "#/$defs/closed_task"}, {"$ref": "#/$defs/reconcile_task"}]},
     "session_ledger": {
+      "$comment": "Runtime additionally enforces unique task_ref and unique target among target_owning_phases within a Session; closed records do not reserve targets.",
       "type": "object", "required": ["state_format_version", "session_id", "tasks"],
       "properties": {
         "state_format_version": {"const": 11},
@@ -297,6 +299,7 @@
     "task_contract_required_input_fields": ["objective", "scope", "completion"],
     "profiles": ["standard", "strict"],
     "phases": ["prepared", "claimed", "bound", "terminal", "closed", "reconcile"],
+    "target_owning_phases": ["bound", "terminal", "reconcile"],
     "task_ref_lengths": [12, 20],
     "prepared_expiry_seconds": 300,
     "closed_task_retention": 64,

@@ -38,12 +38,15 @@ prepare
 父 Agent 读取当前原生 `spawn_agent` 返回后，显式提交 exact target。该提交是 canonical identity 的唯一来源：
 
 - 只允许绑定当前 `claimed` 且尚未绑定的精确 task。
-- first bind wins；相同 target 重放幂等，不同 target 冲突进入 reconcile。
+- first bind wins；相同 task/ref/target 在 bound、terminal 阶段重放幂等，terminal 事实不被改写；closed 的相同历史绑定返回 already_closed，其他确认被拒绝且不改关闭事实。reconcile 不通过 confirm 自动恢复。
+- 同一 Session 内 bound、terminal 和带 target 的 reconcile 独占该 target；closed 释放占用但保留历史绑定。确认与占用检查处于同一账本事务，运行时状态校验也强制此不变量；普通 JSON Schema 不单独执行跨任务唯一性检查。
+- 第二个 claimed task 提交已占用 target 时进入无绑定的 reconcile，记录 dispatch_target_already_bound 和接收时间；返回结果携带冲突拥有者 task/ref 与 submitted_target，后者不是绑定事实。已有拥有者不变。不同 Session 独立。
+- 未关闭任务提交不同 target 或不匹配的 task/ref 时进入 reconcile，保留首次绑定；已存在重复占用的账本明确报校验错误，不自动选取拥有者。
 - `list_agents` 只能观察已经绑定的 exact target，不能反推或补绑身份。
 - task name、时间邻近、唯一候选、child final、terminal notification、summary 和 transcript 都不能建立 identity。
 - 原生返回后、确认前发生中断时，task 保持 `claimed/unbound`，不自动重派或猜测恢复。
 
-该机制是父 Agent 负责执行的协作正确性协议，不是平台原子事务或安全边界。
+该机制是父 Agent 负责执行的协作正确性协议，不是平台原子事务或安全边界。确认输入和唯一性校验本身不能证明 target 来自原生平台返回。
 
 ### 单一 Session ledger
 
@@ -226,3 +229,9 @@ P13 的 exact previous、双版本、digest 和 rollback 原则，以及 P14 的
 ## 非目标
 
 本 ADR 不包含文件级实施顺序、代码迁移方案、发布授权或运行缓存更新。实施前应另行制定有界减法计划和新验收矩阵；在实施完成并取得真实平台证据前，`docs/architecture.md`、当前 Skill 和现有 runtime 仍描述当前已实现行为。
+
+### 不活跃事实与具体终态
+
+interrupt 的 inactive 仍记录为 terminal，并保留 interrupt_fact；它只表示不活跃，不表示业务成功。后续平台观察或终态通知可将 inactive 细化为 completed、stopped 或 interrupted。terminal_fact 使用该明确事实的入口来源与接收时间，原始 interrupt_fact 及时间不变。反向顺序只补充 interrupt_fact，不降级具体终态。
+
+同状态重放保留首次事实和时间；另一入口的同状态确认不替换首次明确终态来源，平台观察可独立补记。不同具体终态继续进入 reconcile 并保留首次事实；running、error、unknown 不属于细化集合。closed 拒绝后续生命周期事实，reconcile 不自动恢复。observed_at 表示事实接收时间，不推断实际结束时刻。

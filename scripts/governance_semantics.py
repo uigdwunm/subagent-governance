@@ -37,6 +37,7 @@ PROFILES = frozenset(SEMANTIC_RULES["profiles"])
 NATIVE_INTERFACES = frozenset(SEMANTIC_RULES["native_interfaces"])
 NATIVE_SPAWN_TOOL_NAMES = frozenset(SEMANTIC_RULES["native_spawn_tool_names"])
 PHASES = frozenset(SEMANTIC_RULES["phases"])
+TARGET_OWNING_PHASES = frozenset(SEMANTIC_RULES["target_owning_phases"])
 TASK_REF_LENGTHS = tuple(int(value) for value in SEMANTIC_RULES["task_ref_lengths"])
 PREPARED_EXPIRY_SECONDS = int(SEMANTIC_RULES["prepared_expiry_seconds"])
 CLOSED_TASK_RETENTION = int(SEMANTIC_RULES["closed_task_retention"])
@@ -122,6 +123,7 @@ __all__ = [
     "TASK_NAME_PATTERN",
     "TASK_NAME_RE",
     "TASK_REF_LENGTHS",
+    "TARGET_OWNING_PHASES",
     "TERMINAL_FACT_SOURCES",
     "TERMINAL_FACT_STATUSES",
     "TERMINAL_NOTIFICATION_STATUSES",

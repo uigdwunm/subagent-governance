@@ -280,8 +280,12 @@ class V10LifecycleTests(unittest.TestCase):
         self.assertEqual(closed["terminal_fact"], terminal)
         lifecycle.close_task(self.session_id, close, state_store=self.store, now=999)
         self.assertEqual(self.task(), closed)
+        replay = confirm_dispatch(
+            self.session_id, self.identity(prepared, target), state_store=self.store, now=999,
+        )
+        self.assertEqual(replay["result"], "already_closed")
+        self.assertEqual(self.task(), closed)
         for operation, payload in (
-            (confirm_dispatch, self.identity(prepared, target)),
             (lifecycle.record_terminal_notification, request),
             (lifecycle.record_platform_observation, self.identity(prepared, target, status="completed")),
             (lifecycle.close_task, {**close, "reason": "different"}),
