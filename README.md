@@ -38,7 +38,7 @@ Native Codex continues to create and run every subagent. Subagent Governance add
 - **Explicit lifecycle** — `prepare → claim → bind → terminal → close`, with reconcile for dispatch uncertainty and conflicts; bound-call unknown receipts are retained separately so later definite terminal facts can complete the lifecycle.
 - **TaskContract v2** — one current objective, allowed scope, completion conditions, evidence, context, and explicit spawn configuration.
 - **Optional verified context** — declared working-tree files or Git objects can be checked at prepare and claim time.
-- **Minimal local state** — one current Session ledger, no prompt archive, no terminal body persistence, and bounded closed-task retention.
+- **Local governance state** — one current Session ledger containing dispatch preparation, the original business contract, and lifecycle facts, with bounded closed-task retention.
 - **Read-only recovery views** — SessionStart summaries, `status`, and `diagnose` do not create or repair state.
 - **Recoverable acceptance criteria** — the development runtime retains the original bounded business contract, including design context and required evidence, for exact-task retrieval after context loss. Completion still requires the parent's review of actual results.
 
@@ -149,7 +149,11 @@ For the full state machine and storage boundaries, see [Architecture](docs/archi
 ## Safety and privacy
 
 - The core runtime does not initiate network requests and contains no telemetry.
-- It does not persist complete task prompts, message bodies, terminal notification bodies, business results, transcripts, or child finals.
+- In the unreleased state-v12 development line, `prepared/claimed` records store the complete generated dispatch message, normalized task contract, and material-verification metadata. Later transitions remove the prepared capability but retain `contract_summary`, the full business contract excluding `spawn`, for acceptance recovery.
+- The runtime does not separately archive external material contents, subsequent ordinary messages, terminal notification bodies, business results, transcripts, or child finals. Text supplied in contract fields or a close reason is still stored; there is no automatic redaction.
+- Prepared expiry prevents a new claim; it does not delete the record. Open records are not automatically cleared. Closed records are lazily pruned to the newest 64 during ledger writes, not by a timed deletion service. State-v12 does not read, migrate, or delete older ledgers.
+- Default `status/diagnose` includes the objective and close reason; exact-task status also returns the complete business contract. SessionStart does not inject the full contract. Spawn Hook failure diagnostics use fixed messages; this is not a blanket guarantee that all output is free of business text.
+- Storage roots and output boundaries are detailed in [Architecture](docs/architecture.md#存储位置与输出边界). These descriptions do not imply that state-v12 has been released or deployed; the stable tag remains v0.4.0.
 - State writes use bounded input, file locking, atomic replacement, permission checks, and readback validation.
 - Unmanaged native spawns remain fail-open if the governance layer is unavailable.
 - The runtime bundle is built from a machine-readable allowlist and excludes tests, plans, deployment tooling, and development-only files.

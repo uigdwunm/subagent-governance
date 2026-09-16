@@ -38,7 +38,7 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 - **明确生命周期**：`prepare → claim → bind → terminal → close`，派发未知及冲突进入 reconcile；已绑定调用的 unknown 单独保留，后续确定终态可正常收尾。
 - **TaskContract v2**：一个当前目标、允许范围、完成条件、证据、上下文和明确的派发配置。
 - **可选材料验证**：可以在 prepare 和 claim 阶段验证声明的工作树文件或 Git 对象。
-- **最小本地状态**：一个当前 Session ledger，不保存 prompt 档案或终态正文，已关闭任务有界保留。
+- **本地治理状态**：一个当前 Session ledger，保存派发准备、原始业务契约和生命周期事实，已关闭任务有界保留。
 - **只读恢复视图**：SessionStart 摘要、`status` 和 `diagnose` 不创建或修复状态。
 - **可恢复的验收依据**：开发运行时有界保留原始业务契约，包括设计背景和证据要求；上下文丢失后可按精确任务读取，仍由父任务核对实际结果是否合格。
 
@@ -148,7 +148,11 @@ prepared | claimed | bound | terminal | closed | reconcile
 ## 安全与隐私
 
 - 核心 runtime 不主动发起网络请求，不包含遥测。
-- 不持久化完整任务 prompt、消息正文、终态通知正文、业务结果、transcript 或 child final。
+- 在尚未发布的 state-v12 开发线中，`prepared/claimed` 记录保存完整生成派发消息、规范化任务契约和材料校验元数据。后续阶段转换移除 prepared capability，但保留 `contract_summary`，即除 `spawn` 外的完整业务契约，用于恢复验收依据。
+- runtime 不专门归档外部材料正文、后续普通消息、终态通知正文、业务结果、transcript 或 child final。主动填入契约字段或关闭原因的文字仍会保存；没有自动脱敏。
+- prepared 过期阻止新的 claim，不删除记录。未关闭记录不自动清除；closed 记录在账本写操作中按最新 64 条惰性裁剪，不是定时删除。state-v12 不读取、迁移或删除旧账本。
+- 默认 `status/diagnose` 包含目标和关闭原因；精确任务 status 还返回完整业务契约。SessionStart 不注入完整契约。spawn Hook 故障诊断使用固定说明，不能据此承诺所有输出均不含业务文字。
+- 存储位置与输出边界详见[当前架构](docs/architecture.md#存储位置与输出边界)。这些说明不代表 state-v12 已发布或部署；稳定标签仍为 v0.4.0。
 - 状态写入使用有界输入、文件锁、原子替换、权限检查和写后回读。
 - 治理层不可用时，unmanaged 原生 spawn 继续 fail-open。
 - runtime bundle 由机器 allowlist 构建，不包含测试、计划、部署工具和开发专用文件。

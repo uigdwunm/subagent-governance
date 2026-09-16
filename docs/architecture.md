@@ -43,9 +43,26 @@ prepared | claimed | bound | terminal | closed | reconcile
 
 prepared capability 位于 task record 内，和 lifecycle state 共享同一 lock 与原子写边界。当前持久状态没有 PreparedContractStore、agents index、Post receipt/index、pending action、tombstone 或 Group。
 
-`contract_summary` 是规范化 business contract 的精确快照，保留除 spawn 外的全部字段，包括 context.summary、paths 和 verified 声明。它在 prepare 生成，跨所有 phase 保留；prepared/claimed 阶段与 capability contract 精确相等，所有阶段校验 business digest。绑定或失败时可删除 capability，不删除验收约定。没有另一份模型生成摘要、结果正文存储或外部材料副本。字节预算和字段语义以 governance-semantics.schema.json 为源，详见 [验收快照边界](../skills/subagent-governance/references/runtime-boundaries.md#原始验收快照与容量)。
+`prepared/claimed` 保存规范化完整 `prepared.contract`、材料校验元数据 `prepared.context_verification` 和 `prepared.expected_native_parameters`，后者包含完整生成派发 `message`。绑定、记录派发失败或未知、进入 reconcile 或显式关闭时移除 capability。过期只阻止首次 claim，不删除 capability 或未关闭记录。
+
+`contract_summary` 是规范化 business contract 的精确快照，保留除 spawn 外的全部字段，包括 context.summary、paths 和 verified 声明。它在 prepare 生成，跨所有 phase 保留；prepared/claimed 阶段与 capability contract 去掉 spawn 后的业务部分精确相等，所有阶段校验 business digest。绑定或失败时可删除 capability，不删除验收约定。没有另一份模型生成摘要、专门的结果正文存储或自动复制的外部材料副本。字节预算和字段语义以 governance-semantics.schema.json 为源，详见 [验收快照边界](../skills/subagent-governance/references/runtime-boundaries.md#原始验收快照与容量)。
 
 StateStore 只接受严格 `state_format_version=12`，默认 namespace 为 `state-v12`。v11 及更早状态不读取、不迁移、不修复、不写回、不删除。
+
+## 存储位置与输出边界
+
+以下描述 state-v12 开发实现，尚未发布、尚未部署、尚未完成真实验收；稳定标签仍为 v0.4.0。数据根按以下优先级解析，再使用其中的 `sessions/<安全化 Session 标识>.json` 和同名 `.lock`：
+
+1. `SUBAGENT_GOVERNANCE_DATA`：直接作为数据根，不再追加 namespace。
+2. `PLUGIN_DATA/state-v12`。
+3. 从安装缓存路径解析出的 `plugins/data/<plugin>-<marketplace>/state-v12`。
+4. 开发或未安装模块使用系统临时目录下的 `subagent-governance-<用户键>/state-v12`。
+
+临时目录不代表到期删除承诺。未关闭任务不因过期或容量自动清除；closed 按最新 64 条策略在实际账本写操作中惰性裁剪，没有定时删除服务。移除 capability 或裁剪记录指当前账本内容更新，不代表安全擦除或清理旧格式账本。
+
+材料校验读取声明文件，但不自动把材料正文复制进账本。后续普通消息、终态通知正文、业务结果、transcript 和 child final 不被专门归档；主动填入契约或 `close_reason` 的文字仍随字段保存，没有自动脱敏。这与主动采集完整聊天记录不同。
+
+默认 `status/diagnose` 投影包含 `objective`、`close_reason`、身份和生命周期事实；精确任务 status 额外返回完整 `contract_summary` 和操作输入。SessionStart 只注入权威 Session/CLI 信息及有界的未关闭任务身份、阶段和下一步，不展开目标、关闭原因或完整契约。spawn Hook 故障诊断采用固定码和说明，不回显输入或异常正文；`diagnose` 则包含数据根路径，读取失败时可包含最多 600 字符的异常说明。因此轻量、有界或只读输出不等于自动脱敏。
 
 ## 派发与 identity
 

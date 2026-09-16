@@ -24,7 +24,7 @@ The plugin's security responsibilities include:
 - rejecting unsafe paths, symbolic links, malformed state, invalid identities, conflicting terminal observations, and unauthorized governed lifecycle transitions where the platform exposes enough facts;
 - using bounded input, file locking, atomic replacement, and readback validation;
 - preventing governance failures from silently creating false success states;
-- avoiding disclosure of complete task prompts, terminal notification bodies, business results, or evidence through diagnostics;
+- keeping spawn Hook failure diagnostics free of input bodies and exception text, while exposing documented contract fields through local recovery views as described below;
 - keeping external command execution argument-based rather than shell-interpolated.
 
 Codex remains responsible for sandboxing, approvals, tool authorization, Hook event delivery, Hook trust, native Agent identity, and model behavior.
@@ -50,8 +50,12 @@ These issues can still be important bugs, especially when they create false term
 
 - The core runtime does not initiate network requests and contains no telemetry.
 - Codex may access the configured Git Marketplace during installation or upgrade.
-- Bounded lifecycle and terminal-notification metadata is stored in the current user's local Codex plugin data directory.
-- The plugin does not persist terminal notification bodies or business results. Diagnostic output is intentionally bounded and omits that content.
+- The following storage behavior describes the unreleased state-v12 development line, not a deployed release; the stable tag remains v0.4.0.
+- Each Session ledger stores lifecycle metadata and the original normalized business contract. In `prepared/claimed`, it also stores the complete generated dispatch message, full normalized task contract, and material-verification metadata. Later transitions remove the prepared capability while retaining the business contract excluding `spawn` for acceptance recovery.
+- The runtime does not separately archive external material contents, subsequent ordinary messages, terminal notification bodies, business results, transcripts, or child finals. Text supplied in contract fields or a close reason is still stored without automatic redaction.
+- Prepared expiry prevents a new claim; it does not delete the record. Open records are not automatically cleared; closed records are lazily pruned to the newest 64 during ledger writes, without timed deletion. State-v12 does not read, migrate, or delete older ledgers.
+- Default `status/diagnose` includes objectives and close reasons; exact-task status returns the full business contract. SessionStart omits the full contract. Spawn Hook failure diagnostics use fixed messages, whereas `diagnose` can also report a data-root path and a bounded read error. These outputs are not automatically redacted.
+- The data root depends on environment overrides and installation layout; development and uninstalled modules default to a per-user temporary root. See [storage locations and output boundaries](docs/architecture.md#存储位置与输出边界). A temporary location does not establish a deletion deadline.
 - Raw platform evidence may contain host paths and Session identifiers and must not be committed; the repository ignores `docs/private-platform-evidence-*.md`.
 
 ## Supported versions

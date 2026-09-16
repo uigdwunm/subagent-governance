@@ -1,5 +1,7 @@
 # Runtime boundaries
 
+以下描述尚未发布的 state-v12 开发线；稳定标签仍为 v0.4.0，不代表开发实现已部署或完成真实验收。
+
 - 唯一当前持久格式是 `state_format_version=12`、namespace `state-v12`。v11 及更早状态不读取、不迁移、不修复、不写回、不删除。
 - 每个 exact Session 只有一个 ledger，根字段精确为 `state_format_version`、`session_id`、`tasks`。
 - 一个 task 对应一个原生 Agent lifecycle，不存在 attempt。
@@ -23,7 +25,9 @@
 
 ## 原始验收快照与容量
 
-`contract_summary` 是规范化 TaskContract 去掉 `spawn` 后的精确结构化快照：`profile`、`objective`、`scope`、`forbidden_scope`、`completion`、`evidence` 和完整 `context`（summary、paths、verified）。它不重新概括、排序列表或截断约束，不记录实际业务结果。prepare/claimed 时与 capability contract 精确一致；所有阶段校验其 business digest，跨绑定、失败、对账、终态和关闭保留。digest 只校验一致性，不证明业务完成或防止同用户进程篡改。
+`contract_summary` 是规范化 TaskContract 去掉 `spawn` 后的精确结构化快照：`profile`、`objective`、`scope`、`forbidden_scope`、`completion`、`evidence` 和完整 `context`（summary、paths、verified）。它不重新概括、排序列表或截断约束，不主动采集实际业务结果。prepared/claimed 时与 capability contract 去掉 spawn 后的业务部分精确一致；所有阶段校验其 business digest，跨绑定、失败、对账、终态和关闭保留。digest 只校验一致性，不证明业务完成或防止同用户进程篡改。
+
+`prepared/claimed` 的 capability 还保存规范化完整契约、材料校验元数据和完整生成派发消息 `expected_native_parameters.message`；绑定、派发失败或未知、进入 reconcile 或关闭时移除 capability。prepared 过期只阻止首次 claim，不删除记录；未关闭记录不自动清除，closed 裁剪不是定时删除，也不代表安全擦除或旧账本清理。
 
 - objective 和 context.summary 各最多 8,192 字符；scope、forbidden_scope、completion、evidence 各最多 64 项，每项最多 1,024 字符。
 - context.paths 最多 64 项，每项最多 1,000 字符；verified 沿用最多 64 条 required_paths、每条路径最多 1,000 字符、workspace_root 最多 4,000 字符和原有 baseline 结构。
@@ -31,9 +35,11 @@
 - 每个 exact Session 最多 512 条任务；新增任务预计落盘超过 3 MiB 时拒绝准入，所有落盘写入硬上限 4 MiB。按实际账本序列化字节计算，包含 prepared 阶段的契约与派发正文副本；不承诺能同时存放 512 条最大契约。
 - 超限拒绝且不覆盖原账本，不自动删减约束或另建正文存储；closed 仍只保留最近 64 条，由真实写操作惰性淘汰。未关闭任务不因容量自动清除。
 
-精确 `--status --task-id ... --task-ref ... --session ...` 返回单个任务及快照，无锁零写。默认 status/diagnose 和 SessionStart 只给轻量状态；后者仅提示按需读取方法。恢复不访问材料文件，也不保留原 prepared 校验产生的文件哈希；`context.verified` 保留的是材料声明，不保证之后的文件存在或内容不变。
+精确 `--status --task-id ... --task-ref ... --session ...` 返回单个任务及快照，无锁零写。默认 status/diagnose 包含目标、关闭原因和生命周期事实；SessionStart 不展开目标、关闭原因或完整契约，仅注入权威 Session/CLI 信息、未关闭任务状态及按需读取方法。diagnose 还返回数据根路径及可能的有界读取错误；这些输出没有自动脱敏。恢复不访问材料文件，也不保留原 prepared 校验产生的文件哈希；`context.verified` 保留的是材料声明，不保证之后的文件存在或内容不变。
 
-原始证据要求与实际执行证据分开：evidence/completion 中的报告要求可以恢复，通知正文、工具日志、业务结果和后续消息正文不持久化。不要向契约写入凭据或无关敏感正文；没有自动语义摘要或脱敏改写。
+原始证据要求与实际执行证据分开：evidence/completion 中的报告要求可以恢复。runtime 不专门归档外部材料正文、通知正文、工具日志、业务结果、后续消息正文、transcript 或 child final；主动填入契约或关闭原因的文字仍会保存。不要向契约写入凭据或无关敏感正文；没有自动语义摘要或脱敏改写。
+
+账本位于数据根的 `sessions` 子目录。数据根依次优先使用 `SUBAGENT_GOVERNANCE_DATA`（直接使用）、`PLUGIN_DATA/state-v12`、安装缓存路径对应的 `plugins/data/<plugin>-<marketplace>/state-v12`；开发或未安装模块默认使用系统临时目录下的 `subagent-governance-<用户键>/state-v12`。临时位置不构成删除期限承诺。
 
 ## Current native adapter
 

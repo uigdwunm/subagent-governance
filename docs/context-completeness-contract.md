@@ -37,8 +37,10 @@ state-v12 在单一账本的 `contract_summary` 原样保留规范化 business c
 
 这里的 evidence 是派发时提出的证据／报告要求，不是执行后已经产生的检查结果；报告要求也可位于 completion。快照不证明说明充分或交付合格，不替代父任务对实际结果和后续新增要求的验收。
 
-prepare/claimed 的快照与 capability contract 精确相等，所有阶段验证其 business digest；绑定时清理 capability 后，快照仍随失败、对账、终态和关闭保留，直到 closed 记录被既有保留策略淘汰。快照是确定性字段投影，不存完整聊天、工具日志、业务结果或材料正文。
+`prepared/claimed` 的快照与 capability contract 去掉 `spawn` 后的业务部分精确相等，所有阶段验证其 business digest。同时，capability 另存规范化完整契约、材料校验元数据和完整生成派发消息 `expected_native_parameters.message`。绑定、派发失败或未知、进入 reconcile 或关闭时清理 capability，业务快照仍保留，直到 closed 记录被既有保留策略淘汰。prepared 过期不删除记录；未关闭记录不自动清除，closed 按最新 64 条在真实写操作中惰性裁剪。
 
-父任务使用当前 Hook 的权威 CLI 和 exact session，调用 `--status --task-id <task_id> --task-ref <task_ref>` 按需取回单个任务及快照。身份不匹配或记录不存在时明确失败，不猜测、重派或自动验收。默认 status/diagnose 与 SessionStart 不输出全部验收正文。
+快照是确定性字段投影，不主动采集完整聊天、工具日志、业务结果或材料正文；填入契约的文字仍会保存，不自动脱敏。这些说明对应尚未发布的 state-v12 开发线，不代表稳定 v0.4.0 已具备或部署该实现。
+
+父任务使用当前 Hook 的权威 CLI 和 exact session，调用 `--status --task-id <task_id> --task-ref <task_ref>` 按需取回单个任务及快照。身份不匹配或记录不存在时明确失败，不猜测、重派或自动验收。默认 status/diagnose 不展开完整契约，但包含目标和关闭原因；SessionStart 不展开目标、关闭原因或完整契约。存储位置及诊断输出边界见[当前架构](architecture.md#存储位置与输出边界)。
 
 字段、列表、字节及账本容量上限见 [runtime boundaries](../skills/subagent-governance/references/runtime-boundaries.md#原始验收快照与容量)。超限拒绝 prepare，不截断或自动改写。路径和 verified declaration 可以恢复，但不保证外部材料仍可用；恢复本身不重新读取或校验文件。旧格式 v11 及更早状态不读取、不迁移、不拼接为新快照。
