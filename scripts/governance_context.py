@@ -164,8 +164,9 @@ def remaining_time(deadline: float) -> float:
     return remaining
 
 
-def _file_identity(value: os.stat_result) -> tuple[int, ...]:
-    return (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+def _file_identity(value: os.stat_result, *, include_ctime: bool = True) -> tuple[int, ...]:
+    identity = (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
+    return identity + (value.st_ctime_ns,) if include_ctime else identity
 
 
 def _file_digest(path: Path, deadline: float, *, git_algorithm: str | None = None) -> str:
@@ -189,7 +190,12 @@ def _file_digest(path: Path, deadline: float, *, git_algorithm: str | None = Non
                 digest.update(chunk)
             after = os.fstat(handle.fileno())
             current = path.stat()
-            if _file_identity(before) != _file_identity(after) or _file_identity(after) != _file_identity(current):
+            # Windows Python 3.12 stat uses creation time for ctime, while fstat
+            # can report change time. Keep the full descriptor-to-descriptor check.
+            include_ctime = os.name != "nt"
+            if (_file_identity(before) != _file_identity(after)
+                    or _file_identity(after, include_ctime=include_ctime)
+                    != _file_identity(current, include_ctime=include_ctime)):
                 raise ContextVerificationError(f"读取期间必需上下文发生变化，无法完成验证：{path}")
     except (FileNotFoundError, NotADirectoryError) as exc:
         raise ContextMaterialConflictError(f"必需上下文实际文件缺失：{path}") from exc

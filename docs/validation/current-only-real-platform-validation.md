@@ -1,6 +1,6 @@
 # state-v12 近期独立验证（2026-09-16）
 
-v0.5.0 的发布前证据来自重启后独立任务；下方旧版本报告保留为历史记录。最近受测安装版为 `0.4.0+codex.20260916140724`，runtime bundle digest 为 `bc12e32c7ca2252af45ff66da690d62cb82bd1223b2d6b889b94b6644fa081ed`。这不是 v0.5.0 标签安装后的重新验收；后续变更包含文档、版本与 CI 测试修正。
+v0.5.0 的发布前证据来自重启后独立任务；下方旧版本报告保留为历史记录。最近受测安装版为 `0.4.0+codex.20260916140724`，runtime bundle digest 为 `bc12e32c7ca2252af45ff66da690d62cb82bd1223b2d6b889b94b6644fa081ed`。这不是 v0.5.0 标签安装后的重新验收；后续变更包含文档、版本、CI 测试修正及 Windows Python 3.12 的 stat/fstat ctime 比较修复；最后一项由自动化回归及跨平台 CI 验证，不属于此次真实 Codex 测试。
 
 - standard 只读任务通过：原生返回完整 canonical `task_name`，原样 confirm 后进入 bound，终态登记并 closed。
 - strict 首轮要求独立 ACK，但 ACK 只写入子 Agent commentary，父任务没有收到对应消息证据，因此该业务断言未通过；不能据此推断原生消息通道故障。

@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts import governance_context as context
@@ -169,6 +170,41 @@ class MaterialVerificationTests(unittest.TestCase):
                     self.assertIn(item['path'], message)
                 if baseline == 'git_commit':
                     self.assertIn(self.revision, message)
+
+    def test_windows_path_ctime_can_differ_from_descriptor_ctime(self):
+        path = self.workspace / 'required.txt'
+        metadata = path.stat()
+        fields = {name: getattr(metadata, name) for name in
+                  ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')}
+        fields['st_ctime_ns'] += 1
+        for platform in ('nt', 'posix'):
+            with self.subTest(platform=platform):
+                with patch.object(context.os, 'name', platform), patch.object(
+                        Path, 'stat', return_value=SimpleNamespace(**fields)):
+                    if platform == 'nt':
+                        actual = context.sha256_file(path)
+                    else:
+                        with self.assertRaises(ContextVerificationError):
+                            context.sha256_file(path)
+                if platform == 'nt':
+                    self.assertEqual(actual, hashlib.sha256(b'stable\n').hexdigest())
+
+    def test_windows_digest_still_detects_path_replacement_and_descriptor_change(self):
+        path = self.workspace / 'required.txt'
+        metadata = path.stat()
+        fields = {name: getattr(metadata, name) for name in
+                  ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns', 'st_mode')}
+        for field in ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns'):
+            changed = SimpleNamespace(**{**fields, field: fields[field] + 1})
+            with self.subTest(field=field), patch.object(context.os, 'name', 'nt'):
+                with patch.object(Path, 'stat', return_value=changed):
+                    with self.assertRaises(ContextVerificationError):
+                        context.sha256_file(path)
+        changed = SimpleNamespace(**{**fields, 'st_ctime_ns': fields['st_ctime_ns'] + 1})
+        with patch.object(context.os, 'name', 'nt'), patch.object(
+                context.os, 'fstat', side_effect=[metadata, changed]):
+            with self.assertRaises(ContextVerificationError):
+                context.sha256_file(path)
 
     def test_git_subprocesses_share_remaining_budget(self):
         real_run = subprocess.run
