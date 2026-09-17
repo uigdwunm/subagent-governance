@@ -17,6 +17,8 @@ Codex 原生 Agent 工具是唯一执行通道。本 Skill 明确任务契约、
 
 ## 编写任务契约
 
+派发前先解决会改变实现方向的关键歧义，按任务判断难度、执行者能力及交接/验收成本决定是否委派，不只看代码量或模型价格。父任务负责关键判断、治理与验收，子任务负责有界执行和证据；调查未决设计时应明确调查目标。使用现有字段交接具体依据，不增加每步审批。
+
 TaskContract v2 的最小完整示例：
 
 ```json
@@ -30,7 +32,7 @@ TaskContract v2 的最小完整示例：
 ```
 
 - objective、非空 scope、非空 completion 必填。可选字段为 profile、forbidden_scope、evidence、context、spawn；默认 standard、空数组/背景、fork_turns=none。profile 仅 standard/strict；strict 额外要求非空 forbidden_scope 和 evidence，详见 [profile](references/governance-profiles.md)。不使用 auto/light/task_features/attempt，不手写 task name/ref，标识由生成器派生。
-- spawn 可提供 model、reasoning_effort。fork_turns 为 none/all 或 1–12 位正整数字符串；先核对可见原生工具说明，再选择 collaboration_turns 或 fork_context，不猜测或混用接口。
+- 模型选择服从用户授权和实际工具说明，不自动选择最低价模型。需要不同子模型时显式配置；collaboration_turns 的 fork_turns=all 不允许模型/推理覆盖，改用允许的隔离或有限继承并补足背景，不偷偷删除覆盖。spawn 可提供 model、reasoning_effort。fork_turns 为 none/all 或 1–12 位正整数字符串；先核对可见原生工具说明，再选择 collaboration_turns 或 fork_context，不猜测或混用接口。
 - 用现有字段说明已定设计、自主范围、约束和验证证据；影响执行的边界写进契约，不仅留在父任务历史。边界明确则直接完成实现、验证和本次问题修复；重大设计未决或需改变既定接口、数据库、鉴权、架构边界等才尽早对齐，跨文件本身不触发审批。
 - 普通方案沟通是进度消息；确实无法继续交付、需交还决定时才报告终态，不新增审批阶段或终态后恢复。父任务在已有授权内决定，越界或需用户选择才升级；结构校验不证明交付质量。并行写入需明确修改归属、共享接口、集成责任和必要顺序；父任务验收组合结果。复杂交接按需读 [任务交接示例](references/task-handoff.md)，不复制另一套示例。
 - context.paths 只是定位提示，仅填写规范 POSIX 相对路径，如 `skills/example/SKILL.md`；不填绝对路径、反斜杠或含 `.`、`..`、空路径段的值。需要交接绝对位置或不同工作区的文件时，将完整路径及用途写入 context.summary，可省略 context.paths；相对路径的基准目录不明确时也在 summary 中说明。需机械校验材料才显式填写 context.verified，prepare 和 Pre claim 各验证一次。strict 也不自动扫描，材料校验不提供工作区隔离。声明格式与容量见 [runtime boundaries](references/runtime-boundaries.md)。
@@ -81,6 +83,8 @@ TaskContract v2 的最小完整示例：
 
 父任务按原始完成条件和后续实际约定验收，或明确决定停止跟踪后，使用 --close-task 的输入补 reason。终态事实与关闭决定分开提交；completed 不代表业务验收通过，close 不表示业务成功或资源释放。相同 reason 幂等，不同 reason 不覆盖，closed 不重开。中断回执按 [中断规则](references/recovery.md#中断回执) 处理。
 
+验收不合格时，依据失败产物区分缺背景、局部错误和能力不匹配，按 [质量纠偏与接管](references/task-handoff.md#质量纠偏与接管) 处置。bound 下可有据纠偏；终态如实登记且不受管恢复，父任务可接管或明确收尾后安排独立修复任务。平台 unknown 不构成自动重派理由。
+
 ## 只读恢复
 
 上下文恢复先用 `--status --session <exact-session-id>` 恢复映射；需原始验收约定或后续输入时，再读精确任务详情：
@@ -89,7 +93,7 @@ TaskContract v2 的最小完整示例：
 python3 "<authoritative-cli-entrypoint>" --status --session <exact-session-id> --task-id <task_id> --task-ref <task_ref>
 ```
 
-task_id/task_ref 必须成对且来自该 Session，不存在或不匹配即报错，不换身份试探。详情返回 contract_summary 和 operation_inputs；按目标、范围、禁止范围、completion、evidence 和完整 context 核对交付。evidence 是原始要求，不是已通过的检查；后续消息改变的要求不自动进入快照，缺失时说明证据不足。
+task_id/task_ref 必须成对且来自该 Session，不存在或不匹配即报错，不换身份试探。详情返回 contract_summary 和 operation_inputs；按目标、范围、禁止范围、completion、evidence 和完整 context 核对交付。evidence 是原始要求，不是已通过的检查；后续消息改变的要求不自动进入快照，父任务在自身交接摘要中保留有效约定及来源；恢复时缺失则说明证据不足，不能把原快照当作全部最新要求。
 
 prepared 视图显示 expires_at（Unix 秒）和 expired，以本次观察时间大于或等于 expires_at 为过期。expired=true 时 next_action 为 parent_review_expired_preparation：停止依赖旧 capability 的首次派发，由父任务根据实际回执和身份事实判断后续处置；过期不证明原生 Agent 未创建，不自动关闭、重新 prepare 或重派。未过期提示仅反映观察时点，不保证随后 claim 成功。claimed 已消费 capability，不适用此过期提示，仍按既有精确 confirm 和同一 tool_use_id 幂等规则处理。operation_inputs 保持身份部分输入语义，不代表执行许可；过期不作为 diagnose.issues 中的账本错误。
 

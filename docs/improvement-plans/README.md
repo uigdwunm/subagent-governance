@@ -11,8 +11,9 @@
 
 | 方案 | 状态 | 范围 |
 | --- | --- | --- |
+| [异构模型协作：交接、纠偏与评测](heterogeneous-model-collaboration-2026-09-17.md) | 文档与 Skill 已实施；真实验证待执行 | 强主模型与低成本子模型分工、质量纠偏及接管边界、三组收益评测；不新增运行时状态或自动路由 |
 | [原生返回身份契约与失败派发保留上限](native-return-identity-and-retention-2026-09-16.md) | 开发仓库实施完成；228 项测试通过；独立真实复验待执行 | 澄清原生返回身份、补齐契约验证、统一失败关闭的 64 条保留上限 |
-| [F：返工与成本效果先导评测](F-rework-cost-pilot.md) | 方案与材料准备；未开展实验 | 两组先导、任务候选、业务验收与成本记录；部署及正式运行需另行授权 |
+| [F：返工与成本效果先导评测](F-rework-cost-pilot.md) | 方案与材料准备；未开展实验 | 异构组合三组先导、任务候选、业务验收与成本记录；部署及正式运行需另行授权 |
 | [GPT-6 使用基线下的治理流程精简](gpt6-workflow-simplification-2026-09-09.md) | 开发仓库实施完成；117 项测试通过，lint 有 3 项基线遗留；未部署或真实验证 | unknown 与生命周期分离、减少重复记账、精简提示、更新 GPT-6 验收基线；TaskContract v2 / state-v11；见[本地验收](../validation/current-only-local-acceptance.md) |
 | [原生工具契约适配修复](native-tool-contract-adaptation-2026-09-06.md)及[执行清单](native-tool-contract-execution-2026-09-06.md) | 执行准备完成，尚未实施 | 显式派发适配、Hook 输入边界、通信与生命周期语义、本地及真实验收 |
 | [task_name claim 修复](task-name-claim-fix-2026-09-07.md) | 已部署，重新信任 Hook 后核心真实验收通过；中断回执保留 unknown 边界 | 让 claim 依据稳定的 task_name 与派发配置，不逐字匹配平台重构后的 message；见 [state-v10 验收](../validation/state-v10-hook-trust-2026-09-09.md) |

@@ -82,7 +82,7 @@ python3 scripts/dev_deploy.py \
 
 ## 真实平台验证
 
-获准部署并重启后，在独立新任务以显式 `gpt-5.6-terra/high` 验证；父任务和受测子 Agent 分别核实实际配置，无法确认的项目标为未验证。用户明确指定其他配置时采用用户配置。按以下顺序验证：
+获准部署并重启后，在独立新任务按测试目的分别冻结并显式指定父子模型、推理强度和继承配置，分别核实实际值；配置未确定前不启动，用户明确配置优先。主要使用组合可为强主模型与低成本子模型，不要求同模型。无法确认的项目标为未验证；历史结果只证明当时组合。以下运行正确性门槛不由成本收益评测替代：
 
 - unmanaged spawn fail-open 且零状态；
 - prepare → Pre claim → native spawn → explicit exact-target confirm；
@@ -92,6 +92,8 @@ python3 scripts/dev_deploy.py \
 - exact-session SessionStart/status 以及用户触发的 restart/compact。
 
 身份契约回归至少覆盖 standard 只读任务和 strict 通信收尾任务。测试者先读新版 Skill，不额外提示应选择哪个返回字段；逐项记录同次 spawn 的原生返回、confirm target 与最终状态。完整 canonical task_name 与输入短名称必须区分，嵌套路径不得重建或截断；其他接口只有实际可用时才验证，不可用标为未验证。若需要自行纠正文档或额外提示才能完成，即使最终 closed 也不能将说明一致性判为通过。文档样例本地检查不能替代这项真实验证。
+
+异构协作验收另外核对正常交付、真实 compact 后恢复原始验收要求，以及具体缺陷下的纠偏/接管。后续消息修订不自动进入契约快照，恢复证据需区分原始要求和后续约定；无法恢复则如实标记。收益比较按 [F 方案](improvement-plans/F-rework-cost-pilot.md) 单独冻结批次，流程通过不等于成本下降。
 
 Hook trust、Codex registration、桌面 UI 和 exact session identity 分别记录；文件存在、`installed/enabled` 或本地测试不能替代真实证据。未经授权或尚未重启时一律记为 `not_checked`。
 

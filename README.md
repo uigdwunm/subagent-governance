@@ -13,6 +13,8 @@ Keep native Codex as the execution layer while making task handoff, declared-con
 
 Subagent Governance is a local Codex plugin for developers who use native subagents but do not want identity, lifecycle state, or terminal decisions to depend on task names, timing, transcripts, or guesses. It adds a small, auditable protocol around the native Agent tools while keeping those tools as the only execution channel.
 
+The handoff guidance supports a capable parent making key decisions and reviewing bounded work from suitable lower-cost child models. Explicit contracts and recoverable acceptance criteria support this division of work without requiring matching models. Lower total delivery cost is a design goal, not a demonstrated result; model-combination and cost evaluation remains pending.
+
 ## Release status
 
 The current stable release is [`v0.5.0`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.0). The Marketplace entry is pinned to the same immutable tag. This release adds recoverable business contracts, bounded closed-task retention, clearer native-return identity guidance, and stronger deployment source verification.
