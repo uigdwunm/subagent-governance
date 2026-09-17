@@ -15,9 +15,9 @@ Subagent Governance is a local Codex plugin for developers who use native subage
 
 ## Release status
 
-The current stable release is `v0.4.0`. Its Marketplace entry is pinned to the same immutable tag. It consolidates the lifecycle and identity fixes validated across the release-candidate series and includes the natural-language quick start.
+The current stable release is [`v0.5.0`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.0). The Marketplace entry is pinned to the same immutable tag. This release adds recoverable business contracts, bounded closed-task retention, clearer native-return identity guidance, and stronger deployment source verification.
 
-The runtime description below covers the unreleased state-v12 development line. The stable tag remains v0.4.0. State-v12 has not been deployed or validated on the real platform; it does not read older ledgers, and an empty new summary does not mean older tasks completed.
+**Upgrade boundary:** state-v12 does not read, migrate, or delete older ledgers. Finish existing governed tasks before upgrading, restart Codex, and use a new session. An empty new summary does not prove older tasks completed. Recent independent macOS validation covers standard identity binding and a strict message-to-final round trip; see the [dated evidence and remaining boundaries](docs/validation/current-only-real-platform-validation.md).
 
 ## What it adds to native Codex
 
@@ -40,7 +40,7 @@ Native Codex continues to create and run every subagent. Subagent Governance add
 - **Optional verified context** — declared working-tree files or Git objects can be checked at prepare and claim time.
 - **Local governance state** — one current Session ledger containing dispatch preparation, the original business contract, and lifecycle facts, with bounded closed-task retention.
 - **Read-only recovery views** — SessionStart summaries, `status`, and `diagnose` do not create or repair state.
-- **Recoverable acceptance criteria** — the development runtime retains the original bounded business contract, including design context and required evidence, for exact-task retrieval after context loss. Completion still requires the parent's review of actual results.
+- **Recoverable acceptance criteria** — the runtime retains the original bounded business contract, including design context and required evidence, for exact-task retrieval after context loss. Completion still requires the parent's review of actual results.
 
 ## Evidence-backed protections
 
@@ -50,10 +50,10 @@ See [governance evidence for native Codex subagents](docs/native-codex-governanc
 
 ## Installation
 
-Install the verified `v0.4.0` release with:
+Install `v0.5.0` with:
 
 ```bash
-codex plugin marketplace add uigdwunm/subagent-governance --ref v0.4.0
+codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.0
 codex plugin add subagent-governance@subagent-governance
 ```
 
@@ -130,7 +130,7 @@ Dispatch uncertainty and identity or terminal conflicts enter reconcile. Unknown
 }
 ```
 
-`objective`, non-empty `scope`, and non-empty `completion` are required. The `strict` profile also requires explicit forbidden scope and evidence. Ordinary `context.paths` are location hints; material verification is opt-in through `context.verified`.
+`objective`, non-empty `scope`, and non-empty `completion` are required. The `strict` profile also requires explicit forbidden scope and evidence. Ordinary `context.paths` are canonical relative POSIX path hints. Put absolute locations and the relative-path base in `context.summary`; material verification is opt-in through `context.verified`.
 
 ## How it works
 
@@ -149,11 +149,11 @@ For the full state machine and storage boundaries, see [Architecture](docs/archi
 ## Safety and privacy
 
 - The core runtime does not initiate network requests and contains no telemetry.
-- In the unreleased state-v12 development line, `prepared/claimed` records store the complete generated dispatch message, normalized task contract, and material-verification metadata. Later transitions remove the prepared capability but retain `contract_summary`, the full business contract excluding `spawn`, for acceptance recovery.
+- In state-v12, `prepared/claimed` records store the complete generated dispatch message, normalized task contract, and material-verification metadata. Later transitions remove the prepared capability but retain `contract_summary`, the full business contract excluding `spawn`, for acceptance recovery.
 - The runtime does not separately archive external material contents, subsequent ordinary messages, terminal notification bodies, business results, transcripts, or child finals. Text supplied in contract fields or a close reason is still stored; there is no automatic redaction.
 - Prepared expiry prevents a new claim; it does not delete the record. Open records are not automatically cleared. Closed records are lazily pruned to the newest 64 during ledger writes, not by a timed deletion service. State-v12 does not read, migrate, or delete older ledgers.
 - Default `status/diagnose` includes the objective and close reason; exact-task status also returns the complete business contract. SessionStart does not inject the full contract. Spawn Hook failure diagnostics use fixed messages; this is not a blanket guarantee that all output is free of business text.
-- Storage roots and output boundaries are detailed in [Architecture](docs/architecture.md#存储位置与输出边界). These descriptions do not imply that state-v12 has been released or deployed; the stable tag remains v0.4.0.
+- Storage roots and output boundaries are detailed in [Architecture](docs/architecture.md#存储位置与输出边界).
 - State writes use bounded input, file locking, atomic replacement, permission checks, and readback validation.
 - Unmanaged native spawns remain fail-open if the governance layer is unavailable.
 - The runtime bundle is built from a machine-readable allowlist and excludes tests, plans, deployment tooling, and development-only files.
@@ -170,14 +170,13 @@ Subagent Governance is **not** a sandbox, permission system, remote control plan
 
 ## Verification
 
-Existing verification covers the areas below. See [current local acceptance](docs/validation/current-only-local-acceptance.md) for state-v12 results and unverified boundaries; historical platform acceptance does not validate the new runtime:
+Verification is split by evidence source:
 
-- Automated tests for protocol, state, concurrency, lifecycle, storage safety, packaging, and deployment transactions;
-- CI on Ubuntu, macOS, and Windows with Python 3.11 and 3.12;
-- plugin, Skill, archive, schema, compilation, lint, and release-preflight gates;
-- real Codex acceptance covering governed dispatch, exact-target binding, active wait wake-up, concurrent governed Agents, strict verified context, message handling, interruption, terminal notification, close, and read-only diagnostics.
+- Repository checks cover protocol, state, cross-process concurrency, lifecycle, storage safety, packaging, and deployment transactions, plus compilation, lint, coverage, and release/archive preflight.
+- CI runs the automated suite on Ubuntu, macOS, and Windows with Python 3.11 and 3.12. The badge links to actual run results.
+- Independent state-v12 macOS tasks verified standard dispatch, native canonical target binding, terminal/close, and a strict random-token message-to-final round trip, with parent and child configured as `gpt-5.6-terra/high`.
 
-Local tests cannot prove every platform failure mode. Real acceptance evidence and explicit unverified boundaries are recorded in [platform validation](docs/platform-validation.md) and [current real-platform validation](docs/validation/current-only-real-platform-validation.md).
+The latest platform checks do not cover `fork_context`, real unknown-result recovery, or restart/compact recovery. Earlier concurrency, interruption, and recovery evidence remains historical and does not establish coverage for every new version. See [local acceptance](docs/validation/current-only-local-acceptance.md), [dated platform evidence](docs/validation/current-only-real-platform-validation.md), and [platform validation](docs/platform-validation.md).
 
 ## Project documentation
 

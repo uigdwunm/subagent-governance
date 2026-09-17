@@ -1,4 +1,16 @@
-> 当前开发线为 state-v11，尚未部署或执行真实平台验收。下列报告保留原版本事实；新版本本地结果见[当前本地验收](current-only-local-acceptance.md)，不能用旧版本结果替代新证据。
+# state-v12 近期独立验证（2026-09-16）
+
+v0.5.0 的发布前证据来自重启后独立任务；下方旧版本报告保留为历史记录。最近受测安装版为 `0.4.0+codex.20260916140724`，runtime bundle digest 为 `bc12e32c7ca2252af45ff66da690d62cb82bd1223b2d6b889b94b6644fa081ed`。这不是 v0.5.0 标签安装后的重新验收；后续变更包含文档、版本与 CI 测试修正。
+
+- standard 只读任务通过：原生返回完整 canonical `task_name`，原样 confirm 后进入 bound，终态登记并 closed。
+- strict 首轮要求独立 ACK，但 ACK 只写入子 Agent commentary，父任务没有收到对应消息证据，因此该业务断言未通过；不能据此推断原生消息通道故障。
+- strict 复验使用新生命周期：绑定后生成随机令牌，通过 follow-up 发送，子 Agent 的最终回复原样返回令牌，terminal completed 后 closed，无 unknown/reconcile。契约中未预置令牌；该结果证明此样本的消息往返，无需额外 ACK 协议。
+- 父任务、standard 子 Agent、strict 子 Agent 与复验子 Agent 的实际配置均经本地任务元数据核对为 `gpt-5.6-terra/high`。
+- 测试暴露的 `context.paths` 绝对路径说明缺口已在开发仓库补齐；普通 paths 只允许规范相对路径，绝对位置放入 summary。这项文档修正未单独再做平台测试。
+
+本轮未验证：其他操作系统的真实 Codex 行为、`fork_context`、真实 unknown 回执恢复、restart/compact 恢复，以及独立的 Hook trust / 注册 / 桌面 UI 状态。自动化 CI 与此前历史记录不能替代这些证据。
+
+---
 
 # state-v9 独立重启后真实平台验证
 

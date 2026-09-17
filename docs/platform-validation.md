@@ -2,7 +2,7 @@
 
 > 当前接口与环境证据分层见[兼容矩阵](native-compatibility-matrix.md)；历史真实结果不代表 state-v12 已验证。
 
-> 当前开发线已切换 state-v12，尚未部署或执行真实验收。以下保留历史平台记录；新版本地结果见[当前本地验收](validation/current-only-local-acceptance.md)，后续真实验证按[发布与部署流程](release-process.md)采用显式 gpt-6-astra/high。
+> v0.5.0 使用 state-v12。近期独立验证见[当前平台证据](validation/current-only-real-platform-validation.md)，以下保留历史记录。后续真实验证按[发布与部署流程](release-process.md)采用显式 gpt-5.6-terra/high。
 
 > 本文保留导致减法收口决策的历史 v8 证据，并记录当前 state-v9 的独立重启后真实验证。历史结果不描述或替代 state-v9 runtime 能力。
 

@@ -1,6 +1,6 @@
 # Runtime boundaries
 
-以下描述尚未发布的 state-v12 开发线；稳定标签仍为 v0.4.0，不代表开发实现已部署或完成真实验收。
+以下描述 v0.5.0 的 state-v12 运行边界；本地测试与真实平台验收分别记录，不把局部通过视为所有平台行为已验证。
 
 - 唯一当前持久格式是 `state_format_version=12`、namespace `state-v12`。v11 及更早状态不读取、不迁移、不修复、不写回、不删除。
 - 每个 exact Session 只有一个 ledger，根字段精确为 `state_format_version`、`session_id`、`tasks`。

@@ -33,6 +33,11 @@ class DevDeployTests(unittest.TestCase):
             ["git", "-C", str(self.source), "config", "user.name", "Tests"],
             check=True,
         )
+        # The bundle omits repository attributes; isolate the fixture from host EOL settings.
+        subprocess.run(
+            ["git", "-C", str(self.source), "config", "core.autocrlf", "false"],
+            check=True,
+        )
         subprocess.run(["git", "-C", str(self.source), "add", "-A"], check=True)
         subprocess.run(
             [

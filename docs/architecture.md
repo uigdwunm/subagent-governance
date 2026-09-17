@@ -51,7 +51,7 @@ StateStore 只接受严格 `state_format_version=12`，默认 namespace 为 `sta
 
 ## 存储位置与输出边界
 
-以下描述 state-v12 开发实现，尚未发布、尚未部署、尚未完成真实验收；稳定标签仍为 v0.4.0。数据根按以下优先级解析，再使用其中的 `sessions/<安全化 Session 标识>.json` 和同名 `.lock`：
+以下描述 v0.5.0 的 state-v12 实现；真实验证范围见[平台证据](validation/current-only-real-platform-validation.md)。数据根按以下优先级解析，再使用其中的 `sessions/<安全化 Session 标识>.json` 和同名 `.lock`：
 
 1. `SUBAGENT_GOVERNANCE_DATA`：直接作为数据根，不再追加 namespace。
 2. `PLUGIN_DATA/state-v12`。
@@ -116,7 +116,7 @@ SessionStart、`status` 和 `diagnose` 使用无锁只读 reader；缺失目录�
 
 默认 status/diagnose 和 SessionStart 仍为轻量 projection；`--status --task-id <task_id> --task-ref <task_ref>` 在 exact Session 内精确选取单条任务，并额外返回完整 contract_summary。选择参数缺一、身份不匹配或记录已淘汰均明确失败。SessionStart 只提示按需读取，不自动注入完整契约；读取不证明交付合格，不重读 verified 材料。
 
-status、diagnose、SessionStart 共享 projection：phase 决定 next_action，unknown_facts 单独呈现。issues=[] 只证明账本可读且结构有效。新 namespace 不恢复 state-v11 的未关闭任务；新摘要为空不能证明旧任务完成。当前 state-v12 尚未部署或做真实平台验收。
+status、diagnose、SessionStart 共享 projection：phase 决定 next_action，unknown_facts 单独呈现。issues=[] 只证明账本可读且结构有效。新 namespace 不恢复 state-v11 的未关闭任务；新摘要为空不能证明旧任务完成。近期真实验证及未覆盖边界见上述平台证据。
 
 ## 安全存储边界
 

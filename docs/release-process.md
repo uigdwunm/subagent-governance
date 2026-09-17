@@ -26,6 +26,14 @@ git diff --check
 
 支持的其他 Python 版本、ruff 与 coverage 可用时也应运行。archive/release preflight、cachebuster、tag 与 Marketplace ref 仍属于正式发布门禁，不属于本机开发部署入口。
 
+## GitHub 稳定发布
+
+当前稳定版为 `v0.5.0`。正式版本在插件 Manifest 使用纯版本号，公开 Marketplace ref 固定为同名 `v<version>` 标签；本机 cachebuster 不作为公开稳定版号。
+
+发布前完成本地门禁，确认开发仓库与稳定发布源是独立的非符号链接目录，推送 main 并等待六个 CI 矩阵任务通过。再给同一提交创建不可变标签，运行 `release_preflight.py --mode release --tag v<version>`，确认标签 CI 通过后创建 GitHub Release。发布说明应列出变更、升级边界和实际验证范围。
+
+仓库通过 `.gitattributes` 固定文本 checkout 为 LF，避免 Windows 自动 CRLF 转换破坏原始提交字节一致性。CI 不因一个矩阵任务失败而取消其他任务。公开发布不执行本机安装，也不声称稳定源与运行缓存已同步到新标签。
+
 ## 唯一开发部署入口
 
 `scripts/dev_deploy.py` 是唯一的本机开发测试部署入口。它不会写全局 `AGENTS.md`、Marketplace 配置、Registry 或 Hook trust，也不会检查这些外部状态。省略 `--execute` 时是严格零写入 dry-run：

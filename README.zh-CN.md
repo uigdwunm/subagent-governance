@@ -15,9 +15,9 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 
 ## 发布状态
 
-当前稳定版为 `v0.4.0`，Marketplace 入口固定到相同的不可变标签。该版本收录了候选发布阶段完成并验证的生命周期与身份修复，以及自然语言快速上手体验。
+当前稳定版为 [`v0.5.0`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.0)，Marketplace 固定到同一不可变标签。本版增加可恢复的业务契约、有界关闭记录保留、更明确的原生返回身份说明，以及更严格的部署来源验证。
 
-以下运行说明对应尚未发布的 state-v12 开发线；稳定标签仍为 v0.4.0。state-v12 尚未部署或真实验收，不自动读取旧账本；新摘要为空不证明旧任务已完成。
+**升级边界：** state-v12 不读取、迁移或删除旧账本。升级前先结束已有受治理任务，随后重启 Codex 并使用新 Session；新摘要为空不证明旧任务已完成。近期独立 macOS 验证覆盖 standard 身份绑定和 strict 消息到最终回复的往返，详见[带日期的证据与未验证边界](docs/validation/current-only-real-platform-validation.md)。
 
 ## 它为原生 Codex 增加了什么？
 
@@ -40,7 +40,7 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 - **可选材料验证**：可以在 prepare 和 claim 阶段验证声明的工作树文件或 Git 对象。
 - **本地治理状态**：一个当前 Session ledger，保存派发准备、原始业务契约和生命周期事实，已关闭任务有界保留。
 - **只读恢复视图**：SessionStart 摘要、`status` 和 `diagnose` 不创建或修复状态。
-- **可恢复的验收依据**：开发运行时有界保留原始业务契约，包括设计背景和证据要求；上下文丢失后可按精确任务读取，仍由父任务核对实际结果是否合格。
+- **可恢复的验收依据**：运行时有界保留原始业务契约，包括设计背景和证据要求；上下文丢失后可按精确任务读取，仍由父任务核对实际结果是否合格。
 
 ## 有证据支持的保护
 
@@ -50,10 +50,10 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 
 ## 安装
 
-使用以下命令从已验证的 `v0.4.0` 标签添加 Marketplace 并安装插件：
+使用以下命令从 `v0.5.0` 标签添加 Marketplace 并安装插件：
 
 ```bash
-codex plugin marketplace add uigdwunm/subagent-governance --ref v0.4.0
+codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.0
 codex plugin add subagent-governance@subagent-governance
 ```
 
@@ -129,7 +129,7 @@ Skill 会生成契约、说明派发信息、把生成参数交给原生 `spawn_
 }
 ```
 
-`objective`、非空 `scope` 和非空 `completion` 必填。`strict` profile 还要求明确的禁止范围和验收证据。普通 `context.paths` 只是定位提示；材料机械验证通过 `context.verified` 显式启用。
+`objective`、非空 `scope` 和非空 `completion` 必填。`strict` profile 还要求明确的禁止范围和验收证据。普通 `context.paths` 是规范的相对 POSIX 路径提示；绝对位置及相对路径基准放入 `context.summary`，材料机械验证通过 `context.verified` 显式启用。
 
 ## 工作原理
 
@@ -139,7 +139,7 @@ Skill 会生成契约、说明派发信息、把生成参数交给原生 `spawn_
 prepared | claimed | bound | terminal | closed | reconcile
 ```
 
-当前 Session identity 和治理 CLI entrypoint 只来自同一次 SessionStart Hook 注入。父 Agent 原样提交生成的 spawn 参数，读取本次原生返回的 exact target，并立即确认。任务名、时间邻近、`list_agents`、transcript、summary 或 child final 都不能建立身份。
+当前 Session identity 和治理 CLI entrypoint 只来自同一次 SessionStart Hook 注入。父 Agent 原样提交生成的 spawn 参数，读取本次原生返回的 exact target，并立即确认。调用者提交的短任务名、时间邻近、`list_agents`、transcript、summary 或 child final 都不能建立身份。`collaboration_turns` 机械返回的完整 canonical `task_name` 是精确目标；仅在所选原生接口提供 `agent_id` 时使用该字段。返回值必须原样保留。
 
 绑定后，父 Agent 可以记录精确平台观察、普通调用结果、终态通知、中断结果和显式关闭决定。相同事实重放幂等；冲突或未知事实保持可见，而不是触发自动重试或猜测终态。
 
@@ -148,11 +148,11 @@ prepared | claimed | bound | terminal | closed | reconcile
 ## 安全与隐私
 
 - 核心 runtime 不主动发起网络请求，不包含遥测。
-- 在尚未发布的 state-v12 开发线中，`prepared/claimed` 记录保存完整生成派发消息、规范化任务契约和材料校验元数据。后续阶段转换移除 prepared capability，但保留 `contract_summary`，即除 `spawn` 外的完整业务契约，用于恢复验收依据。
+- 在 state-v12 中，`prepared/claimed` 记录保存完整生成派发消息、规范化任务契约和材料校验元数据。后续阶段转换移除 prepared capability，但保留 `contract_summary`，即除 `spawn` 外的完整业务契约，用于恢复验收依据。
 - runtime 不专门归档外部材料正文、后续普通消息、终态通知正文、业务结果、transcript 或 child final。主动填入契约字段或关闭原因的文字仍会保存；没有自动脱敏。
 - prepared 过期阻止新的 claim，不删除记录。未关闭记录不自动清除；closed 记录在账本写操作中按最新 64 条惰性裁剪，不是定时删除。state-v12 不读取、迁移或删除旧账本。
 - 默认 `status/diagnose` 包含目标和关闭原因；精确任务 status 还返回完整业务契约。SessionStart 不注入完整契约。spawn Hook 故障诊断使用固定说明，不能据此承诺所有输出均不含业务文字。
-- 存储位置与输出边界详见[当前架构](docs/architecture.md#存储位置与输出边界)。这些说明不代表 state-v12 已发布或部署；稳定标签仍为 v0.4.0。
+- 存储位置与输出边界详见[当前架构](docs/architecture.md#存储位置与输出边界)。
 - 状态写入使用有界输入、文件锁、原子替换、权限检查和写后回读。
 - 治理层不可用时，unmanaged 原生 spawn 继续 fail-open。
 - runtime bundle 由机器 allowlist 构建，不包含测试、计划、部署工具和开发专用文件。
@@ -169,14 +169,13 @@ Subagent Governance **不是**沙箱、权限系统、远程控制平面、Hook 
 
 ## 验证情况
 
-既有验证覆盖以下范围；state-v12 的本地结果与未验证边界见[当前本地验收](docs/validation/current-only-local-acceptance.md)，历史真实验收不替代新版本证据：
+按证据来源区分验证范围：
 
-- 协议、状态、并发、生命周期、存储安全、打包和部署事务自动化测试；
-- Ubuntu、macOS 和 Windows 上的 Python 3.11、3.12 CI；
-- Plugin、Skill、archive、Schema、编译、lint 和 release-preflight 门禁；
-- 真实 Codex 验收，覆盖受治理派发、exact-target 绑定、active wait 唤醒、双 Agent 并发、strict verified context、消息处理、中断、终态通知、close 和只读诊断。
+- 仓库检查覆盖协议、状态、跨进程并发、生命周期、存储安全、打包和部署事务，以及编译、lint、coverage 和 release/archive preflight。
+- CI 在 Ubuntu、macOS、Windows 上运行 Python 3.11、3.12 自动化测试；顶部徽章链接到实际运行结果。
+- 独立 state-v12 macOS 任务验证了 standard 派发、原生 canonical target 绑定、terminal/close，以及 strict 随机令牌消息到最终回复的往返；父任务与子 Agent 均为 `gpt-5.6-terra/high`。
 
-本地测试不能证明所有平台故障模式。真实验收证据和明确的未验证边界记录在[平台验证](docs/platform-validation.md)和[当前真实平台验证](docs/validation/current-only-real-platform-validation.md)中。
+最近一轮平台检查未覆盖 `fork_context`、真实 unknown 回执恢复或 restart/compact 恢复。早期并发、中断与恢复证据保留为历史记录，不代表所有新版本都已覆盖。详见[本地验收](docs/validation/current-only-local-acceptance.md)、[带日期的平台证据](docs/validation/current-only-real-platform-validation.md)和[平台验证](docs/platform-validation.md)。
 
 ## 项目文档
 

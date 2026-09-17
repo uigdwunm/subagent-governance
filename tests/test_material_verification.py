@@ -163,7 +163,7 @@ class MaterialVerificationTests(unittest.TestCase):
             for interface in ('collaboration_turns', 'fork_context'):
                 message = spawn_args(contract, 'sg_standard_review_t_abcdefabcdef', verified,
                                      native_interface=interface)['message']
-                self.assertIn(str(self.workspace), message)
+                self.assertIn(str(self.workspace.resolve()), message)
                 self.assertIn(baseline, message)
                 for item in manifest['required_paths']:
                     self.assertIn(item['path'], message)
