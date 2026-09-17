@@ -13,11 +13,11 @@
 
 Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 Agent、但不希望依靠任务名、时间邻近、对话记录或猜测来判断身份和终态的开发者。它在原生 Agent 工具之外增加一层小型、可审计的协作协议，同时保留原生工具作为唯一执行通道。
 
-交接指导支持由强主模型作关键判断和最终验收、由合适的低成本子模型执行有界任务。明确契约和可恢复验收依据为这种分工提供支持，不要求父子使用相同模型。降低合格交付的总成本是设计目标，异构组合与成本收益仍待实测。
+交接指导支持由强主模型作关键判断和最终验收、由合适的低成本子模型执行有界任务。明确契约和可恢复验收依据为这种分工提供支持，不要求父子使用相同模型。降低合格交付的总成本仍是未经证实的设计目标；受测模型组合及其边界见下方验证说明。
 
 ## 发布状态
 
-当前稳定版为 [`v0.5.0`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.0)，Marketplace 固定到同一不可变标签。本版增加可恢复的业务契约、有界关闭记录保留、更明确的原生返回身份说明，以及更严格的部署来源验证。
+当前稳定版为 [`v0.5.1`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.1)，Marketplace 固定到同一不可变标签。本版统一材料冲突分类，允许终态补记 unknown 而不重开任务，禁用 Git 可选索引刷新，并明确异构模型交接与质量纠偏。
 
 **升级边界：** state-v12 不读取、迁移或删除旧账本。升级前先结束已有受治理任务，随后重启 Codex 并使用新 Session；新摘要为空不证明旧任务已完成。近期独立 macOS 验证覆盖 standard 身份绑定和 strict 消息到最终回复的往返，详见[带日期的证据与未验证边界](docs/validation/current-only-real-platform-validation.md)。
 
@@ -52,10 +52,10 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 
 ## 安装
 
-使用以下命令从 `v0.5.0` 标签添加 Marketplace 并安装插件：
+使用以下命令从 `v0.5.1` 标签添加 Marketplace 并安装插件：
 
 ```bash
-codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.0
+codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.1
 codex plugin add subagent-governance@subagent-governance
 ```
 
@@ -177,7 +177,7 @@ Subagent Governance **不是**沙箱、权限系统、远程控制平面、Hook 
 - CI 在 Ubuntu、macOS、Windows 上运行 Python 3.11、3.12 自动化测试；顶部徽章链接到实际运行结果。
 - 独立 state-v12 macOS 任务验证了 standard 派发、原生 canonical target 绑定、terminal/close，以及 strict 随机令牌消息到最终回复的往返；父任务与子 Agent 均为 `gpt-5.6-terra/high`。
 
-最近一轮平台检查未覆盖 `fork_context`、真实 unknown 回执恢复或 restart/compact 恢复。早期并发、中断与恢复证据保留为历史记录，不代表所有新版本都已覆盖。详见[本地验收](docs/validation/current-only-local-acceptance.md)、[带日期的平台证据](docs/validation/current-only-real-platform-validation.md)和[平台验证](docs/platform-validation.md)。
+最新[异构验收](docs/validation/heterogeneous-real-acceptance-2026-09-17.md)覆盖 Astra/high 父任务与 Terra/high 子任务的正常交付、真实消息、模拟缺陷接管，以及子任务终态后的 compact 恢复。受测为本机安装成 0.5.0 的 `c968fb1`，并非最终 v0.5.1 标签；未覆盖 `fork_context`、真实 unknown、restart、执行中的 compact 或成本收益。早期证据保留为历史记录。详见[本地验收](docs/validation/current-only-local-acceptance.md)和[带日期的平台证据](docs/validation/current-only-real-platform-validation.md)。
 
 ## 项目文档
 

@@ -13,11 +13,11 @@ Keep native Codex as the execution layer while making task handoff, declared-con
 
 Subagent Governance is a local Codex plugin for developers who use native subagents but do not want identity, lifecycle state, or terminal decisions to depend on task names, timing, transcripts, or guesses. It adds a small, auditable protocol around the native Agent tools while keeping those tools as the only execution channel.
 
-The handoff guidance supports a capable parent making key decisions and reviewing bounded work from suitable lower-cost child models. Explicit contracts and recoverable acceptance criteria support this division of work without requiring matching models. Lower total delivery cost is a design goal, not a demonstrated result; model-combination and cost evaluation remains pending.
+The handoff guidance supports a capable parent making key decisions and reviewing bounded work from suitable lower-cost child models. Explicit contracts and recoverable acceptance criteria support this division of work without requiring matching models. Lower total delivery cost remains an unproven design goal; the tested model combination and its limits are documented below.
 
 ## Release status
 
-The current stable release is [`v0.5.0`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.0). The Marketplace entry is pinned to the same immutable tag. This release adds recoverable business contracts, bounded closed-task retention, clearer native-return identity guidance, and stronger deployment source verification.
+The current stable release is [`v0.5.1`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.1). The Marketplace entry is pinned to the same immutable tag. This release unifies material-conflict handling, accepts late unknown receipts without reopening terminal tasks, avoids optional Git index refreshes, and clarifies heterogeneous-model handoff and quality recovery.
 
 **Upgrade boundary:** state-v12 does not read, migrate, or delete older ledgers. Finish existing governed tasks before upgrading, restart Codex, and use a new session. An empty new summary does not prove older tasks completed. Recent independent macOS validation covers standard identity binding and a strict message-to-final round trip; see the [dated evidence and remaining boundaries](docs/validation/current-only-real-platform-validation.md).
 
@@ -52,10 +52,10 @@ See [governance evidence for native Codex subagents](docs/native-codex-governanc
 
 ## Installation
 
-Install `v0.5.0` with:
+Install `v0.5.1` with:
 
 ```bash
-codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.0
+codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.1
 codex plugin add subagent-governance@subagent-governance
 ```
 
@@ -178,7 +178,7 @@ Verification is split by evidence source:
 - CI runs the automated suite on Ubuntu, macOS, and Windows with Python 3.11 and 3.12. The badge links to actual run results.
 - Independent state-v12 macOS tasks verified standard dispatch, native canonical target binding, terminal/close, and a strict random-token message-to-final round trip, with parent and child configured as `gpt-5.6-terra/high`.
 
-The latest platform checks do not cover `fork_context`, real unknown-result recovery, or restart/compact recovery. Earlier concurrency, interruption, and recovery evidence remains historical and does not establish coverage for every new version. See [local acceptance](docs/validation/current-only-local-acceptance.md), [dated platform evidence](docs/validation/current-only-real-platform-validation.md), and [platform validation](docs/platform-validation.md).
+The latest [heterogeneous-model acceptance](docs/validation/heterogeneous-real-acceptance-2026-09-17.md) verified an Astra/high parent with Terra/high children, normal delivery, real messaging, simulated-defect parent takeover, and compact recovery after child termination. It tested `c968fb1` installed locally as 0.5.0, not the final v0.5.1 tag. It does not cover `fork_context`, real unknown-result recovery, restart recovery, compact during child execution, or cost savings. Earlier evidence remains historical. See [local acceptance](docs/validation/current-only-local-acceptance.md) and [dated platform evidence](docs/validation/current-only-real-platform-validation.md).
 
 ## Project documentation
 

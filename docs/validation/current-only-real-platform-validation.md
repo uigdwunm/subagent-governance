@@ -1,3 +1,9 @@
+# 最新异构模型验收（2026-09-17）
+
+详见[独立验收报告](heterogeneous-real-acceptance-2026-09-17.md)：本机 `c968fb1`（安装版 0.5.0），父任务 gpt-6-astra/high、子任务 gpt-5.6-terra/high，正常交付、strict 消息、模拟缺陷接管及终态后真实 compact 恢复通过，三条记录全部关闭。这不是最终 v0.5.1 标签的重新安装验收，也不证明执行中 compact、restart、真实 unknown 或成本收益。以下保留历史记录。
+
+---
+
 # state-v12 近期独立验证（2026-09-16）
 
 v0.5.0 的发布前证据来自重启后独立任务；下方旧版本报告保留为历史记录。最近受测安装版为 `0.4.0+codex.20260916140724`，runtime bundle digest 为 `bc12e32c7ca2252af45ff66da690d62cb82bd1223b2d6b889b94b6644fa081ed`。这不是 v0.5.0 标签安装后的重新验收；后续变更包含文档、版本、CI 测试修正及 Windows Python 3.12 的 stat/fstat ctime 比较修复；最后一项由自动化回归及跨平台 CI 验证，不属于此次真实 Codex 测试。

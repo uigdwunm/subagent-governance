@@ -4,16 +4,18 @@
 
 ## 授权、环境与精确身份
 
+公开归档时将用户目录统一写为 `~`、系统临时目录写为 `<system-temp>`；文件名、证据编号、哈希及事件位置保留原值。
+
 本任务由已确认部署、重启和独立真实验收的交接创建。只写本报告和隔离临时测试材料，没有修改运行时代码、安装目录、信任配置、Registry、Marketplace 或旧版账本，没有提交、合并、推送或再次部署。
 
 - 当前 exact Session（来自本任务 SessionStart）：`01a0af04-34fd-70d1-a36e-637da926e788`。
-- 当前权威 CLI：`/Users/zhaolaiyuan/.codex/plugins/cache/personal/subagent-governance/0.5.0/scripts/subagent_governance.py`。所有本次治理命令均使用该入口和上述 Session。
+- 当前权威 CLI：`~/.codex/plugins/cache/personal/subagent-governance/0.5.0/scripts/subagent_governance.py`。所有本次治理命令均使用该入口和上述 Session。
 - 来源任务 `01a0ae25-5f1d-7c62-838f-e40ffcfbe9d8` 仅为交接来源，未用作治理身份。
-- 开发源：`/Users/zhaolaiyuan/workspace/subagent-governance`。
-- 本独立工作树：`/Users/zhaolaiyuan/.codex/worktrees/d038/subagent-governance`。
+- 开发源：`~/workspace/subagent-governance`。
+- 本独立工作树：`~/.codex/worktrees/d038/subagent-governance`。
 - 两者实际 HEAD 均为 `c968fb1382a862b11b62f181f7c6991195abd959`，检查时均干净。
-- 稳定源：`/Users/zhaolaiyuan/plugins/subagent-governance`。
-- 当前缓存：`/Users/zhaolaiyuan/.codex/plugins/cache/personal/subagent-governance/0.5.0`。
+- 稳定源：`~/plugins/subagent-governance`。
+- 当前缓存：`~/.codex/plugins/cache/personal/subagent-governance/0.5.0`。
 - 四处 runtime digest 均实测为 `69bd26d958d26bcb74fd5db4f795019eeb78f4ee39b6de80724dc1ef3a15adae`。开发源与工作树使用 `bundle_digest`，稳定源和缓存使用 `verify_runtime_bundle` 检查精确 allowlist 文件集合。通过 `python3 -B` 导入开发工具，未向 runtime 写 bytecode。
 - 四个根目录均不是符号链接，开发源与稳定源实际路径不同。安装版为本机 `main@c968fb1` 构建的 `0.5.0`，不等同公开 `v0.5.0` 标签内容。
 - 交接称保留上一缓存 `0.4.0+codex.20260917010311`；本批未访问或验证其逻辑、文件或账本。
@@ -45,7 +47,7 @@
 
 ## 隔离材料与原生身份链
 
-临时根：`/var/folders/1x/z3s7w5051092g93jh0fylg3r0000gn/T/sg-acceptance-20260917-ei9jipu2`。standard、strict、takeover 各有独立目录。临时材料无凭据；未保存完整聊天。治理参数 operation_inputs 仅在父上下文即时复用，未另存持久参数记录。
+临时根：`<system-temp>/sg-acceptance-20260917-ei9jipu2`。standard、strict、takeover 各有独立目录。临时材料无凭据；未保存完整聊天。治理参数 operation_inputs 仅在父上下文即时复用，未另存持久参数记录。
 
 | 场景 | task_id | task_ref | 同次 spawn 原生返回 task_name = confirm target |
 | --- | --- | --- | --- |
