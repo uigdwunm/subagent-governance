@@ -132,6 +132,56 @@ class V10LifecycleTests(unittest.TestCase):
             )
         self.assert_current_schema()
 
+    def test_terminal_unknown_recording_replay_identity_and_closed(self):
+        operations = ((lifecycle.record_call_result, "result", "delivery_unknown"),
+                      (lifecycle.record_platform_observation, "status", "platform_observation_unknown"),
+                      (lifecycle.record_interrupt_result, "result", "interrupt_unknown"))
+        for operation, field, code in operations:
+            for early in (False, True):
+                for source in ("platform", "notification", "inactive"):
+                    task_id = f"{code}-{early}-{source}"
+                    with self.subTest(task=task_id):
+                        prepared, target = self.bind(task_id)
+                        request = self.identity(prepared, target, **{field: "unknown"})
+                        if early:
+                            operation(self.session_id, request, state_store=self.store, now=103)
+                        if source == "platform":
+                            lifecycle.record_platform_observation(self.session_id,
+                                self.identity(prepared, target, status="completed"), state_store=self.store, now=104)
+                        elif source == "notification":
+                            lifecycle.record_terminal_notification(self.session_id,
+                                {"task_id": task_id, "task_ref": prepared["task_ref"], "sender": target,
+                                 "status": "completed"}, state_store=self.store, now=104)
+                        else:
+                            lifecycle.record_interrupt_result(self.session_id,
+                                self.identity(prepared, target, result="inactive"), state_store=self.store, now=104)
+                        terminal = self.task(task_id)["terminal_fact"]
+                        result = operation(self.session_id, request, state_store=self.store, now=105)
+                        self.assertEqual(result["result"], "already_unknown" if early else "unknown_recorded")
+                        before = self.task(task_id)
+                        self.assertEqual(before["phase"], "terminal")
+                        self.assertEqual(before["terminal_fact"], terminal)
+                        self.assertEqual(before["unknown_facts"][code], {"observed_at": 103 if early else 105})
+                        self.assertEqual(operation(self.session_id, request, state_store=self.store, now=999)["result"],
+                                         "already_unknown")
+                        self.assertEqual(self.task(task_id), before)
+                        for key, wrong in (("task_id", "absent"), ("task_ref", "wrong"), ("target", "/root/wrong")):
+                            with self.assertRaises(StateConflictError):
+                                operation(self.session_id, {**request, key: wrong}, state_store=self.store, now=999)
+                            self.assertEqual(self.task(task_id), before)
+                        lifecycle.close_task(self.session_id, {"task_id": task_id, "task_ref": prepared["task_ref"],
+                            "reason": "done"}, state_store=self.store, now=106)
+                        closed = self.task(task_id)
+                        with self.assertRaises(StateConflictError):
+                            operation(self.session_id, request, state_store=self.store, now=999)
+                        self.assertEqual(self.task(task_id), closed)
+                        for other, other_field, _ in operations:
+                            with self.assertRaises(StateConflictError):
+                                other(self.session_id, self.identity(prepared, target, **{other_field: "unknown"}),
+                                      state_store=self.store, now=999)
+                            self.assertEqual(self.task(task_id), closed)
+                        self.assert_current_schema()
+
     def test_unknown_receipts_allow_later_terminal_and_survive_close(self):
         operations = (
             (lifecycle.record_call_result, "result", "delivery_unknown"),

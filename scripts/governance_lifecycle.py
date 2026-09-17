@@ -179,6 +179,11 @@ def record_platform_observation(
         phase = task.get("phase")
         if phase == "reconcile":
             outcome.update(_reconcile_outcome(task, task_id, task_ref))
+        elif status == "unknown" and phase in {"bound", "terminal"}:
+            outcome.update(
+                result=_record_unknown(task, "platform_observation_unknown", observed_at),
+                task_id=task_id, task_ref=task_ref, target=target,
+            )
         elif phase == "terminal":
             terminal = task.get("terminal_fact", {})
             if status not in PLATFORM_TERMINAL_STATUSES:
@@ -211,11 +216,6 @@ def record_platform_observation(
                 )
         elif phase != "bound":
             raise StateConflictError("platform observation 只接受 bound/terminal task")
-        elif status == "unknown":
-            outcome.update(
-                result=_record_unknown(task, "platform_observation_unknown", observed_at),
-                task_id=task_id, task_ref=task_ref, target=target,
-            )
         elif status in PLATFORM_TERMINAL_STATUSES:
             task["phase"] = "terminal"
             task["platform_observation"] = {
@@ -289,8 +289,8 @@ def record_call_result(
         task = _task_for_identity(state, task_id, task_ref, target)
         if task.get("phase") == "reconcile":
             outcome.update(_reconcile_outcome(task, task_id, task_ref))
-        elif task.get("phase") != "bound":
-            raise StateConflictError("unknown normal call result 只接受 bound task")
+        elif task.get("phase") not in {"bound", "terminal"}:
+            raise StateConflictError("unknown normal call result 只接受 bound/terminal task")
         else:
             outcome.update(
                 result=_record_unknown(task, "delivery_unknown", observed_at),
@@ -387,8 +387,8 @@ def record_interrupt_result(
         if phase == "reconcile":
             outcome.update(_reconcile_outcome(task, task_id, task_ref))
         elif result == "unknown":
-            if phase != "bound":
-                raise StateConflictError("unknown interrupt result 只接受 bound task")
+            if phase not in {"bound", "terminal"}:
+                raise StateConflictError("unknown interrupt result 只接受 bound/terminal task")
             outcome.update(
                 result=_record_unknown(task, "interrupt_unknown", observed_at),
                 task_id=task_id, task_ref=task_ref, target=target,

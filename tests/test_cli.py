@@ -174,6 +174,11 @@ class GovernanceCliTests(unittest.TestCase):
                     },
                     "terminal",
                 ),
+                ("--record-call-result", {**identity, "result": "unknown"}, "already_unknown"),
+                ("--record-platform-observation", {**identity, "status": "unknown"}, "unknown_recorded"),
+                ("--record-platform-observation", {**identity, "status": "unknown"}, "already_unknown"),
+                ("--record-interrupt-result", {**identity, "result": "unknown"}, "unknown_recorded"),
+                ("--record-interrupt-result", {**identity, "result": "unknown"}, "already_unknown"),
                 (
                     "--close-task",
                     {

@@ -27,7 +27,9 @@ business contract digest 包含 context，因为它会改变任务含义；model
 
 prepare 和 claim 各有共享的 5 秒材料验证预算，覆盖 Git 命令、目录条目处理和逐块文件哈希。claim 使用进入 Pre 处理时建立的截止时间，包含已消耗的账本访问时间；取得锁后不重置预算。Git 调用使用剩余时间，批量取得声明范围对象和 status，避免逐路径启动多个命令。
 
-预算耗尽、读取失败、读取过程中观察到不稳定或不支持的材料均不得标记成功。prepare 报错且不创建 capability；claim 保持既有 `material_unavailable`、allow（fail-open）、unconfirmed 语义。已确定的 Git 材料冲突及 prepare/claim 验证记录不一致走 `material_conflict`，不消费 capability。超时不转成“材料缺失”，也不因 strict 改成 deny。
+预算耗尽、读取失败、读取过程中观察到不稳定或不支持的材料均不得标记成功。prepare 报错且不创建 capability；claim 保持既有 `material_unavailable`、allow（fail-open）、unconfirmed 语义。已确定的 Git 材料冲突、prepare 后必需文件或工作区明确缺失／类型不匹配，以及 prepare/claim 验证记录不一致走 `material_conflict`，不消费 capability。超时不转成“材料缺失”，也不因 strict 改成 deny。
+
+材料 Git 查询统一使用 `--no-optional-locks`，避免 `status` 的可选索引刷新写入。路径检查与打开／读取阶段发现的明确缺失或类型不匹配采用相同分类；权限不足、超时和不能确定内容的读取不稳定仍为不可用。首次 prepare 校验失败不创建 capability。打开或读取发生一般 I/O 错误后，在剩余预算内只复核一次路径类型；仅明确缺失或非普通、非符号链接类型判为冲突。复核不跟随新符号链接，权限、I/O 或预算导致不可判定时仍放行，并保留原始 I/O 错误原因。
 
 该预算是尽力而为的执行边界，为 10 秒 Hook 留出余量，不是对操作系统 I/O、账本锁等待、进程启动或平台投递的硬中断保证。阻塞操作返回后才可能检查到超时；本地时钟及 subprocess 超时模拟不证明真实 Hook 超时或投递行为。材料验证不锁定工作区，也不保证整组文件的原子快照或后续执行期间不变。
 

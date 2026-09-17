@@ -11,7 +11,7 @@
 
 ## 未知消息或观察
 
-已绑定且没有冲突的任务，三类 unknown 记为 unknown_facts，phase 保持 bound；首次返回 unknown_recorded，同类重放返回 already_unknown。仅保存 delivery_unknown、platform_observation_unknown、interrupt_unknown 各自首次时间，不保存消息历史。
+已绑定且没有冲突的任务，三类 unknown 在 bound/terminal 均可记为 unknown_facts，phase 和已有 terminal_fact 保持不变；首次返回 unknown_recorded，同类重放返回 already_unknown。仅保存 delivery_unknown、platform_observation_unknown、interrupt_unknown 各自首次时间，不保存消息历史，不能据此确认回执对应哪次调用。terminal 补记仅用于晚到事实，不授权继续业务操作；closed 拒绝新增或重放 unknown，reconcile 不自动解锁。
 
 - 普通消息回执 unknown：用 `--record-call-result` 提交 `{"task_id":"...","task_ref":"...","target":"...","result":"unknown"}`，不自动重发。success/failed 不要求额外治理调用；显式调用只校验且零写。
 - 平台状态无法确认：能归属已绑定 target 时用 `--record-platform-observation` 提交相同 identity 和 `status=unknown`。停止该 target 的自动等待和定时查询，只有新的相关证据或用户明确要求再次核实时才重查。

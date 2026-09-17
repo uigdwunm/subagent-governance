@@ -210,10 +210,15 @@ class StateCorrectnessTests(unittest.TestCase):
         self.confirm(identity)
         self.inactive(identity, 103)
         before = self.task(identity)
-        for status in ('running', 'error', 'unknown'):
+        for status in ('running', 'error'):
             with self.assertRaises(StateConflictError):
                 self.terminal(identity, 'platform', status, 104)
             self.assertEqual(self.task(identity), before)
+        result = self.terminal(identity, 'platform', 'unknown', 104)
+        self.assertEqual(result['result'], 'unknown_recorded')
+        self.assertEqual(self.task(identity)['phase'], 'terminal')
+        self.assertEqual(self.task(identity)['terminal_fact'], before['terminal_fact'])
+        before = self.task(identity)
         for source in ('platform', 'notification'):
             with self.assertRaises(ValueError):
                 self.terminal(identity, source, 'failed', 104)

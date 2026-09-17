@@ -221,6 +221,31 @@ class ContextContractV2Tests(unittest.TestCase):
                     state_store=state,
                 )
 
+    def test_git_verification_does_not_refresh_index(self):
+        import os
+        from scripts.governance_context import verify_context_manifest
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.run(["git", "-C", str(root), *args], check=True,
+                                      capture_output=True, text=True).stdout.strip()
+            git("init", "-q")
+            git("config", "user.name", "Test")
+            git("config", "user.email", "test@example.com")
+            material = root / "input.txt"
+            material.write_text("stable")
+            git("add", "input.txt")
+            git("commit", "-q", "-m", "fixture")
+            manifest = self.verified_contract(root, {"kind": "git_commit", "revision": git("rev-parse", "HEAD")},
+                [{"path": "input.txt", "type": "file"}])["context"]["verified"]
+            metadata = material.stat()
+            os.utime(material, ns=(metadata.st_atime_ns, metadata.st_mtime_ns - 10_000_000_000))
+            index = root / ".git" / "index"
+            before = index.read_bytes()
+            self.assertEqual(verify_context_manifest(manifest)["mode"], "declared")
+            self.assertEqual(index.read_bytes(), before)
+
     def test_git_material_drift_at_claim_is_a_conflict_and_denied(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory) / "workspace"

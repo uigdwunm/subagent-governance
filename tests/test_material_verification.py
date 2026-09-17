@@ -1,4 +1,5 @@
 """Declared materials must be usable, handed off, and checked within one budget."""
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -7,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from scripts import governance_context as context
 from scripts.governance_contracts import contract_from_input
@@ -175,7 +176,7 @@ class MaterialVerificationTests(unittest.TestCase):
         path = self.workspace / 'required.txt'
         metadata = path.stat()
         fields = {name: getattr(metadata, name) for name in
-                  ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')}
+                  ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns', 'st_mode')}
         fields['st_ctime_ns'] += 1
         for platform in ('nt', 'posix'):
             with self.subTest(platform=platform):
@@ -315,6 +316,60 @@ class MaterialVerificationTests(unittest.TestCase):
         manifest = self.manifest('docs', 'directory')
         manifest['required_paths'].append({'path': 'docs/input.txt', 'type': 'file'})
         self.assertEqual(len(context.verify_context_manifest(manifest)['required_paths']), 2)
+
+    def test_digest_io_failure_rechecks_type_once_and_preserves_original_cause(self):
+        import stat
+        path = self.workspace / 'required.txt'
+        for observation, conflict in ((FileNotFoundError('gone'), True),
+                                      (NotADirectoryError('ancestor'), True),
+                                      (SimpleNamespace(st_mode=stat.S_IFDIR), True),
+                                      (SimpleNamespace(st_mode=stat.S_IFSOCK), True),
+                                      (SimpleNamespace(st_mode=stat.S_IFIFO), True),
+                                      (SimpleNamespace(st_mode=stat.S_IFREG), False),
+                                      (SimpleNamespace(st_mode=stat.S_IFLNK), False),
+                                      (PermissionError('denied'), False),
+                                      (OSError('unavailable'), False)):
+            for failure_stage in ('open', 'read'):
+                with self.subTest(observation=observation, stage=failure_stage):
+                    original = OSError('original I/O failure')
+                    with patch.object(Path, 'lstat') as recheck:
+                        if isinstance(observation, Exception):
+                            recheck.side_effect = observation
+                        else:
+                            recheck.return_value = observation
+                        if failure_stage == 'open':
+                            failure = patch.object(context.os, 'open', side_effect=original)
+                        else:
+                            real_fdopen = context.os.fdopen
+                            @contextmanager
+                            def failing_reader(*args, **kwargs):
+                                with real_fdopen(*args, **kwargs) as handle:
+                                    reader = Mock(wraps=handle)
+                                    reader.read.side_effect = original
+                                    yield reader
+                            failure = patch.object(context.os, 'fdopen', side_effect=failing_reader)
+                        with failure:
+                            with self.assertRaises(ContextVerificationError) as caught:
+                                context.sha256_file(path)
+                        self.assertEqual(isinstance(caught.exception, ContextMaterialConflictError), conflict)
+                        self.assertIs(caught.exception.__cause__, original)
+                        recheck.assert_called_once_with()
+
+    def test_digest_failure_recheck_respects_budget_and_keeps_io_cause(self):
+        path = self.workspace / 'required.txt'
+        metadata = path.stat()
+        for budget, expected_checks in (([1, ContextVerificationError('timeout')], 0),
+                                       ([1, 1, ContextVerificationError('timeout')], 1)):
+            with self.subTest(checks=expected_checks):
+                original = OSError('original I/O failure')
+                with patch.object(context.os, 'open', side_effect=original), \
+                        patch.object(Path, 'lstat', return_value=metadata) as recheck, \
+                        patch.object(context, 'remaining_time', side_effect=budget):
+                    with self.assertRaises(ContextVerificationError) as caught:
+                        context.sha256_file(path)
+                self.assertNotIsInstance(caught.exception, ContextMaterialConflictError)
+                self.assertIs(caught.exception.__cause__, original)
+                self.assertEqual(recheck.call_count, expected_checks)
 
     def test_read_permission_failure_is_not_a_material_conflict(self):
         with patch.object(context.os, 'open', side_effect=PermissionError('fixture')):

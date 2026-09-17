@@ -177,7 +177,7 @@ def _file_digest(path: Path, deadline: float, *, git_algorithm: str | None = Non
         with os.fdopen(os.open(path, flags), "rb") as handle:
             before = os.fstat(handle.fileno())
             if not stat.S_ISREG(before.st_mode):
-                raise ContextVerificationError(f"必需上下文不是普通文件：{path}")
+                raise ContextMaterialConflictError(f"必需上下文不是普通文件：{path}")
             digest = hashlib.new(git_algorithm or "sha256")
             if git_algorithm:
                 digest.update(f"blob {before.st_size}\0".encode("ascii"))
@@ -190,6 +190,8 @@ def _file_digest(path: Path, deadline: float, *, git_algorithm: str | None = Non
                 digest.update(chunk)
             after = os.fstat(handle.fileno())
             current = path.stat()
+            if not stat.S_ISREG(current.st_mode):
+                raise ContextMaterialConflictError(f"必需上下文实际类型不再是普通文件：{path}")
             # Windows Python 3.12 stat uses creation time for ctime, while fstat
             # can report change time. Keep the full descriptor-to-descriptor check.
             include_ctime = os.name != "nt"
@@ -197,9 +199,22 @@ def _file_digest(path: Path, deadline: float, *, git_algorithm: str | None = Non
                     or _file_identity(after, include_ctime=include_ctime)
                     != _file_identity(current, include_ctime=include_ctime)):
                 raise ContextVerificationError(f"读取期间必需上下文发生变化，无法完成验证：{path}")
-    except (FileNotFoundError, NotADirectoryError) as exc:
+    except (FileNotFoundError, NotADirectoryError, IsADirectoryError) as exc:
         raise ContextMaterialConflictError(f"必需上下文实际文件缺失：{path}") from exc
     except OSError as exc:
+        # A special file may replace the candidate between stat and open/read.
+        # Recheck once: errno alone does not prove a material conflict. Do not
+        # follow a newly introduced symlink or replace the original I/O cause.
+        try:
+            remaining_time(deadline)
+            current = path.lstat()
+            remaining_time(deadline)
+        except (FileNotFoundError, NotADirectoryError):
+            raise ContextMaterialConflictError(f"必需上下文实际文件缺失：{path}") from exc
+        except (OSError, ContextVerificationError):
+            raise ContextVerificationError(f"必需上下文无法读取：{path}") from exc
+        if not (stat.S_ISREG(current.st_mode) or stat.S_ISLNK(current.st_mode)):
+            raise ContextMaterialConflictError(f"必需上下文实际类型不再是普通文件：{path}") from exc
         raise ContextVerificationError(f"必需上下文无法读取：{path}") from exc
     remaining_time(deadline)
     return digest.hexdigest()
@@ -213,7 +228,7 @@ def run_git(workspace_root: Path, *arguments: str, deadline: float | None = None
     deadline = verification_deadline() if deadline is None else deadline
     try:
         result = subprocess.run(
-            ["git", "--no-replace-objects", "--literal-pathspecs", "-C", str(workspace_root), *arguments],
+            ["git", "--no-optional-locks", "--no-replace-objects", "--literal-pathspecs", "-C", str(workspace_root), *arguments],
             check=True, capture_output=True,
             timeout=remaining_time(deadline),
         )
@@ -306,6 +321,17 @@ def _verify_git(root: Path, baseline: dict[str, Any], paths: list[dict[str, Any]
 
 
 def verify_context_manifest(value: Any, *, deadline: float | None = None) -> dict[str, Any]:
+    # Prepare reports all verification failures without creating a capability.
+    # Claim alone converts confirmed material conflicts to a deny decision.
+    try:
+        return _verify_context_manifest(value, deadline=deadline)
+    except (FileNotFoundError, NotADirectoryError, IsADirectoryError) as exc:
+        raise ContextMaterialConflictError("必需上下文路径缺失或类型不匹配") from exc
+    except OSError as exc:
+        raise ContextVerificationError("必需上下文无法读取") from exc
+
+
+def _verify_context_manifest(value: Any, *, deadline: float | None = None) -> dict[str, Any]:
     errors = validate_context_manifest(value)
     if errors:
         raise ContextVerificationError("；".join(errors))
@@ -315,8 +341,8 @@ def verify_context_manifest(value: Any, *, deadline: float | None = None) -> dic
     deadline = verification_deadline() if deadline is None else deadline
     remaining_time(deadline)
     workspace_root = Path(str(value["workspace_root"])).resolve()
-    if not workspace_root.is_dir():
-        raise ContextVerificationError(f"必需上下文工作区不存在或不是目录：{workspace_root}")
+    if not stat.S_ISDIR(workspace_root.stat().st_mode):
+        raise ContextMaterialConflictError(f"必需上下文工作区不存在或不是目录：{workspace_root}")
     baseline = value["baseline"]
     assert isinstance(baseline, dict)
     baseline_kind = str(baseline["kind"])
@@ -333,10 +359,8 @@ def verify_context_manifest(value: Any, *, deadline: float | None = None) -> dic
                 candidate.relative_to(workspace_root)
             except ValueError as exc:
                 raise ContextVerificationError(f"必需上下文路径逃出工作区：{path_value}") from exc
-            if not candidate.exists():
-                raise ContextVerificationError(f"必需上下文不存在：{path_value}")
-            if not candidate.is_file():
-                raise ContextVerificationError(f"必需上下文不是文件：{path_value}")
+            if not stat.S_ISREG(candidate.stat().st_mode):
+                raise ContextMaterialConflictError(f"必需上下文不是文件：{path_value}")
             verified_paths.append({"path": path_value, "type": expected_type, "sha256": sha256_file(candidate, deadline=deadline)})
         verified_baseline = {"kind": "working_tree", "revision": None}
     result = {"mode": "declared", "workspace_root": str(workspace_root), "baseline": verified_baseline, "required_paths": verified_paths}

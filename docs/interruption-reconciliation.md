@@ -12,7 +12,9 @@ first bind wins。派发结果未知、missing claim、身份或终态冲突仍�
 
 普通消息、平台观察、中断的 unknown 分别记录在 unknown_facts 的 delivery_unknown、platform_observation_unknown、interrupt_unknown 中。对象非空且最多三项，每项只有首次 observed_at；重复同类输入不改时间。它不保存调用历史，也不表示当前 Agent 必然未知。
 
-任务保持 bound。消息或中断回执 unknown 本身不停止原生等待；等待节奏、按 target 静默核对及上下文恢复规则以 [Skill 的等待与通信](../skills/subagent-governance/SKILL.md#等待与通信) 为准。新证据、收尾判断、达到静默核对时点或恢复时丢失等待信息允许一次有目的的只读观察；状态核对本身无法确认时停止该 target 的自动等待及定时查询，不能仅凭时间经过重复查询。停止等待不自动 close 或 interrupt，也不阻止其他独立工作。
+bound/terminal 均接受身份已核实的 unknown 补记，phase 与既有 terminal_fact 保持不变；同类重放返回 already_unknown，不改首次时间。closed 拒绝补记或重放，reconcile 保持既有处置。补记不授权终态后继续业务操作，也不能证明回执对应哪次调用。
+
+任务处于 bound 时，消息或中断回执 unknown 本身不停止原生等待；等待节奏、按 target 静默核对及上下文恢复规则以 [Skill 的等待与通信](../skills/subagent-governance/SKILL.md#等待与通信) 为准。新证据、收尾判断、达到静默核对时点或恢复时丢失等待信息允许一次有目的的只读观察；状态核对本身无法确认时停止该 target 的自动等待及定时查询，不能仅凭时间经过重复查询。停止等待不自动 close 或 interrupt，也不阻止其他独立工作。
 
 后续确定 running/error 更新观察但不建立终态；明确 completed/stopped/interrupted 才进入 terminal。明确 error 需要报告并处置，不继续盲等。unknown_facts 保留，原回执不倒改为成功，不自动重发消息或重试中断。
 

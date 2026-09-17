@@ -1,7 +1,10 @@
 """Fault boundaries: Hook decisions are not platform execution evidence."""
 import copy
+from contextlib import ExitStack
 import io
 import json
+import os
+import socket
 import tempfile
 import unittest
 from pathlib import Path
@@ -158,10 +161,141 @@ class HookFailureTests(unittest.TestCase):
         material.write_text("changed")
         self.check(hook.handle_hook(payload, self.store), "deny", "material_conflict", "unconfirmed")
         material.unlink()
-        self.check(hook.handle_hook(payload, self.store), "allow", "material_unavailable", "unconfirmed")
+        self.check(hook.handle_hook(payload, self.store), "deny", "material_conflict", "unconfirmed")
         material.write_text("baseline")
         with mock.patch.object(dispatch, "verify_context_manifest", side_effect=PermissionError("SECRET")):
             self.check(hook.handle_hook(payload, self.store), "allow", "material_unavailable", "unconfirmed")
+
+    def test_material_missing_type_and_io_boundaries(self):
+        from scripts import governance_context as context
+        from scripts.governance_errors import DispatchPreparationError
+
+        for scenario in ("deleted", "directory", "ancestor_file", "root_deleted", "root_file",
+                         "open_missing", "open_directory", "fstat_directory", "stat_missing",
+                         "permission", "stat_permission", "io_error", "timeout"):
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory) / "workspace"
+                (root / "sub").mkdir(parents=True)
+                material = root / "sub" / "input.txt"
+                material.write_text("baseline")
+                contract = {"profile": "strict", "objective": "material", "scope": ["test"],
+                            "forbidden_scope": ["external writes"], "evidence": ["verification"],
+                            "completion": ["test"], "context": {"verified": {
+                                "mode": "declared", "workspace_root": str(root),
+                                "baseline": {"kind": "working_tree", "revision": None},
+                                "required_paths": [{"path": "sub/input.txt", "type": "file"}]}}}
+                session = "material-" + scenario
+                prepared = protocol.prepare_dispatch(contract, session, native_interface="fork_context",
+                                                     state_store=self.store, now=100)
+                payload = {**self.payload, "session_id": session, "tool_input": prepared["spawn_args"]}
+                with ExitStack() as stack:
+                    if scenario in {"deleted", "directory", "ancestor_file", "root_deleted", "root_file"}:
+                        material.unlink()
+                        if scenario == "directory":
+                            material.mkdir()
+                        elif scenario in {"ancestor_file", "root_deleted", "root_file"}:
+                            material.parent.rmdir()
+                            if scenario == "ancestor_file":
+                                material.parent.write_text("file")
+                            else:
+                                root.rmdir()
+                                if scenario == "root_file":
+                                    root.write_text("file")
+                    elif scenario == "stat_permission":
+                        real_stat = Path.stat
+                        def stat_material(path, *args, **kwargs):
+                            if path == material.resolve():
+                                raise PermissionError("SECRET")
+                            return real_stat(path, *args, **kwargs)
+                        stack.enter_context(mock.patch.object(Path, "stat", stat_material))
+                    elif scenario in {"open_missing", "open_directory", "permission", "io_error"}:
+                        error = {"open_missing": FileNotFoundError, "open_directory": IsADirectoryError,
+                                 "permission": PermissionError, "io_error": OSError}[scenario]
+                        real_open = context.os.open
+                        def open_material(path, *args, **kwargs):
+                            if Path(path) == material.resolve():
+                                raise error("SECRET")
+                            return real_open(path, *args, **kwargs)
+                        stack.enter_context(mock.patch.object(context.os, "open", side_effect=open_material))
+                    elif scenario in {"fstat_directory", "stat_missing"}:
+                        real_open, real_fstat = context.os.open, context.os.fstat
+                        descriptors, calls = set(), []
+                        directory_stat = root.stat()
+                        def open_material(path, *args, **kwargs):
+                            fd = real_open(path, *args, **kwargs)
+                            if Path(path) == material.resolve():
+                                descriptors.add(fd)
+                            return fd
+                        def fstat(fd):
+                            if fd in descriptors:
+                                calls.append(fd)
+                                if scenario == "fstat_directory":
+                                    return directory_stat
+                                if len(calls) == 2:
+                                    material.unlink()
+                            return real_fstat(fd)
+                        stack.enter_context(mock.patch.object(context.os, "open", side_effect=open_material))
+                        stack.enter_context(mock.patch.object(context.os, "fstat", side_effect=fstat))
+                    else:
+                        stack.enter_context(mock.patch.object(context, "VERIFICATION_BUDGET_SECONDS", -1))
+                    unavailable = scenario in {"permission", "stat_permission", "io_error", "timeout"}
+                    self.check(hook.handle_hook(payload, self.store),
+                               "allow" if unavailable else "deny",
+                               "material_unavailable" if unavailable else "material_conflict", "unconfirmed")
+                self.assertEqual(self.store.read(session)["tasks"][prepared["task_id"]]["phase"], "prepared")
+                if scenario == "deleted":
+                    with self.assertRaises(DispatchPreparationError):
+                        protocol.prepare_dispatch(contract, "initial-missing", native_interface="fork_context",
+                                                  state_store=self.store, now=100)
+                    self.assertFalse(self.store._paths("initial-missing")[0].exists())
+
+    @unittest.skipUnless(os.name == "posix" and hasattr(socket, "AF_UNIX"), "requires Unix sockets")
+    def test_socket_replacement_before_stat_and_before_open(self):
+        from scripts import governance_context as context
+
+        for timing in ("before_stat", "before_open", "recheck_permission", "recheck_io"):
+            with self.subTest(timing=timing), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                material = root / "s"
+                material.write_text("baseline")
+                contract = {"objective": "material", "scope": ["test"], "completion": ["test"],
+                            "context": {"verified": {"mode": "declared", "workspace_root": str(root),
+                                "baseline": {"kind": "working_tree", "revision": None},
+                                "required_paths": [{"path": "s", "type": "file"}]}}}
+                session = "socket-" + timing
+                prepared = protocol.prepare_dispatch(contract, session, native_interface="fork_context",
+                                                     state_store=self.store, now=100)
+                payload = {**self.payload, "session_id": session, "tool_input": prepared["spawn_args"]}
+                real_open, real_lstat = context.os.open, Path.lstat
+                attempted = []
+                with socket.socket(socket.AF_UNIX) as endpoint:
+                    def replace():
+                        material.unlink()
+                        endpoint.bind(str(material))
+                    def open_material(path, *args, **kwargs):
+                        if Path(path) == material:
+                            replace()
+                            attempted.append(path)
+                        return real_open(path, *args, **kwargs)
+                    def lstat_material(path, *args, **kwargs):
+                        if path == material and attempted:
+                            if timing == "recheck_permission":
+                                raise PermissionError("SECRET")
+                            if timing == "recheck_io":
+                                raise OSError("SECRET")
+                        return real_lstat(path, *args, **kwargs)
+                    with ExitStack() as stack:
+                        if timing == "before_stat":
+                            replace()
+                        else:
+                            stack.enter_context(mock.patch.object(context.os, "open", side_effect=open_material))
+                            stack.enter_context(mock.patch.object(Path, "lstat", lstat_material))
+                        unavailable = timing.startswith("recheck_")
+                        self.check(hook.handle_hook(payload, self.store), "allow" if unavailable else "deny",
+                                   "material_unavailable" if unavailable else "material_conflict", "unconfirmed")
+                    if timing != "before_stat":
+                        self.assertEqual(len(attempted), 1)
+                self.assertEqual(self.store.read(session)["tasks"][prepared["task_id"]]["phase"], "prepared")
 
     def test_unknown_interface_in_ledger_is_not_provider_conflict(self):
         path, _ = self.store._paths("test-session")

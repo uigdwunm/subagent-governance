@@ -112,6 +112,10 @@ class OperationInputsTests(unittest.TestCase):
         replay = self.invoke('--record-platform-observation',
                              {**observation, 'status': 'completed'})[1]
         self.assertEqual(replay['result'], 'already_terminal')
+        replay = self.invoke('--record-platform-observation',
+                             {**observation, 'status': 'unknown'})[1]
+        self.assertEqual(replay['result'], 'already_unknown')
+        self.assertEqual(set(replay['operation_inputs']), {'--close-task'})
         conflict = self.invoke('--record-platform-observation',
                                {**observation, 'status': 'stopped'})[1]
         self.assertEqual(conflict['result'], 'reconcile')
