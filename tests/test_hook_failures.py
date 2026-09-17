@@ -220,11 +220,12 @@ class HookFailureTests(unittest.TestCase):
                         stack.enter_context(mock.patch.object(context.os, "open", side_effect=open_material))
                     elif scenario in {"fstat_directory", "stat_missing"}:
                         real_open, real_fstat = context.os.open, context.os.fstat
+                        real_stat, resolved_material = Path.stat, material.resolve()
                         descriptors, calls = set(), []
                         directory_stat = root.stat()
                         def open_material(path, *args, **kwargs):
                             fd = real_open(path, *args, **kwargs)
-                            if Path(path) == material.resolve():
+                            if Path(path) == resolved_material:
                                 descriptors.add(fd)
                             return fd
                         def fstat(fd):
@@ -232,11 +233,16 @@ class HookFailureTests(unittest.TestCase):
                                 calls.append(fd)
                                 if scenario == "fstat_directory":
                                     return directory_stat
-                                if len(calls) == 2:
-                                    material.unlink()
                             return real_fstat(fd)
+                        def stat_after_read(path, *args, **kwargs):
+                            # Windows cannot unlink this open file. Inject the
+                            # missing-path result at the same post-read boundary.
+                            if path == resolved_material and scenario == "stat_missing" and len(calls) >= 2:
+                                raise FileNotFoundError("material removed during read")
+                            return real_stat(path, *args, **kwargs)
                         stack.enter_context(mock.patch.object(context.os, "open", side_effect=open_material))
                         stack.enter_context(mock.patch.object(context.os, "fstat", side_effect=fstat))
+                        stack.enter_context(mock.patch.object(Path, "stat", stat_after_read))
                     else:
                         stack.enter_context(mock.patch.object(context, "VERIFICATION_BUDGET_SECONDS", -1))
                     unavailable = scenario in {"permission", "stat_permission", "io_error", "timeout"}
