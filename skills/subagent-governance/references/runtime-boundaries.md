@@ -30,7 +30,7 @@
 `prepared/claimed` 的 capability 还保存规范化完整契约、材料校验元数据和完整生成派发消息 `expected_native_parameters.message`；绑定、派发失败或未知、进入 reconcile 或关闭时移除 capability。prepared 过期只阻止首次 claim，不删除记录；未关闭记录不自动清除，closed 裁剪不是定时删除，也不代表安全擦除或旧账本清理。
 
 - objective 和 context.summary 各最多 8,192 字符；scope、forbidden_scope、completion、evidence 各最多 64 项，每项最多 1,024 字符。
-- context.paths 最多 64 项，每项最多 1,000 字符；verified 沿用最多 64 条 required_paths、每条路径最多 1,000 字符、workspace_root 最多 4,000 字符和原有 baseline 结构。
+- context.paths 最多 64 项，每项最多 1,000 字符，路径不得重复，必须为规范 POSIX 相对路径：不以 `/` 开头，不含反斜杠、控制字符或空／`.`／`..` 路径段。它只传递定位提示，不自动解析基准目录或验证文件；绝对位置及相对路径的基准目录可在 context.summary 中说明。verified 沿用最多 64 条 required_paths、每条路径最多 1,000 字符、workspace_root 最多 4,000 字符和原有 baseline 结构。
 - 快照整体最多 65,536 字节，按 `json.dumps(ensure_ascii=False, sort_keys=True, separators=(",", ":"))` 的 UTF-8 编码计数，不含尾部换行，含键名、标点和转义；这些上限同时适用。标准 JSON Schema 检查结构和字符限制；运行时额外执行机器语义源中的字节预算。
 - 每个 exact Session 最多 512 条任务；新增任务预计落盘超过 3 MiB 时拒绝准入，所有落盘写入硬上限 4 MiB。按实际账本序列化字节计算，包含 prepared 阶段的契约与派发正文副本；不承诺能同时存放 512 条最大契约。
 - 超限拒绝且不覆盖原账本，不自动删减约束或另建正文存储；closed 仍只保留最近 64 条，由真实写操作惰性淘汰。未关闭任务不因容量自动清除。

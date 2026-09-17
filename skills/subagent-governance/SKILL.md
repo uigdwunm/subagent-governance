@@ -33,7 +33,7 @@ TaskContract v2 的最小完整示例：
 - spawn 可提供 model、reasoning_effort。fork_turns 为 none/all 或 1–12 位正整数字符串；先核对可见原生工具说明，再选择 collaboration_turns 或 fork_context，不猜测或混用接口。
 - 用现有字段说明已定设计、自主范围、约束和验证证据；影响执行的边界写进契约，不仅留在父任务历史。边界明确则直接完成实现、验证和本次问题修复；重大设计未决或需改变既定接口、数据库、鉴权、架构边界等才尽早对齐，跨文件本身不触发审批。
 - 普通方案沟通是进度消息；确实无法继续交付、需交还决定时才报告终态，不新增审批阶段或终态后恢复。父任务在已有授权内决定，越界或需用户选择才升级；结构校验不证明交付质量。并行写入需明确修改归属、共享接口、集成责任和必要顺序；父任务验收组合结果。复杂交接按需读 [任务交接示例](references/task-handoff.md)，不复制另一套示例。
-- context.paths 只是定位提示；需机械校验材料才显式填写 context.verified，prepare 和 Pre claim 各验证一次。strict 也不自动扫描，材料校验不提供工作区隔离。声明格式与容量见 [runtime boundaries](references/runtime-boundaries.md)。
+- context.paths 只是定位提示，仅填写规范 POSIX 相对路径，如 `skills/example/SKILL.md`；不填绝对路径、反斜杠或含 `.`、`..`、空路径段的值。需要交接绝对位置或不同工作区的文件时，将完整路径及用途写入 context.summary，可省略 context.paths；相对路径的基准目录不明确时也在 summary 中说明。需机械校验材料才显式填写 context.verified，prepare 和 Pre claim 各验证一次。strict 也不自动扫描，材料校验不提供工作区隔离。声明格式与容量见 [runtime boundaries](references/runtime-boundaries.md)。
 - 除 spawn 外的规范化契约保存为原始验收快照 contract_summary，最多 65,536 UTF-8 字节（含紧凑 JSON 开销），超限拒绝、不截断。只写必要约定，不放凭据、完整聊天、日志或业务结果。
 
 ## 派发与参数复用
