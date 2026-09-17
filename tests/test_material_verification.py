@@ -1,11 +1,11 @@
 """Declared materials must be usable, handed off, and checked within one budget."""
-from contextlib import contextmanager
 import hashlib
 import json
 import os
 import subprocess
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch

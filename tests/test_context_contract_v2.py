@@ -223,6 +223,7 @@ class ContextContractV2Tests(unittest.TestCase):
 
     def test_git_verification_does_not_refresh_index(self):
         import os
+
         from scripts.governance_context import verify_context_manifest
 
         with tempfile.TemporaryDirectory() as directory:

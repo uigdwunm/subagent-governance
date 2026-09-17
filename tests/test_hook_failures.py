@@ -1,12 +1,12 @@
 """Fault boundaries: Hook decisions are not platform execution evidence."""
 import copy
-from contextlib import ExitStack
 import io
 import json
 import os
 import socket
 import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from unittest import mock
 
@@ -203,8 +203,9 @@ class HookFailureTests(unittest.TestCase):
                                     root.write_text("file")
                     elif scenario == "stat_permission":
                         real_stat = Path.stat
+                        resolved_material = material.resolve()
                         def stat_material(path, *args, **kwargs):
-                            if path == material.resolve():
+                            if path == resolved_material:
                                 raise PermissionError("SECRET")
                             return real_stat(path, *args, **kwargs)
                         stack.enter_context(mock.patch.object(Path, "stat", stat_material))
