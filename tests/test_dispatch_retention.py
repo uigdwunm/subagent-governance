@@ -6,8 +6,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts import governance_lifecycle as lifecycle
+from scripts import governance_semantics as semantics
 from scripts import governance_state_store as storage
-from scripts.governance_dispatch import claim_spawn, confirm_dispatch, record_dispatch_result
+from scripts.governance_contracts import contract_from_input
+from scripts.governance_dispatch import (
+    claim_spawn,
+    confirm_dispatch,
+    initial_task_record,
+    record_dispatch_result,
+)
+from scripts.governance_dispatch_identity import build_task_name, select_task_ref
 from scripts.governance_errors import DispatchPreparationError
 from scripts.governance_protocol import prepare_dispatch
 from scripts.governance_state_store import StateStore
@@ -104,6 +112,50 @@ class DispatchRetentionTests(unittest.TestCase):
         )
         self.assertEqual(removed, ('c', 'a'))
         self.assertEqual(set(state['tasks']), {'b', 'open'})
+
+    def fill_task_slots(self):
+        contract = contract_from_input({'objective': 'Retention check', 'scope': ['fixture'],
+                                        'completion': ['retain correct records']})
+
+        def fill(state):
+            refs = {task['task_ref'] for task in state['tasks'].values()}
+            for index in range(semantics.MAX_TASKS_PER_SESSION - len(state['tasks'])):
+                task_id = f'open-slot-{index}'
+                task_ref = select_task_ref(task_id, refs)
+                refs.add(task_ref)
+                state['tasks'][task_id] = initial_task_record(
+                    task_ref, contract, build_task_name('standard', 'retention_check', task_ref),
+                    None, self.tick, native_interface='collaboration_turns',
+                    expires_at=self.tick + semantics.PREPARED_EXPIRY_SECONDS,
+                )
+
+        self.store.update('retention', fill)
+        state = self.store.read('retention')
+        self.assertEqual(len(state['tasks']), semantics.MAX_TASKS_PER_SESSION)
+        self.assertLess(len(self.store._encoded_state(state)), storage.NEW_TASK_SOFT_LIMIT_BYTES)
+        return state
+
+    def test_total_task_limit_evicts_closed_history_below_byte_limit(self):
+        closed = self.prepare()
+        self.failed(closed)
+        before = self.fill_task_slots()
+        prepared = self.prepare()
+        self.assertEqual(prepared['pruned_task_ids'], [closed['task_id']])
+        after = self.store.read('retention')['tasks']
+        self.assertEqual(len(after), semantics.MAX_TASKS_PER_SESSION)
+        self.assertEqual({key: value for key, value in after.items()
+                          if key != prepared['task_id']},
+                         {key: value for key, value in before['tasks'].items()
+                          if key != closed['task_id']})
+
+    def test_total_task_limit_rejects_all_open_without_rewriting_ledger(self):
+        self.fill_task_slots()
+        path, _ = self.store._paths('retention')
+        before = path.read_bytes()
+        with self.assertRaisesRegex(DispatchPreparationError,
+                                    f'tasks 不能超过 {semantics.MAX_TASKS_PER_SESSION} 项'):
+            self.prepare()
+        self.assertEqual(path.read_bytes(), before)
 
     def test_mixed_close_paths_preserve_open_tasks_and_remaining_facts(self):
         protected = {}

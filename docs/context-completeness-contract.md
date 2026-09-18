@@ -39,7 +39,7 @@ state-v12 在单一账本的 `contract_summary` 原样保留规范化 business c
 
 这里的 evidence 是派发时提出的证据／报告要求，不是执行后已经产生的检查结果；报告要求也可位于 completion。快照不证明说明充分或交付合格，不替代父任务对实际结果和后续新增要求的验收。
 
-`prepared/claimed` 的快照与 capability contract 去掉 `spawn` 后的业务部分精确相等，所有阶段验证其 business digest。同时，capability 另存规范化完整契约、材料校验元数据和完整生成派发消息 `expected_native_parameters.message`。绑定、派发失败或未知、进入 reconcile 或关闭时清理 capability，业务快照仍保留，直到 closed 记录被既有保留策略淘汰。prepared 过期不删除记录；未关闭记录不自动清除，closed 在真实写操作中最多保留最新 64 条；新增任务超过 3 MiB 准入线时可提前淘汰最旧完整 closed 记录。淘汰与插入同事务，返回 pruned_task_ids；准入失败不改写原账本。
+`prepared/claimed` 的快照与 capability contract 去掉 `spawn` 后的业务部分精确相等，所有阶段验证其 business digest。同时，capability 另存规范化完整契约、材料校验元数据和完整生成派发消息 `expected_native_parameters.message`。绑定、派发失败或未知、进入 reconcile 或关闭时清理 capability，业务快照仍保留，直到 closed 记录被既有保留策略淘汰。prepared 过期不删除记录；未关闭记录不自动清除，closed 在真实写操作中最多保留最新 64 条；新增任务使总条数超过 512 或超过 3 MiB 准入线时可提前淘汰最旧完整 closed 记录。淘汰与插入同事务，返回 pruned_task_ids；准入失败不改写原账本。
 
 快照是确定性字段投影，不主动采集完整聊天、工具日志、业务结果或材料正文；填入契约的文字仍会保存，不自动脱敏。这些说明对应尚未发布的 state-v12 开发线，不代表稳定 v0.4.0 已具备或部署该实现。
 

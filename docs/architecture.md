@@ -93,7 +93,7 @@ identity 的唯一权威是父 Agent 对当前原生 spawn 返回 exact target �
 - 普通消息 success/failed 不要求额外 CLI；显式 `record-call-result` 仍只校验 exact identity，状态文件字节不变。unknown 只写 `unknown_facts.delivery_unknown`，保持 bound，不保存 message、response 或调用历史。
 - `record-terminal-notification` 要求 task/ref 与 exact sender 同时匹配；保存 status/time，不接收或保存正文。相同 terminal status 重放幂等，不同 status 保留首个 terminal fact 并进入 reconcile。
 - `record-interrupt-result` 保存明确 failed/inactive 机械结果；inactive 建立 terminal fact，unknown 只写 `unknown_facts.interrupt_unknown`，保持 bound。它不依赖 Hook settlement。
-- `close-task` 是父 Agent 显式判断，不自动调用 interrupt。close 后 capability 被收缩，保留 unknown_facts、首个 reconcile 原因及既有事实；closed 不重新开启；ledger 最多保留最新 64 条 closed task，并在真实写操作中惰性裁剪。新增任务超过 3 MiB 准入线时，按关闭时间、创建时间、task_id 升序淘汰最旧完整 closed 记录，直到满足准入线或无 closed 可淘汰。清理与插入同事务，prepare 返回 pruned_task_ids；仍超限则拒绝且不改写原账本。
+- `close-task` 是父 Agent 显式判断，不自动调用 interrupt。close 后 capability 被收缩，保留 unknown_facts、首个 reconcile 原因及既有事实；closed 不重新开启；ledger 最多保留最新 64 条 closed task，并在真实写操作中惰性裁剪。新增任务使总条数超过 512 或超过 3 MiB 准入线时，按关闭时间、创建时间、task_id 升序淘汰最旧完整 closed 记录，直到满足准入线或无 closed 可淘汰。清理与插入同事务，prepare 返回 pruned_task_ids；仍超限则拒绝且不改写原账本。
 
 allowed next action 由 phase 与上述可靠事实派生，不持久化 parent action。所有输入使用关闭字段集合，执行结果正文、transcript 和 child final 不进入 lifecycle facts；原始 context.summary 仅作为验收契约的一部分保留。
 

@@ -18,6 +18,7 @@ try:
     )
     from scripts.governance_semantics import (
         MAX_STATE_BYTES,
+        MAX_TASKS_PER_SESSION,
         NEW_TASK_SOFT_LIMIT_BYTES,
         STATE_FORMAT_VERSION,
     )
@@ -50,6 +51,7 @@ except ModuleNotFoundError:
     )
     from governance_semantics import (
         MAX_STATE_BYTES,
+        MAX_TASKS_PER_SESSION,
         NEW_TASK_SOFT_LIMIT_BYTES,
         STATE_FORMAT_VERSION,
     )
@@ -170,8 +172,11 @@ class StateStore:
             raise StateValidationError("治理状态包含无法序列化的值") from exc
 
     def new_task_exceeds_capacity(self, state: dict[str, Any]) -> bool:
-        """Use the same serialization and soft limit as the final admission check."""
-        return len(self._encoded_state(state)) > NEW_TASK_SOFT_LIMIT_BYTES
+        """Match the final task-count limit and serialized-byte admission limit."""
+        return (
+            len(state["tasks"]) > MAX_TASKS_PER_SESSION
+            or len(self._encoded_state(state)) > NEW_TASK_SOFT_LIMIT_BYTES
+        )
 
     def _write_path(self, path: Path, session_id: str, state: dict[str, Any], *, admission: str) -> None:
         if state.get("session_id") != session_id:

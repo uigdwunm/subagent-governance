@@ -152,7 +152,7 @@ prepared | claimed | bound | terminal | closed | reconcile
 - 核心 runtime 不主动发起网络请求，不包含遥测。
 - 在 state-v12 中，`prepared/claimed` 记录保存完整生成派发消息、规范化任务契约和材料校验元数据。后续阶段转换移除 prepared capability，但保留 `contract_summary`，即除 `spawn` 外的完整业务契约，用于恢复验收依据。
 - runtime 不专门归档外部材料正文、后续普通消息、终态通知正文、业务结果、transcript 或 child final。主动填入契约字段或关闭原因的文字仍会保存；没有自动脱敏。
-- prepared 过期阻止新的 claim，不删除记录。未关闭记录不自动清除；closed 记录在账本写操作中最多保留最新 64 条；新增任务超过 3 MiB 准入线时，还会按关闭时间、创建时间、任务 ID 的升序淘汰最旧完整 closed 记录，并返回 `pruned_task_ids`。淘汰与插入同事务，准入失败不改写原账本；没有定时删除服务。state-v12 不读取、迁移或删除旧账本。
+- prepared 过期阻止新的 claim，不删除记录。未关闭记录不自动清除；closed 记录在账本写操作中最多保留最新 64 条；新增任务使总条数超过 512 或超过 3 MiB 准入线时，还会按关闭时间、创建时间、任务 ID 的升序淘汰最旧完整 closed 记录，并返回 `pruned_task_ids`。淘汰与插入同事务，准入失败不改写原账本；没有定时删除服务。state-v12 不读取、迁移或删除旧账本。
 - 默认 `status/diagnose` 包含目标和关闭原因；精确任务 status 还返回完整业务契约。SessionStart 不注入完整契约。spawn Hook 故障诊断使用固定说明，不能据此承诺所有输出均不含业务文字。
 - 存储位置与输出边界详见[当前架构](docs/architecture.md#存储位置与输出边界)。
 - 状态写入使用有界输入、文件锁、原子替换、权限检查和写后回读。
