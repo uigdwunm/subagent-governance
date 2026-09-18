@@ -17,7 +17,7 @@ The handoff guidance supports a capable parent making key decisions and reviewin
 
 ## Release status
 
-The current stable release is [`v0.5.2`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.2). The Marketplace entry is pinned to the same immutable tag. This release distinguishes progress questions from terminal handoffs, evicts old closed records when new dispatches need capacity, and removes duplicate material from default prepare output. Local checks cover these changes; post-restart platform acceptance and cost comparisons remain pending.
+The current stable release is [`v0.5.3`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.3). The Marketplace entry is pinned to the same immutable tag. This patch extends closed-history eviction to the 512-task limit as well as the byte limit, allowing new dispatches when an old closed record can free a slot. Sessions containing only open tasks still reject admission without changing the ledger. Local checks cover these changes; post-restart platform acceptance and cost comparisons remain pending.
 
 **Upgrade boundary:** state-v12 does not read, migrate, or delete older ledgers. Finish existing governed tasks before upgrading, restart Codex, and use a new session. An empty new summary does not prove older tasks completed. Recent independent macOS validation covers standard identity binding and a strict message-to-final round trip; see the [dated evidence and remaining boundaries](docs/validation/current-only-real-platform-validation.md).
 
@@ -52,10 +52,10 @@ See [governance evidence for native Codex subagents](docs/native-codex-governanc
 
 ## Installation
 
-Install `v0.5.2` with:
+Install `v0.5.3` with:
 
 ```bash
-codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.2
+codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.3
 codex plugin add subagent-governance@subagent-governance
 ```
 

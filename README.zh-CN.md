@@ -17,7 +17,7 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 
 ## 发布状态
 
-当前稳定版为 [`v0.5.2`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.2)，Marketplace 固定到同一不可变标签。本版区分进行中问题与终态交接，在新任务容量不足时淘汰旧 closed 记录，并精简 prepare 默认输出中的重复材料。上述改动已通过本地检查；重启后的真实验收与成本收益评测尚未执行。
+当前稳定版为 [`v0.5.3`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.3)，Marketplace 固定到同一不可变标签。本补丁让 closed 历史淘汰同时考虑 512 条任务上限和字节上限：有可淘汰历史时为新任务腾位，全部未关闭时仍安全拒绝且不改写原账本。上述改动已通过本地检查；重启后的真实验收与成本收益评测尚未执行。
 
 **升级边界：** state-v12 不读取、迁移或删除旧账本。升级前先结束已有受治理任务，随后重启 Codex 并使用新 Session；新摘要为空不证明旧任务已完成。近期独立 macOS 验证覆盖 standard 身份绑定和 strict 消息到最终回复的往返，详见[带日期的证据与未验证边界](docs/validation/current-only-real-platform-validation.md)。
 
@@ -52,10 +52,10 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 
 ## 安装
 
-使用以下命令从 `v0.5.2` 标签添加 Marketplace 并安装插件：
+使用以下命令从 `v0.5.3` 标签添加 Marketplace 并安装插件：
 
 ```bash
-codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.2
+codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.3
 codex plugin add subagent-governance@subagent-governance
 ```
 
