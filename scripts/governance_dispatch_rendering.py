@@ -38,7 +38,12 @@ def render_dispatch_prompt(contract: TaskContract, verification: dict[str, Any] 
     sections.extend([
         ("完成条件", _list(contract.completion)),
         ("验收证据", _list(contract.evidence)),
-        ("终态义务", "完成、阻塞、失败或需要决策时，向父 Agent 发送明确终态通知，说明结果、验证证据和剩余事项。"),
+        ("终态义务", (
+            "普通问题、补充信息请求和方案对齐使用进行中消息，"
+            "不因此宣称本次执行结束；继续不依赖该决定的工作。\n"
+            "完成交付、明确停止，或确实无法继续且需要交还控制时，"
+            "向父 Agent 发送明确终态通知，说明结果、验证证据、剩余事项和所需决定。"
+        )),
     ])
     return "\n\n".join(
         f"【{title}】\n{value}" for title, value in sections if value

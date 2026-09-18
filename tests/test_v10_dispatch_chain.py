@@ -75,6 +75,24 @@ class V10DispatchChainTests(unittest.TestCase):
         )
         return result
 
+    def test_prepared_spawn_message_distinguishes_questions_from_terminal_handoff(self):
+        for interface in ("collaboration_turns", "fork_context"):
+            with self.subTest(native_interface=interface):
+                prepared = protocol.prepare_dispatch(
+                    self.contract(),
+                    f"question-handoff-{interface}",
+                    native_interface=interface,
+                    state_store=self.store,
+                    now=100,
+                )
+                message = prepared["spawn_args"]["message"]
+                self.assertIn("普通问题、补充信息请求和方案对齐使用进行中消息", message)
+                self.assertIn("不因此宣称本次执行结束；继续不依赖该决定的工作", message)
+                self.assertIn("完成交付、明确停止，或确实无法继续且需要交还控制时", message)
+                self.assertIn("向父 Agent 发送明确终态通知", message)
+                self.assertIn("说明结果、验证证据、剩余事项和所需决定", message)
+                self.assertNotIn("完成、阻塞、失败或需要决策时", message)
+
     def test_current_native_schema_and_exact_claim(self):
         prepared = self.prepare()
         args = prepared["spawn_args"]
