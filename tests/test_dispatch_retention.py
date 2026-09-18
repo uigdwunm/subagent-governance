@@ -6,6 +6,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts import governance_lifecycle as lifecycle
+from scripts import governance_state_store as storage
+from scripts.governance_errors import DispatchPreparationError
 from scripts.governance_dispatch import claim_spawn, confirm_dispatch, record_dispatch_result
 from scripts.governance_protocol import prepare_dispatch
 from scripts.governance_state_store import StateStore
@@ -18,10 +20,10 @@ class DispatchRetentionTests(unittest.TestCase):
         self.store = StateStore(Path(directory.name) / 'sessions')
         self.tick = 100
 
-    def prepare(self):
+    def prepare(self, **overrides):
         self.tick += 1
         return prepare_dispatch({'objective': 'Retention check', 'scope': ['fixture'],
-                                 'completion': ['retain correct records']},
+                                 'completion': ['retain correct records'], **overrides},
                                 'retention', native_interface='collaboration_turns',
                                 state_store=self.store, now=self.tick)
 
@@ -40,6 +42,68 @@ class DispatchRetentionTests(unittest.TestCase):
         tasks = self.store.read('retention')['tasks']
         self.assertEqual(set(tasks), set(identities[-64:]))
         self.assertTrue(all(t['phase'] == 'closed' for t in tasks.values()))
+
+    def test_large_closed_history_allows_further_dispatch_before_count_limit(self):
+        closed = {}
+        evicted = []
+        for _ in range(55):
+            prepared = self.prepare(scope=[f'{index}: ' + '界' * 320 for index in range(64)])
+            removed = prepared.get('pruned_task_ids', [])
+            self.assertEqual(removed, list(closed)[:len(removed)])
+            for task_id in removed:
+                evicted.append(task_id)
+                del closed[task_id]
+            tasks = self.store.read('retention')['tasks']
+            self.assertEqual({key: value for key, value in tasks.items()
+                              if key != prepared['task_id']}, closed)
+            self.assertLessEqual(len(self.store._encoded_state(self.store.read('retention'))),
+                                 storage.NEW_TASK_SOFT_LIMIT_BYTES)
+            self.failed(prepared)
+            closed[prepared['task_id']] = self.store.read('retention')['tasks'][prepared['task_id']]
+        self.assertTrue(evicted, 'Byte pressure must prune closed records before 64 tasks')
+        self.assertLess(len(closed), 64)
+
+    def test_capacity_rejection_preserves_open_tasks_and_closed_history_on_disk(self):
+        closed = self.prepare()
+        self.failed(closed)
+        self.prepare(context={'summary': 'independent open work'})
+        path, _ = self.store._paths('retention')
+        before = path.read_bytes()
+        # Even removing all closed records cannot fit the new prepared record.
+        with patch.object(storage, 'NEW_TASK_SOFT_LIMIT_BYTES', len(before)):
+            with self.assertRaises(DispatchPreparationError):
+                self.prepare(context={'summary': 'large new work ' * 100})
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_capacity_pruning_preserves_open_task_and_whole_surviving_records(self):
+        for _ in range(3):
+            self.failed(self.prepare())
+        opened = self.prepare()
+        before = self.store.read('retention')
+        with patch.object(storage, 'NEW_TASK_SOFT_LIMIT_BYTES',
+                          len(self.store._encoded_state(before))):
+            prepared = self.prepare()
+        removed = prepared['pruned_task_ids']
+        self.assertTrue(removed)
+        self.assertNotIn(opened['task_id'], removed)
+        after = self.store.read('retention')['tasks']
+        self.assertEqual({key: value for key, value in after.items()
+                          if key != prepared['task_id']},
+                         {key: value for key, value in before['tasks'].items()
+                          if key not in removed})
+
+    def test_capacity_pruning_ties_use_created_at_then_task_id(self):
+        state = {'tasks': {
+            'b': {'phase': 'closed', 'closed_at': 10, 'created_at': 2},
+            'a': {'phase': 'closed', 'closed_at': 10, 'created_at': 2},
+            'c': {'phase': 'closed', 'closed_at': 10, 'created_at': 1},
+            'open': {'phase': 'bound'},
+        }}
+        removed = lifecycle.prune_closed_tasks(
+            state, exceeds_capacity=lambda: len(state['tasks']) > 2,
+        )
+        self.assertEqual(removed, ('c', 'a'))
+        self.assertEqual(set(state['tasks']), {'b', 'open'})
 
     def test_mixed_close_paths_preserve_open_tasks_and_remaining_facts(self):
         protected = {}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import time
-from typing import Any
+from typing import Any, Callable
 
 try:
     from scripts.governance_errors import StateConflictError
@@ -128,20 +128,23 @@ def _record_unknown(task: dict[str, Any], code: str, observed_at: int) -> str:
     return "unknown_recorded"
 
 
-def prune_closed_tasks(state: dict[str, Any]) -> tuple[str, ...]:
-    """Keep the newest fixed number of closed records during a real write."""
+def prune_closed_tasks(
+    state: dict[str, Any], *, exceeds_capacity: Callable[[], bool] | None = None,
+) -> tuple[str, ...]:
+    """Prune oldest whole closed records for count and optional admission pressure."""
     closed = [
         (task.get("closed_at", -1), task.get("created_at", -1), task_id)
         for task_id, task in state["tasks"].items()
         if isinstance(task, dict) and task.get("phase") == "closed"
     ]
-    excess = len(closed) - CLOSED_TASK_RETENTION
-    if excess <= 0:
-        return ()
-    removed = tuple(item[2] for item in sorted(closed)[:excess])
-    for task_id in removed:
+    excess = max(0, len(closed) - CLOSED_TASK_RETENTION)
+    removed = []
+    for index, (_, _, task_id) in enumerate(sorted(closed)):
+        if index >= excess and (exceeds_capacity is None or not exceeds_capacity()):
+            break
         del state["tasks"][task_id]
-    return removed
+        removed.append(task_id)
+    return tuple(removed)
 
 
 def _reconcile_outcome(

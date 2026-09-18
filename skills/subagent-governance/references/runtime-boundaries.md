@@ -19,7 +19,7 @@
 - normal message success/failed 不要求额外 CLI；显式调用仍只校验 exact identity 且零写入。unknown 写 unknown_facts.delivery_unknown，不自动重发、不保存正文或调用历史。
 - terminal notification 保存 exact sender 对应的 status/time，不接收正文。interrupt 只保存明确 failed/inactive 机械结果；unknown 写 unknown_facts.interrupt_unknown，保持 bound。
 - unknown_facts 仅含三类首次时间，最多三项；与 phase 分开呈现，不证明当前状态未知，也不证明旧调用成功。身份／终态冲突及派发未知仍 reconcile，首个阻断原因保留。
-- parent close 保留 unknown_facts、首个 reconcile 原因及既有事实；closed 不重新开启。parent close 是显式写入，不调用原生 interrupt。closed task 固定保留最新 64 条，只由后续 ledger 写操作惰性裁剪。
+- parent close 保留 unknown_facts、首个 reconcile 原因及既有事实；closed 不重新开启。parent close 是显式写入，不调用原生 interrupt。closed task 最多保留最新 64 条，只由真实 ledger 写操作惰性裁剪；新增任务有容量压力时可提前淘汰最旧完整 closed 记录。
 
 新 namespace 不恢复旧账本，新摘要为空不代表旧任务已完成。diagnose issues=[] 只表示账本可读且结构有效。
 
@@ -32,8 +32,8 @@
 - objective 和 context.summary 各最多 8,192 字符；scope、forbidden_scope、completion、evidence 各最多 64 项，每项最多 1,024 字符。
 - context.paths 最多 64 项，每项最多 1,000 字符，路径不得重复，必须为规范 POSIX 相对路径：不以 `/` 开头，不含反斜杠、控制字符或空／`.`／`..` 路径段。它只传递定位提示，不自动解析基准目录或验证文件；绝对位置及相对路径的基准目录可在 context.summary 中说明。verified 沿用最多 64 条 required_paths、每条路径最多 1,000 字符、workspace_root 最多 4,000 字符和原有 baseline 结构。
 - 快照整体最多 65,536 字节，按 `json.dumps(ensure_ascii=False, sort_keys=True, separators=(",", ":"))` 的 UTF-8 编码计数，不含尾部换行，含键名、标点和转义；这些上限同时适用。标准 JSON Schema 检查结构和字符限制；运行时额外执行机器语义源中的字节预算。
-- 每个 exact Session 最多 512 条任务；新增任务预计落盘超过 3 MiB 时拒绝准入，所有落盘写入硬上限 4 MiB。按实际账本序列化字节计算，包含 prepared 阶段的契约与派发正文副本；不承诺能同时存放 512 条最大契约。
-- 超限拒绝且不覆盖原账本，不自动删减约束或另建正文存储；closed 仍只保留最近 64 条，由真实写操作惰性淘汰。未关闭任务不因容量自动清除。
+- 每个 exact Session 最多 512 条任务；新增任务预计落盘超过 3 MiB 时，先淘汰最旧完整 closed 记录；仍超限才拒绝准入，所有落盘写入硬上限 4 MiB。按实际账本序列化字节计算，包含 prepared 阶段的契约与派发正文副本；不承诺能同时存放 512 条最大契约。
+- 超限拒绝且不覆盖原账本，不自动删减约束或另建正文存储；closed 最多保留最近 64 条，容量压力下按 closed_at、created_at、task_id 升序提前淘汰完整记录。清理和新任务插入在同一事务内完成，prepare 返回 pruned_task_ids；准入失败不持久化清理。未关闭任务不因容量自动清除。
 
 精确 `--status --task-id ... --task-ref ... --session ...` 返回单个任务及快照，无锁零写。默认 status/diagnose 包含目标、关闭原因和生命周期事实；SessionStart 不展开目标、关闭原因或完整契约，仅注入权威 Session/CLI 信息、未关闭任务状态及按需读取方法。diagnose 还返回数据根路径及可能的有界读取错误；这些输出没有自动脱敏。恢复不访问材料文件，也不保留原 prepared 校验产生的文件哈希；`context.verified` 保留的是材料声明，不保证之后的文件存在或内容不变。
 

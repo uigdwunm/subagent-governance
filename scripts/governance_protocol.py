@@ -73,7 +73,6 @@ def prepare_dispatch(
     result: dict[str, Any] = {}
 
     def insert(state: dict[str, Any]) -> None:
-        prune_closed_tasks(state)
         occupied_refs = {
             task["task_ref"] for task in state["tasks"].values() if isinstance(task, dict)
         }
@@ -98,9 +97,13 @@ def prepare_dispatch(
             expires_at=created_at + PREPARED_EXPIRY_SECONDS,
         )
         state["tasks"][task_id] = record
+        pruned_task_ids = prune_closed_tasks(
+            state, exceeds_capacity=lambda: store.new_task_exceeds_capacity(state),
+        )
         native = spawn_args(contract, task_name, verification, native_interface=native_interface)
         result.update(
             task_id=task_id,
+            pruned_task_ids=list(pruned_task_ids),
             task_ref=task_ref,
             native_interface=native_interface,
             task_name=task_name,

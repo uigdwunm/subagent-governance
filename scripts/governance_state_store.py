@@ -169,6 +169,10 @@ class StateStore:
         except (TypeError, ValueError) as exc:
             raise StateValidationError("治理状态包含无法序列化的值") from exc
 
+    def new_task_exceeds_capacity(self, state: dict[str, Any]) -> bool:
+        """Use the same serialization and soft limit as the final admission check."""
+        return len(self._encoded_state(state)) > NEW_TASK_SOFT_LIMIT_BYTES
+
     def _write_path(self, path: Path, session_id: str, state: dict[str, Any], *, admission: str) -> None:
         if state.get("session_id") != session_id:
             raise StateValidationError("治理状态 session_id 与写入目标不匹配")
