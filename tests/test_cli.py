@@ -93,6 +93,79 @@ class GovernanceCliTests(unittest.TestCase):
             self.assertEqual(json.loads(output)["tasks"], [])
             self.assertFalse(root.exists())
 
+    def test_prepare_output_modes_preserve_native_arguments_and_ledger(self):
+        from scripts.governance_protocol import prepare_dispatch
+        from scripts.governance_state_store import StateStore
+
+        contract = {'objective': '实现局部修复', 'scope': ['只修改目标函数'],
+                    'completion': ['回归测试通过'],
+                    'context': {'summary': '必要背景与接口约束。' * 100}}
+        ledgers = []
+        outputs = []
+        for detailed in (False, True):
+            with self.subTest(detailed=detailed), tempfile.TemporaryDirectory() as directory:
+                full_results = []
+
+                def prepare(*args, **kwargs):
+                    result = prepare_dispatch(*args, **kwargs, now=100,
+                                              task_id_factory=lambda: 'cli-output-task')
+                    full_results.append(result)
+                    return result
+
+                arguments = ['--prepare-dispatch', '--native-interface', 'collaboration_turns',
+                             '--session', 'output-session', '--data-root', directory]
+                if detailed:
+                    arguments.append('--full-output')
+                with mock.patch.object(governance_cli, 'prepare_dispatch', side_effect=prepare):
+                    code, output, error = self.invoke(arguments, json.dumps(contract).encode())
+                self.assertEqual((code, error), (0, ''))
+                actual = json.loads(output)
+                full = full_results[0]
+                self.assertIn('contract', full)
+                self.assertIn('dispatch_prompt', full)
+                expected = full if detailed else {
+                    key: value for key, value in full.items()
+                    if key not in {'contract', 'dispatch_prompt'}
+                }
+                self.assertEqual(actual, expected)
+                state = StateStore(Path(directory) / 'sessions').read('output-session')
+                capability = state['tasks'][actual['task_id']]['prepared']
+                self.assertEqual(capability['contract'], full['contract'])
+                self.assertEqual(capability['expected_native_parameters']['message'],
+                                 actual['spawn_args']['message'])
+                ledgers.append(state)
+                outputs.append(output)
+        self.assertEqual(ledgers[0], ledgers[1])
+        self.assertLess(len(outputs[0].encode()), len(outputs[1].encode()))
+
+    def test_compact_prepare_preserves_warning_and_eviction_report(self):
+        result = {'contract': {'objective': 'full'}, 'dispatch_prompt': 'full message',
+                  'spawn_args': {'message': 'full message'},
+                  'warning': 'exact committed readback', 'pruned_task_ids': ['old-task']}
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(governance_cli, 'prepare_dispatch', return_value=result):
+                code, output, error = self.invoke(
+                    ['--prepare-dispatch', '--native-interface', 'collaboration_turns',
+                     '--session', 'output-session', '--data-root', directory], b'{}')
+        self.assertEqual((code, error), (0, ''))
+        self.assertEqual(json.loads(output), {
+            'spawn_args': result['spawn_args'], 'warning': result['warning'],
+            'pruned_task_ids': result['pruned_task_ids'],
+        })
+        self.assertIn('contract', result)
+
+    def test_full_output_requires_prepare_before_reading_or_creating_state(self):
+        for command in ([], ['--status'], ['--confirm-dispatch']):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory) / 'missing'
+                code, output, error = self.invoke([
+                    *command, '--full-output', '--session', 'output-session',
+                    '--data-root', str(root),
+                ])
+                self.assertEqual((code, output), (2, ''))
+                self.assertIn('--full-output', error)
+                self.assertFalse(root.exists())
+
     def test_prepare_requires_interface_before_state_creation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

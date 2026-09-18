@@ -63,6 +63,7 @@ def _parser() -> NonExitingArgumentParser:
     modes.add_argument("--diagnose", action="store_true")
     parser.add_argument("--session")
     parser.add_argument("--native-interface")
+    parser.add_argument("--full-output", action="store_true")
     parser.add_argument("--task-id")
     parser.add_argument("--task-ref")
     parser.add_argument("--data-root", type=Path)
@@ -122,6 +123,9 @@ def main(
     if unknown:
         print(f"unsupported arguments: {unknown}", file=stderr)
         return 2
+    if args.full_output and not args.prepare_dispatch:
+        print("--full-output 只可配合 --prepare-dispatch 使用", file=stderr)
+        return 2
     selected = any((
         args.prepare_dispatch, args.confirm_dispatch, args.record_dispatch_result,
         args.record_platform_observation, args.record_call_result,
@@ -175,6 +179,9 @@ def main(
     except Exception as exc:
         print(f"operation failed: {exc}", file=stderr)
         return 1
+    if args.prepare_dispatch and not args.full_output:
+        result = {key: value for key, value in result.items()
+                  if key not in {"contract", "dispatch_prompt"}}
     _emit(stdout, result)
     return 0
 

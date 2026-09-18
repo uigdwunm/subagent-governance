@@ -23,6 +23,12 @@
 
 新 namespace 不恢复旧账本，新摘要为空不代表旧任务已完成。diagnose issues=[] 只表示账本可读且结构有效。
 
+## prepare 输出
+
+`--prepare-dispatch` 默认只省略重复的 `contract` 和 `dispatch_prompt`，保留完整 `spawn_args`、任务身份、`operation_inputs`、`user_message`、`pruned_task_ids` 及可能的警告。内部返回对象和落盘契约不受输出精简影响。
+
+`--full-output` 仅可配合 `--prepare-dispatch` 使用，在本次 prepare 返回中包含上述完整字段。不要为查看已有任务而再次 prepare；恢复原始验收契约使用带精确 `--task-id`、`--task-ref` 的 `--status`。
+
 ## 原始验收快照与容量
 
 `contract_summary` 是规范化 TaskContract 去掉 `spawn` 后的精确结构化快照：`profile`、`objective`、`scope`、`forbidden_scope`、`completion`、`evidence` 和完整 `context`（summary、paths、verified）。它不重新概括、排序列表或截断约束，不主动采集实际业务结果。prepared/claimed 时与 capability contract 去掉 spawn 后的业务部分精确一致；所有阶段校验其 business digest，跨绑定、失败、对账、终态和关闭保留。digest 只校验一致性，不证明业务完成或防止同用户进程篡改。
