@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 from scripts import governance_lifecycle as lifecycle
 from scripts import governance_state_store as storage
-from scripts.governance_errors import DispatchPreparationError
 from scripts.governance_dispatch import claim_spawn, confirm_dispatch, record_dispatch_result
+from scripts.governance_errors import DispatchPreparationError
 from scripts.governance_protocol import prepare_dispatch
 from scripts.governance_state_store import StateStore
 
