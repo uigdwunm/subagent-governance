@@ -48,11 +48,12 @@
     }
   },
   "registered_events_review": {
-    "checked_date": "2026-09-16",
+    "checked_date": "2026-09-20",
     "source_url": "https://learn.chatgpt.com/docs/hooks",
     "events": [
       "SessionStart",
-      "PreToolUse"
+      "PreToolUse",
+      "SubagentStart"
     ],
     "scope": "Documentation review only; not client-version or real-delivery evidence. Historical common/events field inventory above is not a runtime validator.",
     "runtime_required_for_claim": {
@@ -62,6 +63,7 @@
     },
     "output_notes": {
       "PreToolUse": "hookSpecificOutput permissionDecision; systemMessage allowed; continue unsupported",
+      "SubagentStart": "hookSpecificOutput hookEventName=SubagentStart and additionalContext; authority only, no ledger summary",
       "outer_fallback": "systemMessage only, exit 0; event may be unknown after parse failure"
     },
     "extensions": "Unknown envelope keys do not establish identity; unknown native input keys remain unverifiable."

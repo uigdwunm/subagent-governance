@@ -106,13 +106,14 @@ reconcile 只用于 dispatch_result_unknown、dispatch_claim_missing、dispatch_
 Hook manifest 当前只注册：
 
 - native spawn 的 PreToolUse matcher；unmanaged task name 在 StateStore 构造前 inert fail-open，governed spawn 验证 exact prepared facts 并原子 claim；
+- read-only SubagentStart 注入真实 Hook 的 Session/同版本 CLI 和职责边界，不读取共享账本；子 Agent Hook 使用父会话 ID，不以 agent_id/thread_id 替代。共享账本没有派发者级访问隔离，记录可见不构成接管授权。
 - read-only SessionStart 始终注入 Hook stdin 提供的当前权威 exact session ID 与当前已安装 CLI entrypoint，并 best-effort 读取当前 exact Session 的未关闭摘要。
 
 Hook router 只接受机器语义源列出的原生 spawn 精确名称。`collaboration_turns` 通过生成的 task_name 定位；`fork_context` 通过可见消息标记定位。claim 校验 task_name、fork_turns、model、reasoning_effort 和声明材料，不逐字匹配平台可能重写的消息正文。存在可见消息标记时，它必须与 task_name 一致。未知形状或不可验证输入 fail-open，不声称校验通过；明确不一致仍拒绝。claim 区分本次未尝试、未确认、结果不确定和已确认；写入报错只有精确回读匹配时才确认。故障分类与证据边界见 [运行时契约](../skills/subagent-governance/references/runtime-boundaries.md#hook-故障分类与证据契约)。父 Agent 必须原样提交 prepare 返回的 spawn_args；插件不宣称在 Pre 边界独立证明实际委派正文。
 
 不存在 PostToolUse、Stop、SessionEnd 或 communication/followup/interrupt PreToolUse。
 
-SessionStart、`status` 和 `diagnose` 使用无锁只读 reader；缺失目录时不创建目录、lock、临时文件或空状态，不 cleanup、rebuild、migrate、reconcile、自动关闭、自动重试、扫描其他 Session 或读取外部材料正文。治理命令必须使用 SessionStart 注入的已安装 CLI entrypoint，确保与 Hook 解析到同一插件数据根；工作区相对脚本和其他 cache 版本都不是 authority。`<codex_delegation><source_thread_id>` 只表示来源任务，不得替代当前 Hook 的 session ID。
+SessionStart、`status` 和 `diagnose` 使用无锁只读 reader；缺失目录时不创建目录、lock、临时文件或空状态，不 cleanup、rebuild、migrate、reconcile、自动关闭、自动重试、扫描其他 Session 或读取外部材料正文。治理命令必须使用 SessionStart 或 SubagentStart Hook 注入的已安装 CLI entrypoint，确保与 Hook 解析到同一插件数据根；工作区相对脚本和其他 cache 版本都不是 authority。`<codex_delegation><source_thread_id>` 只表示来源任务，不得替代当前 Hook 的 session ID。
 
 默认 status/diagnose 和 SessionStart 仍为轻量 projection；`--status --task-id <task_id> --task-ref <task_ref>` 在 exact Session 内精确选取单条任务，并额外返回完整 contract_summary。选择参数缺一、身份不匹配或记录已淘汰均明确失败。SessionStart 只提示按需读取，不自动注入完整契约；读取不证明交付合格，不重读 verified 材料。
 
@@ -143,7 +144,7 @@ wait 不持久化。business resume、managed followup、多 attempt、复杂 re
 - `scripts/governance_dispatch.py`：claim/confirm/dispatch-result transitions。
 - `scripts/governance_lifecycle.py`：observation/call/terminal/interrupt/close transitions 与 closed retention。
 - `scripts/governance_diagnostics.py`：status/diagnose 的无锁只读 projection。
-- `scripts/governance_hook.py`：spawn Pre 与 read-only SessionStart router。
+- `scripts/governance_hook.py`：spawn Pre 与 read-only SessionStart/SubagentStart router。
 - `scripts/governance_cli.py`：薄 CLI transport。
 - `scripts/subagent_governance.py`：稳定 executable facade。
 

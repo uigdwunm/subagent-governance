@@ -141,7 +141,9 @@ Skill 会生成契约、说明派发信息、把生成参数交给原生 `spawn_
 prepared | claimed | bound | terminal | closed | reconcile
 ```
 
-当前 Session identity 和治理 CLI entrypoint 只来自同一次 SessionStart Hook 注入。父 Agent 原样提交生成的 spawn 参数，读取本次原生返回的 exact target，并立即确认。调用者提交的短任务名、时间邻近、`list_agents`、transcript、summary 或 child final 都不能建立身份。`collaboration_turns` 机械返回的完整 canonical `task_name` 是精确目标；仅在所选原生接口提供 `agent_id` 时使用该字段。返回值必须原样保留。
+SubagentStart 只注入权威身份和职责边界，不展开共享账本；子 Agent Hook 使用父会话 ID。共享账本没有派发者级访问隔离，可见记录不代表获得接管授权。隔离嵌套派发与中断收尾仍待部署、重启后的新任务实测。
+
+当前 Session identity 和治理 CLI entrypoint 只来自同一次 SessionStart 或 SubagentStart Hook 注入。父 Agent 原样提交生成的 spawn 参数，读取本次原生返回的 exact target，并立即确认。调用者提交的短任务名、时间邻近、`list_agents`、transcript、summary 或 child final 都不能建立身份。`collaboration_turns` 机械返回的完整 canonical `task_name` 是精确目标；仅在所选原生接口提供 `agent_id` 时使用该字段。返回值必须原样保留。
 
 绑定后，父 Agent 可以记录精确平台观察、普通调用结果、终态通知、中断结果和显式关闭决定。相同事实重放幂等；冲突或未知事实保持可见，而不是触发自动重试或猜测终态。
 

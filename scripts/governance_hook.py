@@ -1,4 +1,4 @@
-"""Minimal Hook router: governed spawn Pre claim and read-only SessionStart."""
+"""Minimal Hook router: governed spawn Pre claim and read-only startup context."""
 
 from __future__ import annotations
 
@@ -119,7 +119,7 @@ def _pre(payload: dict[str, Any], state_store: Any | None) -> dict[str, Any] | N
     return _allow(diagnostic(outcome["result"], stage="claim", claim="confirmed", action="claimed"))
 
 
-def _session_start(payload: dict[str, Any]) -> dict[str, Any] | None:
+def _start_context(payload: dict[str, Any]) -> dict[str, Any] | None:
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id.strip():
         return None
@@ -133,6 +133,26 @@ def _session_start(payload: dict[str, Any]) -> dict[str, Any] | None:
         "恢复验收依据时另加 --task-id <task_id> --task-ref <task_ref> 读取该任务原始契约。"
         "不得自动重派或推断 identity。",
     ]
+    event = payload["hook_event_name"]
+    if event == "SubagentStart":
+        lines.append(
+            "子 Agent Hook 的 session_id 使用父会话 ID；共享 Session 不代表共享任务职责。"
+            "只治理本任务获授权派发并取得精确回执的子任务，或明确交接且身份与契约齐全的任务；"
+            "不得因账本可见而接管父级或兄弟任务。"
+            "agent_id/thread_id 不是 Session，也不替代本次原生 spawn 回执。"
+        )
+    else:
+        lines.extend(_session_summary(session_id))
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": event,
+            "additionalContext": "\n".join(lines)[:SESSION_SUMMARY_CONTEXT_LIMIT],
+        }
+    }
+
+
+def _session_summary(session_id: str) -> list[str]:
+    lines: list[str] = []
     root = data_root_path(Path(__file__)) / "sessions"
     try:
         state = read_ledger_readonly(root, session_id)
@@ -168,20 +188,15 @@ def _session_start(payload: dict[str, Any]) -> dict[str, Any] | None:
                 )
         else:
             lines.append("当前 exact Session 没有可读的未关闭治理任务。")
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "SessionStart",
-            "additionalContext": "\n".join(lines)[:SESSION_SUMMARY_CONTEXT_LIMIT],
-        }
-    }
+    return lines
 
 
 def handle_hook(payload: dict[str, Any], state_store: Any | None = None) -> dict[str, Any] | None:
     event = payload.get("hook_event_name")
     if event == "PreToolUse":
         return _pre(payload, state_store)
-    if event == "SessionStart":
-        return _session_start(payload)
+    if event in ("SessionStart", "SubagentStart"):
+        return _start_context(payload)
     return None
 
 

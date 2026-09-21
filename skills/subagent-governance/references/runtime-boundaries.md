@@ -1,6 +1,6 @@
 # Runtime boundaries
 
-以下描述 v0.5.0 的 state-v12 运行边界；本地测试与真实平台验收分别记录，不把局部通过视为所有平台行为已验证。
+以下描述当前开发源码的 state-v12 运行边界；本地测试与真实平台验收分别记录，不把局部通过视为所有平台行为已验证。
 
 - 唯一当前持久格式是 `state_format_version=12`、namespace `state-v12`。v11 及更早状态不读取、不迁移、不修复、不写回、不删除。
 - 每个 exact Session 只有一个 ledger，根字段精确为 `state_format_version`、`session_id`、`tasks`。
@@ -9,10 +9,11 @@
 - prepared capability、claim 和 lifecycle facts 使用同一文件锁与原子写入边界；没有 PreparedContractStore、agents index、Post receipt/index、pending action、tombstone 或 Group。
 - identity 的唯一来源是父 Agent 对当前原生 spawn 返回 exact target 的显式 confirm。first bind wins；相同 confirm 幂等；冲突进入 reconcile。
 - unmanaged spawn 在构造 StateStore 前判定并 inert fail-open。
-- 当前 Hook 只注册 spawn PreToolUse 和 read-only SessionStart；SessionStart 始终注入 Hook stdin 的当前权威 exact session ID 与当前已安装 CLI entrypoint，状态摘要 best-effort；没有 PostToolUse、Stop、SessionEnd 或通信类 PreToolUse。
-- status、diagnose 和 SessionStart 不创建目录、lock、临时文件或空状态，不 cleanup、rebuild、迁移、自动重试或扫描业务正文。
-- 所有治理 CLI 操作必须使用 SessionStart 注入的已安装 entrypoint，使其与 Hook 解析到同一插件数据根；禁止改用工作区相对脚本、其他 cache 版本或猜测路径。
-- `<codex_delegation><source_thread_id>` 只表示来源任务，不是当前 session ID；缺失任一 SessionStart 权威值时停止 governed dispatch，不从父任务、列表或其他 ID 猜测。
+- 当前 Hook 只注册 spawn PreToolUse、read-only SessionStart 和 SubagentStart；SessionStart 始终注入 Hook stdin 的当前权威 exact session ID 与当前已安装 CLI entrypoint，状态摘要 best-effort；没有 PostToolUse、Stop、SessionEnd 或通信类 PreToolUse。
+- SubagentStart 只注入真实 Hook 的 Session/同版本 CLI 和任务职责边界，不读取共享账本。子 Agent Hook 使用父会话 ID；agent_id/thread_id 不替代 Session 或原生派发回执。共享账本没有派发者级访问隔离，可见记录不构成接管父级或兄弟任务的授权。
+- status、diagnose、SessionStart 和 SubagentStart 不创建目录、lock、临时文件或空状态，不 cleanup、rebuild、迁移、自动重试或扫描业务正文。
+- 所有治理 CLI 操作必须使用 SessionStart 或 SubagentStart Hook 注入的已安装 entrypoint，使其与 Hook 解析到同一插件数据根；禁止改用工作区相对脚本、其他 cache 版本或猜测路径。
+- `<codex_delegation><source_thread_id>` 只表示来源任务，不是当前 session ID；缺失任一启动 Hook 权威值时停止 governed dispatch，不从父任务、列表或其他 ID 猜测。
 - transcript、summary、child final、时间邻近、调用前的短 task_name 和 `list_agents` 都不是绑定身份的 correctness authority；同次原生返回的完整 canonical task_name 可以作为 exact target。
 - exact platform observation 只作用于已 bound target；unknown 写 unknown_facts，保持 bound，后续确定终态可正常登记。
 - 等待节奏由 Skill 的“等待与通信”定义：短次等待、按 target 静默时间核对、恢复时补核对。时间信息只保留在父任务上下文；wait 不持久化，不增加状态字段或 attempt。Hook 不执行定时巡检，status/diagnose 不读取原生平台状态；超时和静默不是终态证据。
@@ -22,6 +23,8 @@
 - parent close 保留 unknown_facts、首个 reconcile 原因及既有事实；closed 不重新开启。parent close 是显式写入，不调用原生 interrupt。closed task 最多保留最新 64 条，只由真实 ledger 写操作惰性裁剪；新增任务有容量压力时可提前淘汰最旧完整 closed 记录。
 
 新 namespace 不恢复旧账本，新摘要为空不代表旧任务已完成。diagnose issues=[] 只表示账本可读且结构有效。
+
+新增启动事件的本地契约测试不证明真实 Hook 已投递；隔离嵌套派发、跨轮续接与中断收尾仍需部署、重启后在新任务验证。不支持 SubagentStart 的宿主不能宣称支持隔离嵌套治理。
 
 ## prepare 输出
 

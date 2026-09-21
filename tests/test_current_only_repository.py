@@ -3,6 +3,7 @@ import unittest
 from tests.support import ROOT
 
 VALIDATION_DOCUMENTS = {
+    "docs/validation/v0.5.3-real-acceptance-2026-09-17.md",
     "docs/validation/heterogeneous-real-acceptance-2026-09-17.md",
     "docs/validation/J-deployment-recovery-source-consistency.md",
     "docs/validation/current-only-local-acceptance.md",

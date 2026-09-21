@@ -9,11 +9,13 @@ Codex 原生 Agent 工具是唯一执行通道。本 Skill 明确任务契约、
 
 ## 权威身份与边界
 
-- exact Session 只取自 SessionStart 注入的 `当前 Hook 权威 exact session_id（JSON）`，所有治理命令的 `--session` 逐字使用该值。
+- exact Session 只取自本任务收到的 SessionStart 或 SubagentStart Hook 注入的 `当前 Hook 权威 exact session_id（JSON）`，所有治理命令的 `--session` 逐字使用该值。
 - CLI 只取自同次注入的 `当前 Hook 权威 governance CLI entrypoint（JSON）`；解码后的路径作为 Python 的单个脚本参数。不得改用工作区相对脚本、其他 cache 版本或猜测安装路径。
 - `<codex_delegation><source_thread_id>` 是来源任务，不是当前 Session；父任务 ID、任务列表等也不能替代。任一权威值缺失时，在 prepare/spawn 前停止并报告，不猜测或跨 Session 扫描。
 - target 只由父任务依据本次原生 spawn 的机械返回显式绑定；不从调用前的短 task_name、`list_agents`、时间、summary、transcript、child final 或唯一候选推断 identity；原生返回的完整 canonical task_name 属于返回身份，不在此禁用范围。
 - 治理异常只停止依赖缺失身份或冲突事实的操作；继续其他已授权工作，不用重复 spawn 绕过。每次真正 spawn 都是独立生命周期。
+
+子 Agent Hook 的 `session_id` 使用父会话 ID；可信来源是本任务实际收到的启动 Hook，不是父任务手工传值。`agent_id/thread_id` 不替代 Session 或本次原生 spawn 回执。共享 Session 账本不提供派发者级访问隔离；只治理本任务获授权派发并取得精确回执的子任务，或明确交接且身份与契约齐全的任务，不因账本可见而接管父级或兄弟任务。SubagentStart 不读取或注入共享任务摘要。
 
 ## 编写任务契约
 

@@ -132,6 +132,41 @@ class V10LifecycleTests(unittest.TestCase):
             )
         self.assert_current_schema()
 
+    def test_shared_session_nested_targets_close_independently(self):
+        from scripts.governance_dispatch import confirm_dispatch
+
+        parent, parent_target = self.bind("supervisor")
+        parent_before = copy.deepcopy(self.task("supervisor"))
+        worker = self.prepare("worker")
+        payload = {
+            "session_id": self.session_id, "hook_event_name": "PreToolUse",
+            "tool_name": "spawn_agent", "tool_use_id": "nested-call",
+            "tool_input": worker["spawn_args"], "now": 101,
+        }
+        for _ in range(2):
+            self.assertEqual(handle_hook(payload, self.store)["hookSpecificOutput"]["permissionDecision"], "allow")
+        worker_target = parent_target + "/worker"
+        identity = self.identity(worker, worker_target)
+        self.assertEqual(confirm_dispatch(self.session_id, identity, state_store=self.store, now=102)["result"], "bound")
+        self.assertEqual(confirm_dispatch(self.session_id, identity, state_store=self.store, now=103)["result"], "already_bound")
+        recovered = diagnostics.status(self.session_id, self.root, task_id=worker["task_id"], task_ref=worker["task_ref"])
+        self.assertEqual(recovered["tasks"][0]["target"], worker_target)
+        request = {"task_id": worker["task_id"], "task_ref": worker["task_ref"],
+                   "sender": parent_target, "status": "completed"}
+        with self.assertRaises(StateConflictError):
+            lifecycle.record_terminal_notification(self.session_id, request, state_store=self.store, now=104)
+        lifecycle.record_terminal_notification(self.session_id, {**request, "sender": worker_target}, state_store=self.store, now=104)
+        lifecycle.close_task(self.session_id, {"task_id": worker["task_id"], "task_ref": worker["task_ref"], "reason": "accepted"}, state_store=self.store, now=105)
+        self.assertEqual(self.task("worker")["phase"], "closed")
+        self.assertEqual(self.task("supervisor"), parent_before)
+
+        sibling = self.prepare("sibling")
+        handle_hook({**payload, "tool_use_id": "sibling-call", "tool_input": sibling["spawn_args"]}, self.store)
+        conflict = confirm_dispatch(self.session_id, self.identity(sibling, parent_target), state_store=self.store, now=106)
+        self.assertEqual(conflict["reason"], "dispatch_target_already_bound")
+        self.assertEqual(self.task("supervisor"), parent_before)
+        self.assert_current_schema()
+
     def test_terminal_unknown_recording_replay_identity_and_closed(self):
         operations = ((lifecycle.record_call_result, "result", "delivery_unknown"),
                       (lifecycle.record_platform_observation, "status", "platform_observation_unknown"),

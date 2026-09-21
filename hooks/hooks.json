@@ -29,6 +29,20 @@
           }
         ]
       }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_ROOT/scripts/subagent_governance.py\"",
+            "commandWindows": "py -3 \"%PLUGIN_ROOT%\\scripts\\subagent_governance.py\"",
+            "timeout": 3,
+            "statusMessage": "注入子 Agent 治理身份",
+            "additionalContextLimit": 1800
+          }
+        ]
+      }
     ]
   }
 }

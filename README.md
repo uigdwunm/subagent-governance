@@ -142,7 +142,9 @@ Each exact Codex Session has one `state-v12` ledger. One governed task represent
 prepared | claimed | bound | terminal | closed | reconcile
 ```
 
-The current Session identity and governance CLI entrypoint come only from the same SessionStart Hook injection. The parent sends the generated spawn arguments unchanged, reads the exact target from that native return, and immediately confirms it. A caller-supplied short task name, nearby timestamp, `list_agents`, transcript, summary, or child final cannot establish identity. A complete canonical `task_name` mechanically returned by `collaboration_turns` is an exact target; an `agent_id` is used only when the selected native interface exposes it. Preserve the returned value verbatim.
+SubagentStart injects authority and responsibility boundaries without reading the shared ledger. Subagent Hooks use the parent session ID. The ledger has no dispatcher-level access isolation; visibility does not authorize taking over another task. Isolated nested dispatch and interruption still require real validation in a fresh task after deployment and restart.
+
+The current Session identity and governance CLI entrypoint come only from the same SessionStart or SubagentStart Hook injection. The parent sends the generated spawn arguments unchanged, reads the exact target from that native return, and immediately confirms it. A caller-supplied short task name, nearby timestamp, `list_agents`, transcript, summary, or child final cannot establish identity. A complete canonical `task_name` mechanically returned by `collaboration_turns` is an exact target; an `agent_id` is used only when the selected native interface exposes it. Preserve the returned value verbatim.
 
 After binding, the parent can record exact platform observations, normal-call results, terminal notifications, interrupt results, and an explicit close decision. Same-fact replay is idempotent. Conflicting or unknown facts remain visible instead of triggering an automatic retry or guessed terminal state.
 

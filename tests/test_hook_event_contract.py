@@ -42,7 +42,11 @@ class HookEventContractTests(unittest.TestCase):
             **self.common("SessionStart"),
             "source": "resume", "permission_mode": "default",
         }
-        for payload in (pre, start):
+        child = {
+            **self.common("SubagentStart"), "turn_id": "turn-1",
+            "agent_id": "child", "agent_type": "worker", "permission_mode": "default",
+        }
+        for payload in (pre, start, child):
             self.assertEqual(contract_errors(payload, self.contract), {"missing": set(), "extra": set()})
 
     def test_nonofficial_identity_fields_are_rejected_as_extra(self):

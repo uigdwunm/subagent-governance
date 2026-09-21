@@ -161,7 +161,7 @@ class RuntimeBundleTests(unittest.TestCase):
             self.assertFalse((target / "scripts/__pycache__").exists())
             self.assertEqual(runtime_bundle.verify_runtime_bundle(target), digest)
 
-    def test_session_start_authoritative_installed_cli_prepares_for_same_hook_root(self):
+    def test_startup_authoritative_installed_cli_prepares_for_same_hook_root(self):
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)
             target = (
@@ -186,18 +186,19 @@ class RuntimeBundleTests(unittest.TestCase):
                     env=environment,
                 )
 
-            started = run(
-                [],
-                {"hook_event_name": "SessionStart", "session_id": session_id},
-            )
-            self.assertEqual(started.returncode, 0, started.stderr)
-            start_context = json.loads(started.stdout)["hookSpecificOutput"][
-                "additionalContext"
-            ]
-            self.assertIn(
-                json.dumps(str(entrypoint.resolve()), ensure_ascii=False),
-                start_context,
-            )
+            for event in ("SessionStart", "SubagentStart"):
+                started = run(
+                    [],
+                    {"hook_event_name": event, "session_id": session_id},
+                )
+                self.assertEqual(started.returncode, 0, started.stderr)
+                start_context = json.loads(started.stdout)["hookSpecificOutput"][
+                    "additionalContext"
+                ]
+                self.assertIn(
+                    json.dumps(str(entrypoint.resolve()), ensure_ascii=False),
+                    start_context,
+                )
 
             prepared = run(
                 ["--prepare-dispatch", "--native-interface", "fork_context", "--session", session_id],

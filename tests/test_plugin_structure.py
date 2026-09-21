@@ -13,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 class PluginStructureTests(unittest.TestCase):
     def test_hook_surface_is_minimal(self):
         hooks = json.loads((ROOT / "hooks/hooks.json").read_text(encoding="utf-8"))["hooks"]
-        self.assertEqual(set(hooks), {"PreToolUse", "SessionStart"})
+        self.assertEqual(set(hooks), {"PreToolUse", "SessionStart", "SubagentStart"})
+        self.assertNotIn("matcher", hooks["SubagentStart"][0])
         self.assertEqual(
             hooks["PreToolUse"][0]["matcher"],
             r"^(?:spawn_agent|multi_agent_v1(?:\.|__)?spawn_agent|collaboration\.spawn_agent|collaborationspawn_agent)$",

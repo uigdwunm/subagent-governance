@@ -1,6 +1,6 @@
 # 异常与恢复
 
-仅在根 Skill 的异常路由命中时读取对应小节。所有命令均使用当前 SessionStart 的权威 CLI 与 exact Session，stdin 是 JSON；task_id/task_ref 来自该 Session 的精确记录，target/sender 必须符合既有绑定。本文不新增恢复状态或自动重试。
+仅在根 Skill 的异常路由命中时读取对应小节。所有命令均使用当前 SessionStart 或 SubagentStart Hook 的权威 CLI 与 exact Session，stdin 是 JSON；task_id/task_ref 来自该 Session 的精确记录，target/sender 必须符合既有绑定。本文不新增恢复状态或自动重试。
 
 ## 派发回执与缺失绑定
 
