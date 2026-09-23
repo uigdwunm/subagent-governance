@@ -17,7 +17,7 @@ The handoff guidance supports a capable parent making key decisions and reviewin
 
 ## Release status
 
-The current stable release is [`v0.5.3`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.3). The Marketplace entry is pinned to the same immutable tag. This patch extends closed-history eviction to the 512-task limit as well as the byte limit, allowing new dispatches when an old closed record can free a slot. Sessions containing only open tasks still reject admission without changing the ledger. Local checks cover these changes; post-restart platform acceptance and cost comparisons remain pending.
+The current stable release is [`v0.5.4`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.4). The Marketplace entry is pinned to the same immutable tag. This release gives isolated native subagents Hook-authoritative Session and CLI context through `SubagentStart`, so a subagent can govern its own nested dispatch. After the new Hook was trusted, an independent macOS task verified nested dispatch, exact-target binding, interruption, and closure. See the [dated acceptance report](docs/validation/v0.5.4-subagentstart-real-acceptance-2026-09-22.md) for evidence and limits. Cost comparisons remain pending.
 
 **Upgrade boundary:** state-v12 does not read, migrate, or delete older ledgers. Finish existing governed tasks before upgrading, restart Codex, and use a new session. An empty new summary does not prove older tasks completed. Recent independent macOS validation covers standard identity binding and a strict message-to-final round trip; see the [dated evidence and remaining boundaries](docs/validation/current-only-real-platform-validation.md).
 
@@ -42,6 +42,7 @@ Native Codex continues to create and run every subagent. Subagent Governance add
 - **Optional verified context** — declared working-tree files or Git objects can be checked at prepare and claim time.
 - **Local governance state** — one current Session ledger containing dispatch preparation, the original business contract, and lifecycle facts, with bounded closed-task retention.
 - **Read-only recovery views** — SessionStart summaries, `status`, and `diagnose` do not create or repair state.
+- **Isolated subagent startup** — SubagentStart injects the Hook-provided Session identity and installed CLI path without reading the shared task ledger. Each new Hook definition must be reviewed and trusted before it runs.
 - **Recoverable acceptance criteria** — the runtime retains the original bounded business contract, including design context and required evidence, for exact-task retrieval after context loss. Completion still requires the parent's review of actual results.
 
 ## Evidence-backed protections
@@ -52,10 +53,10 @@ See [governance evidence for native Codex subagents](docs/native-codex-governanc
 
 ## Installation
 
-Install `v0.5.3` with:
+Install `v0.5.4` with:
 
 ```bash
-codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.3
+codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.4
 codex plugin add subagent-governance@subagent-governance
 ```
 

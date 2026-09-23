@@ -28,7 +28,7 @@ git diff --check
 
 ## GitHub 稳定发布
 
-当前稳定版为 `v0.5.3`。正式版本在插件 Manifest 使用纯版本号，公开 Marketplace ref 固定为同名 `v<version>` 标签；本机 cachebuster 不作为公开稳定版号。
+当前稳定版为 `v0.5.4`。正式版本在插件 Manifest 使用纯版本号，公开 Marketplace ref 固定为同名 `v<version>` 标签；本机 cachebuster 不作为公开稳定版号。
 
 发布前完成本地门禁，确认开发仓库与稳定发布源是独立的非符号链接目录，推送 main 并等待六个 CI 矩阵任务通过。再给同一提交创建不可变标签，运行 `release_preflight.py --mode release --tag v<version>`，确认标签 CI 通过后创建 GitHub Release。发布说明应列出变更、升级边界和实际验证范围。
 

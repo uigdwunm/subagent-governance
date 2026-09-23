@@ -17,7 +17,7 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 
 ## 发布状态
 
-当前稳定版为 [`v0.5.3`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.3)，Marketplace 固定到同一不可变标签。本补丁让 closed 历史淘汰同时考虑 512 条任务上限和字节上限：有可淘汰历史时为新任务腾位，全部未关闭时仍安全拒绝且不改写原账本。上述改动已通过本地检查；重启后的真实验收与成本收益评测尚未执行。
+当前稳定版为 [`v0.5.4`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.4)，Marketplace 固定到同一不可变标签。本版通过 `SubagentStart` 向隔离子 Agent 注入来自真实 Hook 的 Session 与 CLI 信息，使子 Agent 能治理自身的嵌套派发。新 Hook 获信任后，独立 macOS 任务验证了嵌套派发、精确身份绑定、中断与关闭；证据和边界见[验收报告](docs/validation/v0.5.4-subagentstart-real-acceptance-2026-09-22.md)。成本收益评测尚未执行。
 
 **升级边界：** state-v12 不读取、迁移或删除旧账本。升级前先结束已有受治理任务，随后重启 Codex 并使用新 Session；新摘要为空不证明旧任务已完成。近期独立 macOS 验证覆盖 standard 身份绑定和 strict 消息到最终回复的往返，详见[带日期的证据与未验证边界](docs/validation/current-only-real-platform-validation.md)。
 
@@ -42,6 +42,7 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 - **可选材料验证**：可以在 prepare 和 claim 阶段验证声明的工作树文件或 Git 对象。
 - **本地治理状态**：一个当前 Session ledger，保存派发准备、原始业务契约和生命周期事实，已关闭任务有界保留。
 - **只读恢复视图**：SessionStart 摘要、`status` 和 `diagnose` 不创建或修复状态。
+- **隔离子 Agent 启动**：SubagentStart 注入 Hook 提供的 Session 身份和已安装 CLI 路径，不读取共享任务账本。新 Hook 定义须先审查并信任才会运行。
 - **可恢复的验收依据**：运行时有界保留原始业务契约，包括设计背景和证据要求；上下文丢失后可按精确任务读取，仍由父任务核对实际结果是否合格。
 
 ## 有证据支持的保护
@@ -52,10 +53,10 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 
 ## 安装
 
-使用以下命令从 `v0.5.3` 标签添加 Marketplace 并安装插件：
+使用以下命令从 `v0.5.4` 标签添加 Marketplace 并安装插件：
 
 ```bash
-codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.3
+codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.4
 codex plugin add subagent-governance@subagent-governance
 ```
 
