@@ -105,6 +105,7 @@ def prepare_dispatch(
             task_id=task_id,
             pruned_task_ids=list(pruned_task_ids),
             task_ref=task_ref,
+            expires_at=record["prepared"]["expires_at"],
             native_interface=native_interface,
             task_name=task_name,
             contract=contract.to_record(),

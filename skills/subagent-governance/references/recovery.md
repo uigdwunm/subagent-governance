@@ -2,6 +2,16 @@
 
 仅在根 Skill 的异常路由命中时读取对应小节。所有命令均使用当前 SessionStart 或 SubagentStart Hook 的权威 CLI 与 exact Session，stdin 是 JSON；task_id/task_ref 来自该 Session 的精确记录，target/sender 必须符合既有绑定。本文不新增恢复状态或自动重试。
 
+## 过期准备
+
+`expires_at` 到达后，不再用旧 spawn_args 发起首次派发。若已调用原生 `spawn_agent`，先核对本次完整工具回执与精确 `--status --task-id ... --task-ref ...`；`preparation_expired` 只说明 Hook 拒绝了本次 claim，本身不证明原生执行结果。
+
+仅当本次原生工具回执明确表示调用在 PreToolUse 阶段被阻止、Agent 未创建，且精确任务仍为 prepared、没有相反或不确定的执行证据时，父任务才可将本次结果按 `--record-dispatch-result` 的 `result=failed` 登记并关闭旧记录。发起调用前发现过期、因而根本未调用原生工具时，也可在核实没有该次调用后按同一路径关闭旧准备。不得仅凭 Hook 输出、账本 prepared 状态或“没看到子 Agent”推定未创建。
+
+旧记录收尾后，先核对本次已有的用户授权是否覆盖重新派发；用户当前明确指令覆盖上层流程的失败停止规则时，以用户指令为准。若未覆盖而上层流程要求报告并停止，则遵循该规则。本插件的账本收尾本身不授权重派。若可继续，父任务重新核对当前材料和契约，再 prepare 并及时调用新的 spawn_args；不复用旧 task/ref 或凭据，也不形成自动重试循环。
+
+若工具回执是 unknown、未明确拦截或缺失，不按 failed 收尾，也不新建派发；按实际证据走 [治理降级](recovery.md#治理降级) 和 [派发回执与缺失绑定](recovery.md#派发回执与缺失绑定)。重复过期应检查派发前为何耗时，不能循环 prepare 和重试。
+
 ## 派发回执与缺失绑定
 
 - 原生调用明确 failed 且机械证明 Agent 未创建时，用 `--record-dispatch-result` 提交 `{"task_id":"...","task_ref":"...","result":"failed"}`。结果 unknown 时改用 `result=unknown`；success 必须走 confirm 并携带本次原生返回的 exact target。

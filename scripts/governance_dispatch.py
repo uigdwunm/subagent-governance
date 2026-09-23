@@ -21,6 +21,7 @@ try:
         ContextMaterialConflictError,
         NativeInputMismatch,
         NativeInputUnavailable,
+        PreparedCapabilityExpired,
         StateConflictError,
     )
     from scripts.governance_lifecycle import enter_reconcile, prune_closed_tasks
@@ -42,6 +43,7 @@ except ModuleNotFoundError:
         ContextMaterialConflictError,
         NativeInputMismatch,
         NativeInputUnavailable,
+        PreparedCapabilityExpired,
         StateConflictError,
     )
     from governance_lifecycle import enter_reconcile, prune_closed_tasks
@@ -150,7 +152,7 @@ def claim_spawn(
         if not isinstance(capability, dict):
             raise StateConflictError("prepared task 缺少 capability")
         if capability.get("expires_at", -1) <= claimed_at:
-            raise StateConflictError("prepared capability 已过期，请重新 prepare")
+            raise PreparedCapabilityExpired("prepared capability 已过期")
         if not _claim_parameters_match(
             tool_input, capability.get("expected_native_parameters"), task.get("native_interface"),
         ):

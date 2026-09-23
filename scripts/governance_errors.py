@@ -17,6 +17,10 @@ class StateConflictError(StateStoreError):
     """A locked transition did not match the current canonical facts."""
 
 
+class PreparedCapabilityExpired(StateConflictError):
+    """The prepared capability expired before its first native claim."""
+
+
 class StateWriteError(StateStoreError):
     """An atomic write or its readback verification failed."""
 
@@ -56,5 +60,6 @@ class DiagnosticReadError(RuntimeError):
 __all__ = [
     "ClaimFailure", "ContextMaterialConflictError", "ContextVerificationError", "DiagnosticReadError", "DispatchPreparationError",
     "StateCapacityError", "StateConflictError", "StateStoreError",
+    "PreparedCapabilityExpired",
     "NativeInputMismatch", "NativeInputUnavailable", "StateValidationError", "StateWriteError",
 ]

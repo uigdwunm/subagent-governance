@@ -65,7 +65,19 @@ class HookFailureTests(unittest.TestCase):
 
     def test_known_parameter_conflict_is_denied(self):
         self.payload["tool_input"]["fork_turns"] = "all"
-        self.check(hook.handle_hook(self.payload, self.store), "deny", "claim_conflict", "unconfirmed")
+        reason = self.check(hook.handle_hook(self.payload, self.store), "deny", "claim_conflict", "unconfirmed")
+        self.assertIn("处理已确认冲突", reason)
+
+    def test_expired_preparation_has_distinct_diagnostic_without_claiming(self):
+        self.assertEqual(self.prepared["expires_at"], 1000)
+        payload = {**self.payload, "now": 1001}
+        reason = self.check(hook.handle_hook(payload, self.store), "deny", "preparation_expired", "unconfirmed")
+        self.assertIn("已过期", reason)
+        self.assertIn("PreToolUse 阻止原生执行", reason)
+        self.assertIn("上层流程", reason)
+        self.assertIn("用户明确授权", reason)
+        self.assertNotIn("处理已确认冲突", reason)
+        self.assertEqual(self.store.read("test-session")["tasks"]["test-task"]["phase"], "prepared")
 
     def test_precommit_failure_does_not_claim_commit_unknown(self):
         with mock.patch.object(self.store, "update", side_effect=OSError("SECRET")):

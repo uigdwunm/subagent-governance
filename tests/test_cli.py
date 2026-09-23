@@ -128,6 +128,7 @@ class GovernanceCliTests(unittest.TestCase):
                     if key not in {'contract', 'dispatch_prompt'}
                 }
                 self.assertEqual(actual, expected)
+                self.assertEqual(actual['expires_at'], 1000)
                 state = StateStore(Path(directory) / 'sessions').read('output-session')
                 capability = state['tasks'][actual['task_id']]['prepared']
                 self.assertEqual(capability['contract'], full['contract'])

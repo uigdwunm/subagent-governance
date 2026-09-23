@@ -8,6 +8,7 @@ class SemanticBaselineTests(unittest.TestCase):
         self.assertEqual(semantics.STATE_FORMAT_VERSION, 12)
         self.assertEqual(semantics.STATE_STORAGE_NAMESPACE, "state-v12")
         self.assertEqual(semantics.TASK_CONTRACT_WIRE_VERSION, 2)
+        self.assertEqual(semantics.PREPARED_EXPIRY_SECONDS, 15 * 60)
         self.assertEqual(
             semantics.PHASES,
             {"prepared", "claimed", "bound", "terminal", "closed", "reconcile"},

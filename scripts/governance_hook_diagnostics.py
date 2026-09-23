@@ -8,6 +8,7 @@ try:
         ContextVerificationError,
         NativeInputMismatch,
         NativeInputUnavailable,
+        PreparedCapabilityExpired,
         StateConflictError,
         StateStoreError,
     )
@@ -18,6 +19,7 @@ except ModuleNotFoundError:
         ContextVerificationError,
         NativeInputMismatch,
         NativeInputUnavailable,
+        PreparedCapabilityExpired,
         StateConflictError,
         StateStoreError,
     )
@@ -30,6 +32,7 @@ _REASONS = {
     "marker_conflict": "治理标记无效或与 task_name 不一致，请核对 prepare-dispatch 输出",
     "native_conflict": "已知原生参数形态或身份不一致",
     "claim_conflict": "任务引用、阶段、capability 或冻结参数冲突",
+    "preparation_expired": "派发准备已过期；核对本次原生调用回执和 exact Session 状态后处置",
     "material_conflict": "声明材料冲突：与冻结基线不一致",
     "material_unavailable": "声明材料校验无法完成",
     "state_unavailable": "账本访问或校验无法完成",
@@ -54,6 +57,12 @@ def diagnostic(code: str, *, stage: str, claim: str, action: str) -> str:
                 "continue": "Hook 返回继续（fail-open）", "claimed": "Hook 返回允许"}[action]
     if claim == "confirmed":
         next_step = "依据本次原生返回的 exact target 执行 confirm。"
+    elif code == "preparation_expired" and action == "deny":
+        next_step = (
+            "核对同一次原生工具回执和 exact task 状态；仅在回执明确 PreToolUse 阻止原生执行"
+            "且任务仍为 prepared 时登记 failed。是否重新派发依据用户明确授权和上层流程；"
+            "否则不得推断 Agent 未创建。"
+        )
     elif action == "deny":
         next_step = "处理已确认冲突；不猜身份、不自动重派，不据此推断平台已经中止。"
     else:
@@ -79,6 +88,8 @@ def classify_failure(exc: Exception) -> tuple[str, str, str, str]:
         code, action = "input_unavailable", "allow"
     elif isinstance(exc, NativeInputMismatch):
         code, action = "native_conflict", "deny"
+    elif isinstance(exc, PreparedCapabilityExpired):
+        code, action = "preparation_expired", "deny"
     elif isinstance(exc, StateConflictError):
         code = "material_conflict" if isinstance(exc.__cause__, ContextMaterialConflictError) else "claim_conflict"
         action = "deny"

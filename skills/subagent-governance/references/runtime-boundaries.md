@@ -28,9 +28,11 @@
 
 ## prepare 输出
 
-`--prepare-dispatch` 默认只省略重复的 `contract` 和 `dispatch_prompt`，保留完整 `spawn_args`、任务身份、`operation_inputs`、`user_message`、`pruned_task_ids` 及可能的警告。内部返回对象和落盘契约不受输出精简影响。
+`--prepare-dispatch` 默认只省略重复的 `contract` 和 `dispatch_prompt`，保留完整 `spawn_args`、任务身份、`expires_at`（Unix 秒）、`operation_inputs`、`user_message`、`pruned_task_ids` 及可能的警告。内部返回对象和落盘契约不受输出精简影响。
 
 `--full-output` 仅可配合 `--prepare-dispatch` 使用，在本次 prepare 返回中包含上述完整字段。不要为查看已有任务而再次 prepare；恢复原始验收契约使用带精确 `--task-id`、`--task-ref` 的 `--status`。
+
+新准备记录的首次 claim 有效期为 15 分钟；已存在的准备记录仍按账本中保存的 `expires_at` 判定，不因版本更新延长。
 
 ## 原始验收快照与容量
 
@@ -153,6 +155,7 @@ standard 与 strict 使用相同故障策略；strict 只加强任务契约要�
 | `marker_conflict`：畸形治理标记或可比名称冲突 | deny | not_attempted |
 | `input_unavailable`：进入 claim 后发现未知字段或不可比较形态 | allow | unconfirmed |
 | `native_conflict` / `claim_conflict` / `material_conflict` | deny | unconfirmed |
+| `preparation_expired`：首次 claim 时准备凭据已过期 | deny | unconfirmed |
 | `material_unavailable`：材料读取或校验不可完成 | allow | unconfirmed |
 | `state_unavailable`：账本初始化、读取、锁或结构校验失败 | allow | 初始化失败为 not_attempted，其余 unconfirmed |
 | `internal_error`：内部异常 | allow | state_init 为 not_attempted，进入 claim 后为 unconfirmed |
@@ -162,6 +165,8 @@ standard 与 strict 使用相同故障策略；strict 只加强任务契约要�
 | `internal_error`，stage=outer：异常逃逸至外层 | systemMessage，exit 0 | unknown |
 
 按现有检查顺序报告首先确定的条件，不承诺枚举所有输入问题。例如 capability 已被不同 tool_use_id 消费时，先拒绝该已知冲突，即使输入还包含未知字段；不能用未知字段绕过已确定冲突。
+
+`preparation_expired` 使用专属下一步：核对同一次原生工具回执和精确任务状态；只有明确阻止原生执行且任务仍为 prepared，才可登记 failed。Hook 拒绝本身不证明 Agent 未创建；后续是否派发先核对已有用户授权，用户明确覆盖失败停止规则时优先，否则遵循上层流程。
 
 `stage` 标识 recognition、identity、state_init、state、validation、material、commit、claim、parse 或 outer 等代码处理边界。`not_attempted` 仅表示本次尚未调用 claim；`unconfirmed` 表示本次未确认，不断言既有 claim 不存在；`unknown` 表示提交或外层处理结果不确定；`confirmed` 只确认账本 claim。
 

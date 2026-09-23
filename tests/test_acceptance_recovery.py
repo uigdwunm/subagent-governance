@@ -350,6 +350,18 @@ class AcceptanceRecoveryTests(unittest.TestCase):
         self.assertEqual(clock.call_count, 1)
         self.assertTrue(all(task["expired"] is False for task in result["tasks"]))
 
+    def test_existing_preparation_uses_its_saved_expiry(self):
+        prepared = self.prepare(self.minimal())
+
+        def preserve_previous_deadline(state):
+            state["tasks"][prepared["task_id"]]["prepared"]["expires_at"] = 400
+
+        self.store.update(self.session, preserve_previous_deadline)
+        with self.assertRaisesRegex(StateConflictError, "已过期"):
+            dispatch.claim_spawn(self.session, prepared["task_ref"], "old-deadline-call",
+                                 prepared["spawn_args"], state_store=self.store, now=400)
+        self.assertEqual(self.store.read(self.session)["tasks"][prepared["task_id"]]["phase"], "prepared")
+
     def test_expiry_does_not_change_claimed_or_later_recovery(self):
         prepared = self.prepare(self.minimal())
         identity = {key: prepared[key] for key in ("task_id", "task_ref")}

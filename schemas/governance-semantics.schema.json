@@ -314,7 +314,7 @@
     "phases": ["prepared", "claimed", "bound", "terminal", "closed", "reconcile"],
     "target_owning_phases": ["bound", "terminal", "reconcile"],
     "task_ref_lengths": [12, 20],
-    "prepared_expiry_seconds": 300,
+    "prepared_expiry_seconds": 900,
     "closed_task_retention": 64,
     "platform_observation_statuses": ["running", "completed", "stopped", "interrupted", "error", "unknown"],
     "platform_terminal_statuses": ["completed", "stopped", "interrupted"],

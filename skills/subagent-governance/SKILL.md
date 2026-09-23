@@ -48,7 +48,9 @@ TaskContract v2 的最小完整示例：
    python3 "<authoritative-cli-entrypoint>" --prepare-dispatch --native-interface <collaboration_turns|fork_context> --session <exact-session-id>
    ```
 
-2. 用一句话说明派发理由，展示返回的 user_message；未覆盖模型/推理参数按原生配置解析，不冒充已核实配置。把 spawn_args 原样交给当前原生 spawn_agent。collaboration_turns 使用 message/task_name/fork_turns；fork_context 使用 message/fork_context。生成标记与 task name 保持一致。
+2. 完成派发前置核对后再 prepare，避免让准备凭据在其他长耗时工作中闲置。用一句话说明派发理由；本次启动披露应涵盖目标、范围、可验收的完成条件、模型、推理强度、上下文方式和治理等级。
+   若上层流程的同次启动披露已覆盖这些信息，只补缺项，不逐字重述 user_message；没有上层披露时，以 user_message 为主体，另补派发理由。上层要求固定披露区块为最后一条用户可见消息时，补充项放在该区块之前。
+   使用返回的 expires_at（Unix 秒）判断准备记录是否仍可首次派发；常规披露无需展示该内部时间戳。未覆盖模型/推理参数按原生配置解析，不冒充已核实配置。把 spawn_args 原样交给当前原生 spawn_agent。collaboration_turns 使用 message/task_name/fork_turns；fork_context 使用 message/fork_context。生成标记与 task name 保持一致。若发起调用前已知准备过期，先走下文的过期处置，不调用旧 spawn_args。
 3. 按当前可见工具契约读取同一次原生返回：collaboration_turns 使用返回的完整 canonical `task_name`（如 `/root/parent/child`）；fork_context 仅在该接口确实返回 `agent_id` 时使用该值。身份原样传递，不用调用前的短名称拼接路径，也不截取末段。取 prepare 返回的 `operation_inputs["--confirm-dispatch"]`，仅补入该 target，立即用权威 CLI 的 `--confirm-dispatch --session <exact-session-id>` 提交 JSON stdin。返回缺少可寻址身份、字段类型不符、仅有无法确认的短名称或候选身份冲突时，停止绑定和依赖操作并报告，不补猜身份、不盲选字段。返回样例与 confirm 输入见 [身份契约样例](references/runtime-boundaries.md#原生返回身份契约样例)。
 4. 首次确认建立 bound，保存 task/ref/target 映射。相同确认幂等，冲突保留首个绑定并 reconcile，不重派。Pre claim 的接口匹配和 fail-open 边界见 [runtime boundaries](references/runtime-boundaries.md)；派发失败、未知或缺少 claim 时走文末异常路由。
 
@@ -97,7 +99,7 @@ python3 "<authoritative-cli-entrypoint>" --status --session <exact-session-id> -
 
 task_id/task_ref 必须成对且来自该 Session，不存在或不匹配即报错，不换身份试探。详情返回 contract_summary 和 operation_inputs；按目标、范围、禁止范围、completion、evidence 和完整 context 核对交付。evidence 是原始要求，不是已通过的检查；后续消息改变的要求不自动进入快照，父任务在自身交接摘要中保留有效约定及来源；恢复时缺失则说明证据不足，不能把原快照当作全部最新要求。
 
-prepared 视图显示 expires_at（Unix 秒）和 expired，以本次观察时间大于或等于 expires_at 为过期。expired=true 时 next_action 为 parent_review_expired_preparation：停止依赖旧 capability 的首次派发，由父任务根据实际回执和身份事实判断后续处置；过期不证明原生 Agent 未创建，不自动关闭、重新 prepare 或重派。未过期提示仅反映观察时点，不保证随后 claim 成功。claimed 已消费 capability，不适用此过期提示，仍按既有精确 confirm 和同一 tool_use_id 幂等规则处理。operation_inputs 保持身份部分输入语义，不代表执行许可；过期不作为 diagnose.issues 中的账本错误。
+prepare 返回 expires_at（Unix 秒）；prepared 视图还显示 expires_at 和 expired，以本次观察时间大于或等于 expires_at 为过期。expired=true 时 next_action 为 parent_review_expired_preparation：停止依赖旧 capability 的首次派发，按 [过期准备](references/recovery.md#过期准备) 核对实际回执和身份事实。仅过期或 Hook 拒绝不证明原生 Agent 未创建，不自动关闭、重新 prepare 或重派。未过期提示仅反映观察时点，不保证随后 claim 成功。claimed 已消费 capability，不适用此过期提示，仍按既有精确 confirm 和同一 tool_use_id 幂等规则处理。operation_inputs 保持身份部分输入语义，不代表执行许可；过期不作为 diagnose.issues 中的账本错误。
 
 status/diagnose/SessionStart 保持无锁、零写、best-effort，不创建目录或空状态、不自动操作、不跨 Session 扫描。默认视图不展开快照或 operation_inputs，也不读取材料正文。路径声明不保证材料仍可恢复；closed 按现有策略淘汰后快照不可恢复。不因详情失败自动重派、验收或关闭。state-v12 不读取、迁移或清理旧格式；空账本不证明旧任务完成，diagnose.issues=[] 仅证明账本可读且结构有效。
 
@@ -106,6 +108,7 @@ status/diagnose/SessionStart 保持无锁、零写、best-effort，不创建目�
 | 触发证据 | 参考 |
 | --- | --- |
 | Hook fail-open、claim 未确认或提交结果不确定 | [治理降级](references/recovery.md#治理降级) |
+| prepare 已过期或收到 preparation_expired | [过期准备](references/recovery.md#过期准备) |
 | spawn failed/unknown、缺少 claim、未绑定 target | [派发回执与缺失绑定](references/recovery.md#派发回执与缺失绑定) |
 | 消息、中断或平台观察 unknown | [未知消息或观察](references/recovery.md#未知消息或观察) |
 | 已调用原生中断 | [中断回执](references/recovery.md#中断回执) |
