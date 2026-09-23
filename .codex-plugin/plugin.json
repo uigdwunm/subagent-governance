@@ -1,6 +1,6 @@
 {
   "name": "subagent-governance",
-  "version": "0.5.4",
+  "version": "0.5.4+codex.20260923092556",
   "description": "Verifiable handoff and lifecycle governance for native Codex subagents",
   "author": {
     "name": "zhaolaiyuan"
