@@ -17,7 +17,7 @@ The handoff guidance supports a capable parent making key decisions and reviewin
 
 ## Release status
 
-The current stable release is [`v0.5.4`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.4). The Marketplace entry is pinned to the same immutable tag. This release gives isolated native subagents Hook-authoritative Session and CLI context through `SubagentStart`, so a subagent can govern its own nested dispatch. After the new Hook was trusted, an independent macOS task verified nested dispatch, exact-target binding, interruption, and closure. See the [dated acceptance report](docs/validation/v0.5.4-subagentstart-real-acceptance-2026-09-22.md) for evidence and limits. Cost comparisons remain pending.
+The current stable release is [`v0.5.5`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.5). The Marketplace entry is pinned to the same immutable tag. This release gives prepared dispatches a 15-minute first-claim window, reports expiration separately from other claim conflicts, and avoids repeating launch details already disclosed by an upstream workflow. An independent post-restart macOS task verified the normal managed spawn and lifecycle with the development-installed runtime; real expiration denial and combined workflow disclosure remain unverified. See the [dated acceptance report](docs/validation/v0.5.5-dispatch-acceptance-2026-09-23.md) for evidence and limits. Isolated subagent startup was introduced in [`v0.5.4`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.4).
 
 **Upgrade boundary:** state-v12 does not read, migrate, or delete older ledgers. Finish existing governed tasks before upgrading, restart Codex, and use a new session. An empty new summary does not prove older tasks completed. Recent independent macOS validation covers standard identity binding and a strict message-to-final round trip; see the [dated evidence and remaining boundaries](docs/validation/current-only-real-platform-validation.md).
 
@@ -53,10 +53,10 @@ See [governance evidence for native Codex subagents](docs/native-codex-governanc
 
 ## Installation
 
-Install `v0.5.4` with:
+Install `v0.5.5` with:
 
 ```bash
-codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.4
+codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.5
 codex plugin add subagent-governance@subagent-governance
 ```
 

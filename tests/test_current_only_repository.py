@@ -3,6 +3,7 @@ import unittest
 from tests.support import ROOT
 
 VALIDATION_DOCUMENTS = {
+    "docs/validation/v0.5.5-dispatch-acceptance-2026-09-23.md",
     "docs/validation/v0.5.4-subagentstart-real-acceptance-2026-09-22.md",
     "docs/validation/v0.5.3-real-acceptance-2026-09-17.md",
     "docs/validation/heterogeneous-real-acceptance-2026-09-17.md",

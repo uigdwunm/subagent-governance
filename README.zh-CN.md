@@ -17,7 +17,7 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 
 ## 发布状态
 
-当前稳定版为 [`v0.5.4`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.4)，Marketplace 固定到同一不可变标签。本版通过 `SubagentStart` 向隔离子 Agent 注入来自真实 Hook 的 Session 与 CLI 信息，使子 Agent 能治理自身的嵌套派发。新 Hook 获信任后，独立 macOS 任务验证了嵌套派发、精确身份绑定、中断与关闭；证据和边界见[验收报告](docs/validation/v0.5.4-subagentstart-real-acceptance-2026-09-22.md)。成本收益评测尚未执行。
+当前稳定版为 [`v0.5.5`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.5)，Marketplace 固定到同一不可变标签。本版将派发准备记录的首次 claim 有效期延长至 15 分钟，单独报告过期原因，并避免重复披露上层流程已经说明的启动信息。重启后的独立 macOS 任务验证了开发安装版的正常原生派发与生命周期；真实过期拒绝和与上层流程叠加的披露仍未验证。证据和边界见[本版验收报告](docs/validation/v0.5.5-dispatch-acceptance-2026-09-23.md)。隔离子 Agent 启动支持始于 [`v0.5.4`](https://github.com/uigdwunm/subagent-governance/releases/tag/v0.5.4)。
 
 **升级边界：** state-v12 不读取、迁移或删除旧账本。升级前先结束已有受治理任务，随后重启 Codex 并使用新 Session；新摘要为空不证明旧任务已完成。近期独立 macOS 验证覆盖 standard 身份绑定和 strict 消息到最终回复的往返，详见[带日期的证据与未验证边界](docs/validation/current-only-real-platform-validation.md)。
 
@@ -53,10 +53,10 @@ Subagent Governance 是一个本地 Codex 插件，面向已经使用原生子 A
 
 ## 安装
 
-使用以下命令从 `v0.5.4` 标签添加 Marketplace 并安装插件：
+使用以下命令从 `v0.5.5` 标签添加 Marketplace 并安装插件：
 
 ```bash
-codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.4
+codex plugin marketplace add uigdwunm/subagent-governance --ref v0.5.5
 codex plugin add subagent-governance@subagent-governance
 ```
 
